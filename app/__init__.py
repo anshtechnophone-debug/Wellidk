@@ -1,0 +1,1 @@
+"""XYRON Telegram bot application."""

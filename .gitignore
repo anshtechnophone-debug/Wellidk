@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.db
+*.sqlite*
+*.session
+*.session-journal
+*.log
+data/*
+!data/.gitkeep
+dist/
+build/
+*.egg-info/
