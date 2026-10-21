@@ -1,4 +1,9 @@
-"""Narrow owner-only natural-language moderation intent parser and executor."""
+"""Owner-only natural-language moderation intent parser and executor.
+
+XYRON is the professional slave of the configured owner (Ansh). Only the owner
+may issue natural-language moderation orders. Ordinary members and other admins
+cannot control the AI this way.
+"""
 
 from __future__ import annotations
 
@@ -49,30 +54,50 @@ def parse_owner_instruction(
     value = " ".join(value.split())
     value = value.casefold()
 
-    if re.fullmatch(r"unmute(?:\s+(?:him|her|this person|this user))?", value):
+    # Unmute (English + Hindi)
+    if re.fullmatch(
+        r"(?:unmute|un-mute)(?:\s+(?:him|her|this person|this user|isko))?", value
+    ) or re.fullmatch(r"(?:isko\s+)?(?:unmute|unmute\s+karo|unmute\s+kar\s*do)", value):
         return "unmute", None
-    if re.fullmatch(r"(?:isko\s+)?unmute\s*(?:karo)?", value):
-        return "unmute", None
-    match = re.fullmatch(r"(ban|kick)(?:\s+(?:him|her|this person|this user))?", value)
-    if match:
-        return match.group(1), None
-    match = re.fullmatch(r"isko\s+(ban|kick)\s+karo", value)
-    if match:
-        return match.group(1), None
 
+    # Ban / kick
+    match = re.fullmatch(r"(ban|kick)(?:\s+(?:him|her|this person|this user|isko))?", value)
+    if match:
+        return match.group(1), None
+    match = re.fullmatch(r"isko\s+(ban|kick)\s+(?:karo|kar\s*do|do)", value)
+    if match:
+        return match.group(1), None
+    if re.fullmatch(r"(?:ban|kick)\s+(?:karo|kar\s*do|do)(?:\s+isko)?", value):
+        return ("ban" if "ban" in value else "kick"), None
+
+    # Mute with optional duration
     mute_match = re.fullmatch(
-        r"(?:mute(?:\s+(?:him|her|this person|this user))?|isko\s+mute\s+karo)"
+        r"(?:mute(?:\s+(?:him|her|this person|this user|isko))?|"
+        r"isko\s+mute\s+(?:karo|kar\s*do|do)|mute\s+(?:karo|kar\s*do))"
         r"(?:\s+for\s+(\d+|one|two|three|four|five|ten|fifteen|thirty)\s+"
         r"(seconds?|minutes?|hours?|days?))?",
         value,
     )
-    if not mute_match:
-        return None
-    amount, unit_name = mute_match.groups()
-    if amount is None:
-        return "mute", None
-    unit = _DURATION_UNITS[unit_name]
-    return "mute", f"{_DURATION_WORDS.get(amount, amount)}{unit}"
+    if mute_match:
+        amount, unit_name = mute_match.groups()
+        if amount is None:
+            return "mute", None
+        unit = _DURATION_UNITS[unit_name]
+        return "mute", f"{_DURATION_WORDS.get(amount, amount)}{unit}"
+
+    short_mute = re.fullmatch(
+        r"mute\s+(\d+|one|two|three|four|five|ten|fifteen|thirty)\s*"
+        r"(s|m|h|d|seconds?|minutes?|hours?|days?)?",
+        value,
+    )
+    if short_mute:
+        amount, unit_raw = short_mute.groups()
+        if unit_raw is None:
+            return "mute", f"{_DURATION_WORDS.get(amount, amount)}m"
+        unit = _DURATION_UNITS.get(unit_raw, unit_raw[0] if unit_raw else "m")
+        return "mute", f"{_DURATION_WORDS.get(amount, amount)}{unit}"
+
+    return None
 
 
 def _target_argument(update: Update, args: list[str]) -> list[str]:
@@ -110,8 +135,9 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         ):
             return
         await message.reply_text(
-            "I can interpret replied/numeric-target ban, mute (including a duration), "
-            "and unmute requests only."
+            "Master, I can execute replied or numeric-target ban, kick, mute "
+            "(with optional duration), and unmute orders only. "
+            "Example: 'Zyron isko ban karo' or 'mute him for 1 hour'."
         )
         context.chat_data["xyron_owner_control_message_id"] = message.message_id
         return
