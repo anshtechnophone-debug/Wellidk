@@ -274,8 +274,25 @@ class AIEventRouter:
             return
         now = time.time()
         # Cost control: stay silent under high activity for ordinary conversation
-        if kind == "conversation" and self.is_high_activity(chat.id):
-            return
+        if (
+    kind == "conversation"
+    and self.is_high_activity(chat.id)
+    and not (
+        getattr(context.bot, "username", None)
+        and re.search(
+            r"(?<!\w)@" + re.escape(context.bot.username) + r"(?!\w)",
+            raw_text,
+            re.IGNORECASE,
+        )
+    )
+    and not (
+        message.reply_to_message
+        and message.reply_to_message.from_user
+        and message.reply_to_message.from_user.id == bot_id
+    )
+):
+    return
+    
         if (
             kind == "conversation"
             and now - self.last_response.get(chat.id, 0) < settings.ai_response_cooldown_seconds
