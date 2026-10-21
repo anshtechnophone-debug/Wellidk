@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from telegram import Chat, ChatMember, Update
+from telegram import Chat, ChatMember, ChatPermissions, Update
 from telegram.ext import ContextTypes
 
 from app.config import Settings
@@ -12,6 +12,18 @@ from app.config import Settings
 
 class AuthorizationError(RuntimeError):
     """An administrative operation is not authorized or cannot be performed."""
+
+
+def bounded_permissions(
+    saved: dict[str, bool] | None, defaults: dict[str, bool]
+) -> ChatPermissions:
+    """Restore saved rights only when current group defaults still permit them."""
+    return ChatPermissions(
+        **{
+            field: bool(saved and saved.get(field, False) and defaults.get(field, False))
+            for field in ChatPermissions.__slots__
+        }
+    )
 
 
 @dataclass(frozen=True, slots=True)

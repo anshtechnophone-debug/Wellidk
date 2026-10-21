@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+import re
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from telegram import Chat, ChatMember, ChatPermissions, Update
@@ -15,6 +16,7 @@ from app.core.durations import DurationError, expiration_from_now, parse_duratio
 from app.core.permissions import (
     AdminAccess,
     AuthorizationError,
+    bounded_permissions,
     ensure_target_is_moderatable,
     require_admin_access,
 )
@@ -70,11 +72,33 @@ def _permissions_dict(permissions: ChatPermissions | None) -> dict[str, bool] | 
     return {name: bool(getattr(permissions, name, False)) for name in PERMISSION_NAMES}
 
 
-def _default_permissions(update: Update) -> ChatPermissions:
-    permissions = update.effective_chat.permissions if update.effective_chat else None
-    if permissions:
-        return permissions
-    return ChatPermissions(**{name: True for name in PERMISSION_NAMES})
+async def _current_default_permissions(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int
+) -> dict[str, bool]:
+    chat = await context.bot.get_chat(chat_id)
+    permissions = _permissions_dict(getattr(chat, "permissions", None))
+    if permissions is None:
+        raise TargetError("Telegram did not provide this group's default member permissions.")
+    return permissions
+
+
+async def _pre_restriction_permissions(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    target_id: int,
+    repository: ModerationRepository,
+    defaults: dict[str, bool],
+) -> tuple[dict[str, bool], bool]:
+    saved = await repository.restriction_permissions(chat_id, target_id)
+    if saved is not None:
+        return saved, False
+    target = await context.bot.get_chat_member(chat_id, target_id)
+    if target.status == ChatMember.RESTRICTED:
+        raise TargetError(
+            "This member is already restricted without a saved XYRON baseline; "
+            "refusing to overwrite an unknown restriction."
+        )
+    return defaults, True
 
 
 async def _check_additional_permission(access: AdminAccess, permission: str) -> None:
@@ -143,42 +167,72 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
         )
     target_id, remaining = await _resolve_target(update, context, command)
     duration = None
+    if (
+        normalized == "mute"
+        and remaining
+        and re.fullmatch(r"[0-9]{1,6}[smhdw]", remaining[0], re.IGNORECASE)
+    ):
+        is_temporary = True
     if is_temporary:
         if not remaining:
             raise TargetError("A duration is required, for example 2h or 6d.")
         duration = parse_duration(remaining[0])
         remaining = remaining[1:]
+    temporary_mute = normalized == "tmute" or (normalized == "mute" and duration is not None)
     reason = " ".join(remaining).strip() or None
     settings: Settings = context.application.bot_data["settings"]
     await ensure_target_is_moderatable(context, chat.id, target_id, access.actor, settings)
 
-    if normalized in {"ban", "tban", "kick"}:
-        await context.bot.ban_chat_member(
-            chat.id,
-            target_id,
-            until_date=expiration_from_now(duration) if normalized == "tban" and duration else None,
-        )
-        if normalized == "kick":
-            await context.bot.unban_chat_member(chat.id, target_id, only_if_banned=True)
-    else:
-        target = await context.bot.get_chat_member(chat.id, target_id)
-        previous_permissions = _permissions_dict(
-            getattr(target, "permissions", None) or _default_permissions(update)
-        )
-        await context.bot.restrict_chat_member(
-            chat.id,
-            target_id,
-            permissions=ChatPermissions(**{name: False for name in PERMISSION_NAMES}),
-            until_date=expiration_from_now(duration)
-            if normalized == "tmute" and duration
-            else None,
-        )
-
     repository = _repository(context)
-    if normalized == "ban":
+    previous_permissions: dict[str, bool] | None = None
+    created_snapshot = False
+    if normalized in {"mute", "tmute"}:
+        defaults = await _current_default_permissions(context, chat.id)
+        existing_snapshot = await repository.restriction_permissions(chat.id, target_id)
+        if (
+            normalized == "tmute"
+            and existing_snapshot is not None
+            and not await repository.has_temporary(chat.id, target_id, "unmute")
+        ):
+            raise TargetError(
+                "This member has a permanent XYRON mute; unmute them before a temporary mute."
+            )
+        previous_permissions, is_new_snapshot = await _pre_restriction_permissions(
+            context, chat.id, target_id, repository, defaults
+        )
+        if is_new_snapshot:
+            created_snapshot = await repository.remember_permissions(
+                chat.id, target_id, actor_user.id, previous_permissions
+            )
+
+    try:
+        if normalized in {"ban", "tban", "kick"}:
+            await context.bot.ban_chat_member(
+                chat.id,
+                target_id,
+                until_date=expiration_from_now(duration)
+                if normalized == "tban" and duration
+                else None,
+            )
+            if normalized == "kick":
+                await context.bot.unban_chat_member(chat.id, target_id, only_if_banned=True)
+        else:
+            await context.bot.restrict_chat_member(
+                chat.id,
+                target_id,
+                permissions=ChatPermissions(**{name: False for name in PERMISSION_NAMES}),
+                until_date=expiration_from_now(duration) if temporary_mute and duration else None,
+            )
+    except TelegramError:
+        if created_snapshot:
+            await repository.forget_permissions(chat.id, target_id)
+        raise
+
+    if normalized in {"ban", "kick"}:
         await repository.cancel_temporary(chat.id, target_id, "unban")
     elif normalized == "mute":
         await repository.cancel_temporary(chat.id, target_id, "unmute")
+
     await repository.record(chat.id, actor_user.id, target_id, normalized, reason)
     if duration:
         await repository.schedule(
@@ -186,7 +240,7 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
             target_id,
             "unban" if normalized == "tban" else "unmute",
             expiration_from_now(duration),
-            previous_permissions if normalized == "tmute" else None,
+            previous_permissions if temporary_mute else None,
         )
     if delete_target_message:
         deleted = await _delete_reply(update, context)
@@ -197,13 +251,17 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
     if silent:
         await _remove_command(update, context)
     else:
-        label = {
-            "ban": "Banned",
-            "tban": "Temporarily banned",
-            "kick": "Removed",
-            "mute": "Muted",
-            "tmute": "Temporarily muted",
-        }[normalized]
+        label = (
+            "Temporarily muted"
+            if temporary_mute
+            else {
+                "ban": "Banned",
+                "tban": "Temporarily banned",
+                "kick": "Removed",
+                "mute": "Muted",
+                "tmute": "Temporarily muted",
+            }[normalized]
+        )
         suffix = f" for {duration}" if duration else ""
         await _reply(
             update, f"{label} user {target_id}{suffix}." + (f" Reason: {reason}" if reason else "")
@@ -262,15 +320,70 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         target_id, _ = await _require_target_admin(update, context)
         chat_id, actor_id = update.effective_chat.id, update.effective_user.id
-        permissions = _default_permissions(update)
-        await context.bot.restrict_chat_member(chat_id, target_id, permissions=permissions)
-        await _repository(context).cancel_temporary(chat_id, target_id, "unmute")
-        await _repository(context).record(chat_id, actor_id, target_id, "unmute", None)
+        repository = _repository(context)
+        defaults = await _current_default_permissions(context, chat_id)
+        saved = await repository.restriction_permissions(chat_id, target_id)
+        await context.bot.restrict_chat_member(
+            chat_id,
+            target_id,
+            permissions=bounded_permissions(saved if saved is not None else defaults, defaults),
+        )
+        await repository.cancel_temporary(chat_id, target_id, "unmute")
+        await repository.forget_permissions(chat_id, target_id)
+        await repository.record(chat_id, actor_id, target_id, "unmute", None)
         await _reply(update, f"Restored group permissions for user {target_id}.")
     except (AuthorizationError, TargetError) as exc:
         await _reply(update, str(exc))
     except TelegramError as exc:
         await _reply(update, f"Telegram rejected the restriction change: {exc.message}")
+
+
+async def mutelist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        await require_admin_access(update, context, context.application.bot_data["settings"], None)
+        entries = await _repository(context).active_mutes(update.effective_chat.id)
+        if not entries:
+            await _reply(update, "XYRON has no saved mute restrictions in this group.")
+            return
+        rows = [
+            f"User {entry.target_id}; set by {entry.actor_id}; "
+            f"updated {entry.updated_at:%Y-%m-%d %H:%M} UTC"
+            for entry in entries[:50]
+        ]
+        await _reply(update, "Saved XYRON mutes:\n" + "\n".join(rows))
+    except AuthorizationError as exc:
+        await _reply(update, str(exc))
+
+
+async def banlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        await require_admin_access(update, context, context.application.bot_data["settings"], None)
+        entries = await _repository(context).active_bans(update.effective_chat.id)
+        if not entries:
+            await _reply(update, "XYRON has no currently tracked bans in this group.")
+            return
+        rows = [
+            f"User {event.target_id}; {event.action}; set by {event.actor_id}"
+            for event in entries[:50]
+        ]
+        await _reply(update, "Tracked bans (up to 50):\n" + "\n".join(rows))
+    except AuthorizationError as exc:
+        await _reply(update, str(exc))
+
+
+async def modstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        await require_admin_access(update, context, context.application.bot_data["settings"], None)
+        counts = await _repository(context).event_counts(
+            update.effective_chat.id, datetime.now(UTC) - timedelta(days=30)
+        )
+        if not counts:
+            await _reply(update, "No moderation events recorded in the last 30 days.")
+            return
+        lines = [f"{action}: {count}" for action, count in counts.items()]
+        await _reply(update, "Moderation events over the last 30 days:\n" + "\n".join(lines))
+    except AuthorizationError as exc:
+        await _reply(update, str(exc))
 
 
 async def kickme_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -327,10 +440,14 @@ async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             if action == "ban":
                 await context.bot.ban_chat_member(chat.id, target_id)
             else:
-                target = await context.bot.get_chat_member(chat.id, target_id)
-                saved_permissions = _permissions_dict(
-                    getattr(target, "permissions", None) or _default_permissions(update)
+                defaults = await _current_default_permissions(context, chat.id)
+                saved_permissions, is_new_snapshot = await _pre_restriction_permissions(
+                    context, chat.id, target_id, repository, defaults
                 )
+                if is_new_snapshot:
+                    await repository.remember_permissions(
+                        chat.id, target_id, actor_user.id, saved_permissions
+                    )
                 await context.bot.restrict_chat_member(
                     chat.id,
                     target_id,

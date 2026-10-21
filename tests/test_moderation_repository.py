@@ -75,6 +75,39 @@ async def test_canceling_one_temporary_action_preserves_the_other(repository):
 
 
 @pytest.mark.asyncio
+async def test_restriction_baseline_is_persistent_and_not_overwritten(repository):
+    repo, sessions = repository
+    baseline = {"can_send_messages": True, "can_send_photos": False}
+    assert await repo.remember_permissions(-100123, 22, 11, baseline) is True
+    assert await repo.remember_permissions(-100123, 22, 12, {"can_send_messages": False}) is False
+    assert await repo.restriction_permissions(-100123, 22) == baseline
+    await repo.forget_permissions(-100123, 22)
+    assert await repo.restriction_permissions(-100123, 22) is None
+
+
+@pytest.mark.asyncio
+async def test_active_mutes_lists_only_the_requested_group(repository):
+    repo, _ = repository
+    await repo.remember_permissions(-100123, 22, 11, {"can_send_messages": True})
+    await repo.remember_permissions(-100456, 33, 11, {"can_send_messages": True})
+    entries = await repo.active_mutes(-100123)
+    assert [(entry.chat_id, entry.target_id) for entry in entries] == [(-100123, 22)]
+
+
+@pytest.mark.asyncio
+async def test_ban_list_uses_latest_audit_state_and_stats_count_events(repository):
+    repo, _ = repository
+    await repo.record(-100123, 11, 22, "ban", "spam")
+    await repo.record(-100123, 11, 23, "tban", "temporary")
+    await repo.record(-100123, 0, 23, "auto_unban", "expired")
+    await repo.record(-100123, 11, 24, "mute", None)
+    bans = await repo.active_bans(-100123)
+    assert [event.target_id for event in bans] == [22]
+    counts = await repo.event_counts(-100123, datetime.now(UTC) - timedelta(days=1))
+    assert counts == {"auto_unban": 1, "ban": 1, "mute": 1, "tban": 1}
+
+
+@pytest.mark.asyncio
 async def test_warning_count_and_reset(repository):
     repo, _ = repository
     assert await repo.add_warning(-100123, 11, 22, "first") == 1

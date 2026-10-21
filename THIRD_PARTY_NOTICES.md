@@ -12,6 +12,7 @@ XYRON depends on upstream packages listed and version-pinned in `pyproject.toml`
 | asyncpg | 0.30.0 | Apache-2.0; see upstream project |
 | Alembic | 1.16.5 | MIT; see upstream project |
 | python-dotenv | 1.1.1 | BSD-3-Clause; see upstream project |
+| HTTPX | 0.28.1 | BSD-3-Clause; see upstream project |
 
 Development-only packages (`pytest`, `pytest-asyncio`, and `ruff`) are declared as optional dependencies and are not required in a production install.
 

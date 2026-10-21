@@ -9,6 +9,7 @@ from telegram import ChatMember, ChatPermissions
 from telegram.error import TelegramError
 from telegram.ext import Application
 
+from app.core.permissions import bounded_permissions
 from app.services.moderation import ModerationRepository
 
 logger = logging.getLogger(__name__)
@@ -49,13 +50,27 @@ async def expiration_worker(application: Application, stop_event: asyncio.Event)
                     await application.bot.unban_chat_member(
                         action.chat_id, action.target_id, only_if_banned=True
                     )
+                    await repository.record(
+                        action.chat_id, 0, action.target_id, "auto_unban", "temporary ban expired"
+                    )
                 elif action.action == "unmute":
-                    permissions = action.original_permissions or {}
+                    group = await application.bot.get_chat(action.chat_id)
+                    group_permissions = getattr(group, "permissions", None)
+                    if group_permissions is None:
+                        await repository.note_expiration_failure(action.id)
+                        continue
+                    defaults = {
+                        name: bool(getattr(group_permissions, name, False))
+                        for name in ChatPermissions.__slots__
+                    }
                     await application.bot.restrict_chat_member(
                         action.chat_id,
                         action.target_id,
-                        permissions=ChatPermissions(**permissions),
+                        permissions=bounded_permissions(
+                            action.original_permissions or defaults, defaults
+                        ),
                     )
+                    await repository.forget_permissions(action.chat_id, action.target_id)
                 else:
                     logger.error(
                         "Unknown temporary action %s for record %s", action.action, action.id
