@@ -270,5 +270,13 @@ def test_structured_analysis_rejects_unapproved_recommendations():
         "participant_ids": [2],
     }
     assert parse_analysis(json.dumps(valid)) == valid
+    # Actionable recommendations are now accepted by the schema
+    valid["recommendation"] = "mute"
+    assert parse_analysis(json.dumps(valid)) is not None
+    valid["recommendation"] = "ban"
+    assert parse_analysis(json.dumps(valid)) is not None
+    # Still reject unknown actions
     valid["recommendation"] = "ban_user"
+    assert parse_analysis(json.dumps(valid)) is None
+    valid["recommendation"] = "delete_all"
     assert parse_analysis(json.dumps(valid)) is None
