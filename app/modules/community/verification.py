@@ -1,24 +1,64 @@
-"""Join-gate verification for new group members."""
+"""Join-gate verification for new group members and the XYRON community."""
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 
-from telegram import Chat, ChatMember, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    Chat,
+    ChatMember,
+    ChatPermissions,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
-_PAYLOAD = re.compile(r"^verify_(-?\d{1,15})_(\d{1,15})$")
+_PAYLOAD = re.compile(r"^verify_(-?\\d{1,15})_(\\d{1,15})$")
+COMMUNITY_URL = "https://t.me/+krgZfOwfpZxhODYx"
+_COMMUNITY_CHECK = "community_join_check"
 
 
 def _verification_payload(chat_id: int, user_id: int) -> str:
     return f"verify_{chat_id}_{user_id}"
 
 
+def _community_chat_id() -> int | None:
+    """Read the private XYRON ARMY channel ID from runtime configuration."""
+    raw = os.getenv("XYRON_COMMUNITY_CHAT_ID", "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        logger.error("XYRON_COMMUNITY_CHAT_ID must be a numeric Telegram chat ID")
+        return None
+
+
+def _is_member(member) -> bool:
+    return member.status in {
+        ChatMember.MEMBER,
+        ChatMember.ADMINISTRATOR,
+        ChatMember.OWNER,
+    } or bool(getattr(member, "is_member", False))
+
+
+async def _send_manual_start_message(message) -> None:
+    """Send the original manual /start message after the community gate passes."""
+    await message.reply_text(
+        'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\\n\\n'
+        'Must join my Master\'s <a href="https://t.me/+75hmQ06GsjhjMTg9">Secret Society</a>♥️',
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+
+
 async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /start deep links and normal manual starts."""
+    """Handle group-verification deep links and gate manual starts on XYRON ARMY."""
     message = update.effective_message
     user = update.effective_user
     if not message or not user:
@@ -29,7 +69,10 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if match:
         chat_id, expected_user_id = int(match.group(1)), int(match.group(2))
         if user.id != expected_user_id:
-            await message.reply_text("This verification link belongs to another Telegram account. Please open your own link from the group.")
+            await message.reply_text(
+                "This verification link belongs to another Telegram account. "
+                "Please open your own link from the group."
+            )
             return
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("I am a human", callback_data=_verification_payload(chat_id, user.id))
@@ -40,9 +83,80 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
+    community_id = _community_chat_id()
+    if community_id is not None:
+        try:
+            member = await context.bot.get_chat_member(community_id, user.id)
+            if _is_member(member):
+                await _send_manual_start_message(message)
+                return
+        except TelegramError:
+            logger.exception(
+                "Could not check XYRON ARMY membership for user %s; showing join gate",
+                user.id,
+            )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⚔️ Join My Army", url=COMMUNITY_URL)],
+        [InlineKeyboardButton("✓ I've Joined — Check", callback_data=_COMMUNITY_CHECK)],
+    ])
     await message.reply_text(
-        'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\n\n'
-        'Must join my Master\'s <a href="https://t.me/+75hmQ06GsjhjMTg9">Secret Society</a>♥️',
+        "☠️ <b>XYRON ARMY ACCESS REQUIRED</b> ☠️\\n\\n"
+        "Join the XYRON community to proceed. Once you've joined, tap "
+        "<b>I've Joined — Check</b> and XYRON will verify your membership.\\n\\n"
+        "♛ <b>JOIN XYRON ARMY TO STAY IN POWER.</b> ♛",
+        parse_mode="HTML",
+        reply_markup=keyboard,
+        disable_web_page_preview=True,
+    )
+
+
+async def community_join_check_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Verify the clicking user's channel membership before releasing the start message."""
+    query = update.callback_query
+    user = update.effective_user
+    if not query or not user:
+        return
+
+    community_id = _community_chat_id()
+    if community_id is None:
+        await query.answer(
+            "Membership verification is not configured yet. Please contact the bot owner.",
+            show_alert=True,
+        )
+        return
+
+    try:
+        member = await context.bot.get_chat_member(community_id, user.id)
+    except TelegramError:
+        logger.exception("Could not check XYRON ARMY membership for user %s", user.id)
+        await query.answer(
+            "I couldn't verify membership. Please try again shortly.",
+            show_alert=True,
+        )
+        return
+
+    if not _is_member(member):
+        await query.answer(
+            "You haven't joined XYRON ARMY yet. Join the channel, then check again.",
+            show_alert=True,
+        )
+        return
+
+    await query.answer("Membership confirmed. Welcome to XYRON.")
+    try:
+        await query.edit_message_text("✓ XYRON ARMY membership confirmed. Access granted.")
+    except TelegramError:
+        pass
+    await context.bot.send_message(
+        chat_id=user.id,
+        text=(
+            'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\\n\\n'
+            'Must join my Master\'s <a href="https://t.me/+75hmQ06GsjhjMTg9">Secret Society</a>♥️'
+        ),
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
