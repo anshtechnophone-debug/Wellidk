@@ -272,3 +272,12 @@ class AppealRecord(Base):
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class BotAdmin(Base):
+    """Users trusted by XYRON itself, independent of Telegram group roles."""
+    __tablename__ = "bot_admins"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    added_by: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
