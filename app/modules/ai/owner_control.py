@@ -34,7 +34,11 @@ handled: boolean
 Use action=none for questions, discussion, hypothetical requests, or ordinary
 conversation (e.g. "can you mute a member?"). Only explicit requests to perform
 an action are actionable. Interpret English and Hinglish naturally.
-Use last_target for questions asking who XYRON most recently muted/banned/kicked.
+Use last_target for questions asking who XYRON most recently muted/banned/kicked,
+including requests for that person's numeric Telegram user ID (e.g. "what is the
+ID of the person you just muted?", "abhi jisko mute kiya uski ID kya hai?").
+For last_target queries, set target=last and action=last_target; do not answer
+from a guess or confuse the owner's ID with the target's ID.
 Resolve "him/her/that person/the one we just muted" to target=last only when
 the message context clearly refers to the previous successful action.
 If no clear target is supplied, still return the requested action but target=null.
@@ -152,7 +156,7 @@ async def _resolve_plan_target(update: Update, context: ContextTypes.DEFAULT_TYP
         return await _resolve_target(update, context, [target])
     if isinstance(target, str) and re.fullmatch(r"@[A-Za-z0-9_]{5,32}", target):
         return await _resolve_target(update, context, [target])
-    raise OwnerIntentError("Who should I target, Malik? Reply to their message, or provide their @username/Telegram user ID.")
+    raise OwnerIntentError("Target kisko karna hai? Reply to their message or provide their @username/Telegram user ID.")
 
 
 async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
