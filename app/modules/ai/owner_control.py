@@ -181,9 +181,9 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     # this group's stored message history are eligible; Bot API cannot enumerate
     # every group member. A cooldown prevents repeated accidental mass pings.
     mention_request = re.search(
-        r"\\b(?:mention|tag|ping)\\s*(?:karo|kar\\s*do|do)?\\s*(?:sabko|sabhi|everyone|everybody|all)\\b|"
-        r"\\b(?:sabko|sabhi|everyone|everybody)\\s+(?:mention|tag|ping)(?:\\s+(?:karo|kar\\s*do|do))?\\b|"
-        r"\\b(?:sabko|sabhi)\\s+uthao\\b",
+        r"\b(?:mention|tag|ping)\s*(?:karo|kro|kar\s*do|kr\s*do|do)?\s*(?:sabko|sabhi|everyone|everybody|all)\b|"
+        r"\b(?:sabko|sabhi|everyone|everybody|all)\s+(?:mention|tag|ping)(?:\s+(?:karo|kro|kar\s*do|kr\s*do|do))?\b|"
+        r"\b(?:sabko|sabhi)\s+(?:uthao|uthaoo)\b",
         request,
         re.I,
     )
@@ -196,7 +196,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         announcement = (request[:mention_request.start()] + " " + request[mention_request.end():]).strip(" \\t,:;.!-—")
-        announcement = re.sub(r"\\s+", " ", announcement).strip()
+        announcement = re.sub(r"\s+", " ", announcement).strip()
         if not announcement:
             announcement = "Everyone, please check this message!"
 
