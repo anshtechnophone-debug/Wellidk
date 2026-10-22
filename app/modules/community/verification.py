@@ -40,13 +40,11 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Master (@s1dhu)", url="https://t.me/s1dhu")],
-        [InlineKeyboardButton("Secret Society", url="https://t.me/+75hmQ06GsjhjMTg9")],
-    ])
     await message.reply_text(
-        "I was built to serve my Master only.\n\nMust join my Master's Secret Society♥️",
-        reply_markup=keyboard,
+        'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\n\n'
+        'Must join my Master\'s <a href="https://t.me/+75hmQ06GsjhjMTg9">Secret Society</a>♥️',
+        parse_mode="HTML",
+        disable_web_page_preview=True,
     )
 
 
