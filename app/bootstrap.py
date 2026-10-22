@@ -1,3 +1,4 @@
+
 """Application construction and orderly startup/shutdown."""
 
 from __future__ import annotations
@@ -5,12 +6,14 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from telegram import Chat, Update
 from telegram.ext import (
     Application,
     ApplicationBuilder,
     CallbackQueryHandler,
     ChatMemberHandler,
     CommandHandler,
+    ContextTypes,
     MessageHandler,
     filters,
 )
@@ -133,10 +136,58 @@ from app.modules.reminders.handlers import (
     remind_command,
     reminders_command,
 )
+from app.services.group_history import GroupHistoryRepository, GroupMessage
 from app.services.reminder_worker import reminder_worker
 from app.services.scheduling import expiration_worker
 
 logger = logging.getLogger(__name__)
+
+
+async def collect_group_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Persist group messages for future history searches."""
+
+    message = update.effective_message
+    chat = update.effective_chat
+
+    if not message or not chat:
+        return
+
+    if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        return
+
+    user = message.from_user
+    if not user or user.is_bot:
+        return
+
+    text = (message.text or message.caption or "").strip()
+    if not text:
+        return
+
+    sessions = context.application.bot_data.get("sessions")
+    if sessions is None:
+        logger.warning("Group history collector has no database session factory")
+        return
+
+    try:
+        repository = GroupHistoryRepository(sessions)
+        await repository.save_message(
+            chat_id=chat.id,
+            message_id=message.message_id,
+            user_id=user.id,
+            username=user.username,
+            display_name=user.full_name,
+            message_text=text,
+            sent_at=message.date,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to save group message: chat_id=%s message_id=%s",
+            chat.id,
+            message.message_id,
+        )
 
 
 def _register_general(application: Application) -> None:
@@ -227,6 +278,7 @@ def _register_general(application: Application) -> None:
         ("teamwordcancel", teamwordcancel_command),
     ):
         application.add_handler(CommandHandler(command, callback))
+
     for command in (
         "ban",
         "dban",
@@ -241,37 +293,83 @@ def _register_general(application: Application) -> None:
         "skick",
     ):
         application.add_handler(CommandHandler(command, moderation_command))
+
+    # Lower group number runs first. The history collector runs independently
+    # of the AI router, so ordinary group messages are saved even when they
+    # do not mention XYRON.
     application.add_handler(
-        MessageHandler(filters.ALL & ~filters.COMMAND, track_known_user), group=10
+        MessageHandler(
+            filters.ALL & ~filters.COMMAND,
+            collect_group_message,
+        ),
+        group=8,
     )
-    application.add_handler(MessageHandler(filters.ALL, process_group_message), group=9)
-    application.add_handler(ChatMemberHandler(group_member_event, ChatMemberHandler.CHAT_MEMBER))
-    application.bot_data["ai_router"] = AIEventRouter(application.bot_data["settings"])
+
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, owner_natural_control), group=0
+        MessageHandler(
+            filters.ALL & ~filters.COMMAND,
+            track_known_user,
+        ),
+        group=10,
     )
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, application.bot_data["ai_router"].handle),
+        MessageHandler(filters.ALL, process_group_message),
+        group=9,
+    )
+    application.add_handler(
+        ChatMemberHandler(
+            group_member_event,
+            ChatMemberHandler.CHAT_MEMBER,
+        )
+    )
+
+    application.bot_data["ai_router"] = AIEventRouter(
+        application.bot_data["settings"]
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            owner_natural_control,
+        ),
+        group=0,
+    )
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            application.bot_data["ai_router"].handle,
+        ),
         group=1,
     )
-    application.add_handler(CallbackQueryHandler(help_callback, pattern=r"^help:"))
+    application.add_handler(
+        CallbackQueryHandler(help_callback, pattern=r"^help:")
+    )
 
 
 async def _post_init(application: Application) -> None:
     settings: Settings = application.bot_data["settings"]
+
     engine, sessions = create_database(settings.database_url)
     application.bot_data["engine"] = engine
     application.bot_data["sessions"] = sessions
+
+    # Importing GroupMessage above registers its model with Base.metadata,
+    # so initialize_schema can create the group history table as well.
     await initialize_schema(engine)
+
     await application.bot.set_my_commands(bot_commands())
+
     stop_event = asyncio.Event()
     application.bot_data["shutdown_event"] = stop_event
+
     application.bot_data["worker_tasks"] = {
         "moderation_expiry": application.create_task(
-            expiration_worker(application, stop_event), name="xyron-expiration-worker"
+            expiration_worker(application, stop_event),
+            name="xyron-expiration-worker",
         ),
         "reminders": application.create_task(
-            reminder_worker(application, stop_event), name="xyron-reminder-worker"
+            reminder_worker(application, stop_event),
+            name="xyron-reminder-worker",
         ),
     }
 
@@ -280,6 +378,7 @@ async def _post_shutdown(application: Application) -> None:
     stop_event = application.bot_data.get("shutdown_event")
     if stop_event:
         stop_event.set()
+
     engine = application.bot_data.get("engine")
     if engine:
         await engine.dispose()
@@ -287,6 +386,7 @@ async def _post_shutdown(application: Application) -> None:
 
 def build_application(settings: Settings | None = None) -> Application:
     resolved = settings or Settings.from_env()
+
     application = (
         ApplicationBuilder()
         .token(resolved.bot_token)
@@ -294,11 +394,20 @@ def build_application(settings: Settings | None = None) -> Application:
         .post_shutdown(_post_shutdown)
         .build()
     )
+
     application.bot_data["settings"] = resolved
+
     load_modules(
         application,
-        (Module("general-moderation", "Core commands and group moderation", _register_general),),
+        (
+            Module(
+                "general-moderation",
+                "Core commands and group moderation",
+                _register_general,
+            ),
+        ),
     )
+
     application.add_error_handler(error_handler)
     return application
 
@@ -308,7 +417,11 @@ def run() -> None:
 
     settings = Settings.from_env()
     configure_logging(settings.log_level)
+
     try:
-        build_application(settings).run_polling(allowed_updates=None, close_loop=False)
+        build_application(settings).run_polling(
+            allowed_updates=None,
+            close_loop=False,
+        )
     except KeyboardInterrupt:
         logger.info("XYRON shutdown requested")
