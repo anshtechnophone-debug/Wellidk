@@ -88,58 +88,31 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await _send_manual_start_message(message)
         return
 
-    community_id = _community_chat_id()
-    if community_id is not None:
-        try:
-            member = await context.bot.get_chat_member(community_id, user.id)
-            if _is_member(member):
-                await _send_manual_start_message(message)
-                return
-        except TelegramError:
-            logger.exception(
-                "Could not check XYRON ARMY membership for user %s; showing join gate",
-                user.id,
-            )
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚔️ Join My Army", url=COMMUNITY_URL)],
-        [InlineKeyboardButton("✓ I've Joined — Check", callback_data=_COMMUNITY_CHECK)],
-    ])
-    await message.reply_text(
-        "☠️ <b>XYRON ARMY ACCESS REQUIRED</b> ☠️\n\n"
-        "Join the XYRON community to proceed. Once you've joined, tap "
-        "<b>I've Joined — Check</b> and XYRON will verify your membership.\n\n"
-        "♛ <b>JOIN XYRON ARMY TO STAY IN POWER.</b> ♛",
-        parse_mode="HTML",
-        reply_markup=keyboard,
-        disable_web_page_preview=True,
-    )
+    # Non-owners always receive the original master message, regardless of community membership.
+    await _send_manual_start_message(message)
 
 
 async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Block private bot interactions until XYRON ARMY membership is confirmed."""
+    """Allow only the configured owner to use XYRON's commands and features."""
     user = update.effective_user
     chat = update.effective_chat
     if not user or not chat:
-        return
-
-    message = update.effective_message
-    query = update.callback_query
-    # In groups, gate commands and inline-button actions, but do not spam the
-    # group by gating every ordinary message.
-    if chat.type != Chat.PRIVATE and not query and not (
-        message and message.text and message.text.lstrip().startswith("/")
-    ):
         return
 
     settings = context.application.bot_data.get("settings")
     if settings and user.id == settings.owner_id:
         return
 
-    # Keep the join button functional and preserve the existing group-human
-    # verification deep link/button; all other private bot features are gated.
-    if query and query.data in {_COMMUNITY_CHECK}:
+    message = update.effective_message
+    query = update.callback_query
+
+    # Leave ordinary group chat messages alone; gate commands and bot interactions.
+    if chat.type != Chat.PRIVATE and not query and not (
+        message and message.text and message.text.lstrip().startswith("/")
+    ):
         return
+
+    # Keep the existing human-verification deep link and its confirmation button working.
     if query and query.data and _PAYLOAD.fullmatch(query.data):
         return
     if message and message.text:
@@ -148,44 +121,20 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
             if _PAYLOAD.fullmatch(parts[1].strip()):
                 return
 
-    community_id = _community_chat_id()
-    if community_id is not None:
-        try:
-            member = await context.bot.get_chat_member(community_id, user.id)
-            if _is_member(member):
-                return
-        except TelegramError:
-            logger.exception(
-                "Could not check XYRON ARMY membership for private access by user %s",
-                user.id,
-            )
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚔️ Join My Army", url=COMMUNITY_URL)],
-        [InlineKeyboardButton("✓ I've Joined — Check", callback_data=_COMMUNITY_CHECK)],
-    ])
-    gate_text = (
-        "☠️ <b>XYRON ARMY ACCESS REQUIRED</b> ☠️\n\n"
-        "Join the XYRON community to use XYRON's commands and features. "
-        "After joining, tap <b>I've Joined — Check</b>.\n\n"
-        "♛ <b>JOIN XYRON ARMY TO STAY IN POWER.</b> ♛"
-    )
     if query:
-        await query.answer("Join XYRON ARMY to use XYRON.", show_alert=True)
+        await query.answer("XYRON is reserved for its Master.", show_alert=True)
         await context.bot.send_message(
             chat_id=user.id,
-            text=gate_text,
+            text=(
+                'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\\n\\n'
+                'Must join my Master\'s <a href="https://t.me/+75hmQ06GsjhjMTg9">Secret Society</a>♥️'
+            ),
             parse_mode="HTML",
-            reply_markup=keyboard,
             disable_web_page_preview=True,
         )
     elif message:
-        await message.reply_text(
-            gate_text,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-            disable_web_page_preview=True,
-        )
+        await _send_manual_start_message(message)
+
     raise ApplicationHandlerStop
 
 
