@@ -191,9 +191,9 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     # Deterministic handling for target-first Hinglish commands such as
     # "@username isko unmute karna" so they don't fall through to chat AI.
     target_first = re.match(
-        r"^(@[A-Za-z0-9_]{5,32})\\s+(?:(?:isko|ise)\\s+)?"
+        r"^(@[A-Za-z0-9_]{5,32})\s+(?:(?:isko|ise)\s+)?"
         r"(unmute|un-mute|mute|ban|kick|remove)"
-        r"(?:\\s+(?:karna|karo|kar\\s*do|do))?(?:\\s+xyron)?[.!?]*$",
+        r"(?:\s+(?:karna|karo|kar\s*do|do))?(?:\s+xyron)?[.!?]*$",
         request,
         re.I,
     )
@@ -218,7 +218,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             if plan is None:
                 # Let the general assistant answer normal conversation if intent
                 # parsing is unavailable; never guess a moderation action.
-                if re.search(r"\\b(?:mute|unmute|ban|kick|remove)\\b", request, re.I):
+                if re.search(r"\b(?:mute|unmute|ban|kick|remove)\b", request, re.I):
                     await message.reply_text("I couldn't safely determine your request. Please rephrase it or reply to the target member's message.")
                     context.chat_data["xyron_owner_control_message_id"] = message.message_id
                 return
