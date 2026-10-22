@@ -25,6 +25,10 @@ COMMANDS = (
     CommandInfo("ping", "Check bot responsiveness", "/ping", "General"),
     CommandInfo("health", "Check database and background workers", "/health", "General"),
     CommandInfo("id", "Show Telegram IDs", "/id [reply]", "User Tools"),
+    CommandInfo("admin", "Add a XYRON bot admin (owner only)", "/admin <numeric_user_id>", "Owner Tools", owner_only=True),
+    CommandInfo("unadmin", "Remove a XYRON bot admin (owner only)", "/unadmin <numeric_user_id>", "Owner Tools", owner_only=True),
+    CommandInfo("botadminlist", "List XYRON bot admins (owner only)", "/botadminlist", "Owner Tools", owner_only=True),
+    CommandInfo("pin", "Pin a replied-to message", "/pin (reply)", "Message Management", True),
     CommandInfo(
         "settings",
         "Inspect eligible groups and bot permissions",
