@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from telegram import Chat, ChatMember, ChatPermissions, Update
 from telegram.ext import ContextTypes
 
+from sqlalchemy import select
+
 from app.config import Settings
+from app.database.models import BotAdmin
 
 
 class AuthorizationError(RuntimeError):
@@ -30,6 +33,7 @@ def bounded_permissions(
 class AdminAccess:
     actor: ChatMember
     bot: ChatMember
+    is_bot_admin: bool = False
 
 
 async def require_admin_access(
@@ -70,8 +74,12 @@ async def require_admin_access(
         raise AuthorizationError("The configured owner must be a group administrator.")
 
     actor = await context.bot.get_chat_member(chat.id, actor_user.id)
-    if actor.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
-        raise AuthorizationError("You must be a group administrator to use this command.")
+    async with context.application.bot_data["sessions"]() as session:
+        is_bot_admin = actor_user.id == settings.owner_id or bool(
+            await session.get(BotAdmin, actor_user.id)
+        )
+    if not is_bot_admin:
+        raise AuthorizationError("You are not an authorized XYRON bot admin.")
 
     if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
         raise AuthorizationError("XYRON must be a group administrator to do that.")
@@ -83,13 +91,9 @@ async def require_admin_access(
         }.get(bot_permission, bot_permission.removeprefix("can_").replace("_", " "))
         raise AuthorizationError(f"XYRON is missing the permission to {human}.")
 
-    if (
-        bot_permission
-        and actor.status == ChatMember.ADMINISTRATOR
-        and not getattr(actor, bot_permission, False)
-    ):
-        raise AuthorizationError("Your Telegram administrator privileges do not allow this action.")
-    return AdminAccess(actor=actor, bot=bot_member)
+    # XYRON bot admins do not need Telegram group-admin status; Telegram's
+    # own bot permissions above remain mandatory for the requested operation.
+    return AdminAccess(actor=actor, bot=bot_member, is_bot_admin=is_bot_admin)
 
 
 async def ensure_target_is_moderatable(
