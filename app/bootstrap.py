@@ -342,6 +342,7 @@ def _register_general(application: Application) -> None:
         ),
         group=1,
     )
+    application.add_handler(CallbackQueryHandler(verify_human_callback, pattern="^verify_"))
     application.add_handler(
         CallbackQueryHandler(help_callback, pattern=r"^help:")
     )
