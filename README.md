@@ -10,6 +10,7 @@ XYRON is an asynchronous Telegram bot. This release provides live permission-che
 - A Telegram bot created with BotFather and added to the target group.
 - The bot must be promoted to administrator. Grant `Ban users` for moderation, and `Delete messages` for `d*` and `s*` variants. Pinning is not implemented.
 - Set the numeric user ID of the primary owner in `OWNER_ID`. The username `@s1dh7` is not used for authorization.
+- To require XYRON ARMY membership before the manual `/start` welcome, set `XYRON_COMMUNITY_CHAT_ID` to the channel's numeric Telegram chat ID (usually starts with `-100`) and add XYRON as a channel administrator. The invite URL is configured in `app/modules/community/verification.py`; the invite URL alone cannot be used to check membership.
 - SQLite is sufficient for a single-process small deployment. PostgreSQL is supported for a larger deployment; only run one XYRON poller against a given bot token/database because the temporary-action worker is not a distributed job-claim system.
 
 ## Install And Run
