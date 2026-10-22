@@ -422,7 +422,9 @@ def run() -> None:
 
     try:
         build_application(settings).run_polling(
-            allowed_updates=None,
+            # Telegram excludes chat_member updates by default unless explicitly requested.
+            # The join-verification gate depends on these updates to mute new members.
+            allowed_updates=Update.ALL_TYPES,
             close_loop=False,
         )
     except KeyboardInterrupt:
