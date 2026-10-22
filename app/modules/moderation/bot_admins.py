@@ -50,3 +50,21 @@ async def botadminlist_command(update, context: ContextTypes.DEFAULT_TYPE) -> No
     async with context.application.bot_data["sessions"]() as session:
         rows = (await session.scalars(select(BotAdmin).order_by(BotAdmin.user_id))).all()
     await _reply(update, "XYRON bot admins:\n" + ("\n".join(str(row.user_id) for row in rows) if rows else "No additional admins."))
+
+async def pin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    from telegram import Chat
+    from telegram.error import TelegramError
+    from app.core.permissions import AuthorizationError, require_admin_access
+    message, chat = update.effective_message, update.effective_chat
+    if not message or not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        await _reply(update, "Use /pin by replying to a group message."); return
+    if not message.reply_to_message:
+        await _reply(update, "Reply to the message you want to pin, then use /pin."); return
+    try:
+        await require_admin_access(update, context, context.application.bot_data["settings"], "can_pin_messages")
+        await context.bot.pin_chat_message(chat.id, message.reply_to_message.message_id)
+        await _reply(update, "Message pinned.")
+    except AuthorizationError as exc:
+        await _reply(update, str(exc))
+    except TelegramError as exc:
+        await _reply(update, f"Telegram could not pin that message: {exc.message}")
