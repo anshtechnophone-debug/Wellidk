@@ -229,7 +229,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             # A single compact, generic marker per user keeps usernames/names out
             # of the visible text while preserving clickable text_mention entities.
             marker = "•"
-            prefix = announcement + "\\n\\n" if announcement else ""
+            prefix = announcement + "\n\n" if announcement else ""
             body = prefix + " ".join(marker for _ in rows)
             entities = []
             offset = len(prefix.encode("utf-16-le")) // 2
