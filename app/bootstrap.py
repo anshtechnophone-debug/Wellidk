@@ -64,6 +64,7 @@ from app.modules.community.handlers import (
     unapprove_command,
     unlock_command,
 )
+from app.modules.community.verification import verify_human_callback
 from app.modules.community.message_tools import (
     delete_command,
     groupinfo_command,
