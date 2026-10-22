@@ -221,9 +221,9 @@ def detect_event(
     # layer; treating every such word as an incident causes JSON-analysis
     # errors for ordinary questions and follow-up instructions.
     incident_terms = re.compile(
-        r"\\b(?:fight|fighting|abuse|harass(?:ment)?|report|threat|"
+        r"\b(?:fight|fighting|abuse|harass(?:ment)?|report|threat|"
         r"deserves? a ban|should be banned|ban hone layak|mute hone layak|"
-        r"gaali|gali|lad raha|ladai|kisko ban|kon ban|kaun ban)\\b",
+        r"gaali|gali|lad raha|ladai|kisko ban|kon ban|kaun ban)\b",
         re.IGNORECASE,
     )
     if incident_terms.search(text):
