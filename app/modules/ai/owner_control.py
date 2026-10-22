@@ -171,7 +171,14 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     intent = parse_owner_instruction(text, bot_username)
     if intent:
         action, duration = intent
-        plan = {"action": action, "target": "reply" if message.reply_to_message and message.reply_to_message.from_user else None, "duration": duration, "reason": None, "handled": True}
+        previous = context.chat_data.get("xyron_last_moderation_action")
+        if message.reply_to_message and message.reply_to_message.from_user:
+            inferred_target = "reply"
+        elif isinstance(previous, dict) and previous.get("target_id"):
+            inferred_target = "last"
+        else:
+            inferred_target = None
+        plan = {"action": action, "target": inferred_target, "duration": duration, "reason": None, "handled": True}
     else:
         plan = await _ai_plan(request, context, chat.id)
         if plan is None:
