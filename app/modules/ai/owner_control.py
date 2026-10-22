@@ -18,6 +18,7 @@ from app.modules.moderation.handlers import (
     _resolve_target,
     unmute_command,
     mutelist_command,
+    _repository,
 )
 
 _ALLOWED_ACTIONS = {"none", "mute", "unmute", "ban", "kick", "last_target"}
@@ -172,6 +173,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     asks_mute_list = bool(re.search(
         r"\b(?:who(?:'s| is) muted|who is on mute|show (?:the )?muted|list (?:the )?muted|"
         r"muted members|members (?:who are )?muted|kon kon muted|kaun kaun muted|"
+        r"kitne (?:log|logo|members|users|people)(?:\s+ko)?\s+(?:hamne\s+)?mute\s+(?:kiya|kiye|kiye hain|kiye the)|"
         r"kitne members muted|mute list|mutelist)\b",
         request,
         re.I,
@@ -185,7 +187,22 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     if not addressed and not asks_mute_list and not explicit_action:
         return
     if asks_mute_list:
-        await mutelist_command(update, context)
+        if re.search(r"\bkitne\b", request, re.I):
+            entries = await _repository(context).active_mutes(chat.id)
+            count = len(entries)
+            if count:
+                ids = ", ".join(str(entry.target_id) for entry in entries[:20])
+                suffix = f"\nTracked user IDs: {ids}" + (" …" if count > 20 else "")
+                await message.reply_text(
+                    f"XYRON currently tracks {count} active mute(s) in this group.{suffix}"
+                )
+            else:
+                await message.reply_text(
+                    "XYRON currently tracks 0 active mutes in this group. "
+                    "This count covers mutes saved by XYRON, not restrictions set manually."
+                )
+        else:
+            await mutelist_command(update, context)
         context.chat_data["xyron_owner_control_message_id"] = message.message_id
         return
     # Deterministic handling for target-first Hinglish commands such as

@@ -43,7 +43,13 @@ async def _resolve_target(
     if message is None or chat is None:
         raise TargetError("This command requires a group message.")
     if message.reply_to_message and message.reply_to_message.from_user:
-        return message.reply_to_message.from_user.id, args
+        # Natural-language moderation may pass the resolved reply target as
+        # its first argument. Consume that duplicate instead of treating the
+        # user ID as a reason or as an unexpected extra argument.
+        reply_user_id = message.reply_to_message.from_user.id
+        if args and args[0].isdecimal() and int(args[0]) == reply_user_id:
+            return reply_user_id, args[1:]
+        return reply_user_id, args
     if not args:
         raise TargetError("Reply to the user's message or provide a numeric user ID.")
     value = args[0]
