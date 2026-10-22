@@ -238,7 +238,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
                     type=MessageEntity.TEXT_MENTION,
                     offset=offset,
                     length=1,
-                    user=User(id=int(row.user_id), first_name="Member"),
+                    user=User(id=int(row.user_id), first_name="Member", is_bot=False),
                 ))
                 offset += 2  # one marker plus the following space in UTF-16 units
             await message.reply_text(body, entities=entities)
