@@ -12,10 +12,9 @@ from app.services.reports import ReportRepository
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message:
-        await update.effective_message.reply_text(
-            "XYRON is online. Use /help to see commands that are implemented and enabled."
-        )
+    from app.modules.community.verification import start_verification
+
+    await start_verification(update, context)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
