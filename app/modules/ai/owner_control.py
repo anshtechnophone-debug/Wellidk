@@ -9,11 +9,13 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
-from telegram import Chat, Update
+from sqlalchemy import func, select
+from telegram import Chat, MessageEntity, Update, User
 from telegram.ext import ContextTypes
 
 from app.core.permissions import AuthorizationError
 from app.database.models import BotAdmin
+from app.services.group_history import GroupMessage
 from app.modules.ai.assistant import OpenAICompatibleProvider
 from app.modules.moderation.handlers import (
     TargetError,
@@ -174,6 +176,75 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     bot_username = getattr(context.bot, "username", None)
     text = (message.text or "").strip()
     request = _strip_address(text, bot_username)
+
+    # Owner-only natural-language mention-all. Only users XYRON has seen in
+    # this group's stored message history are eligible; Bot API cannot enumerate
+    # every group member. A cooldown prevents repeated accidental mass pings.
+    mention_request = re.search(
+        r"\\b(?:mention|tag|ping)\\s*(?:karo|kar\\s*do|do)?\\s*(?:sabko|sabhi|everyone|everybody|all)\\b|"
+        r"\\b(?:sabko|sabhi|everyone|everybody)\\s+(?:mention|tag|ping)(?:\\s+(?:karo|kar\\s*do|do))?\\b|"
+        r"\\b(?:sabko|sabhi)\\s+uthao\\b",
+        request,
+        re.I,
+    )
+    if mention_request:
+        now = datetime.now(UTC).timestamp()
+        last_sent = float(context.chat_data.get("xyron_mention_all_last_sent", 0) or 0)
+        if now - last_sent < 300:
+            await message.reply_text("Mention-all is on a 5-minute cooldown in this group.")
+            context.chat_data["xyron_owner_control_message_id"] = message.message_id
+            return
+
+        announcement = (request[:mention_request.start()] + " " + request[mention_request.end():]).strip(" \\t,:;.!-—")
+        announcement = re.sub(r"\\s+", " ", announcement).strip()
+        if not announcement:
+            announcement = "Everyone, please check this message!"
+
+        sessions = context.application.bot_data.get("sessions")
+        if sessions is None:
+            await message.reply_text("I can't access the saved group-member history right now.")
+            context.chat_data["xyron_owner_control_message_id"] = message.message_id
+            return
+
+        try:
+            async with sessions() as session:
+                rows = (await session.execute(
+                    select(
+                        GroupMessage.user_id,
+                        func.max(GroupMessage.sent_at).label("last_seen"),
+                        func.max(GroupMessage.display_name).label("display_name"),
+                    )
+                    .where(GroupMessage.chat_id == chat.id)
+                    .group_by(GroupMessage.user_id)
+                    .order_by(func.max(GroupMessage.sent_at).desc())
+                    .limit(100)
+                )).all()
+            if not rows:
+                await message.reply_text("I haven't recorded any members in this group's message history yet.")
+                context.chat_data["xyron_owner_control_message_id"] = message.message_id
+                return
+
+            # A single compact, generic marker per user keeps usernames/names out
+            # of the visible text while preserving clickable text_mention entities.
+            marker = "•"
+            prefix = announcement + "\\n\\n" if announcement else ""
+            body = prefix + " ".join(marker for _ in rows)
+            entities = []
+            offset = len(prefix.encode("utf-16-le")) // 2
+            for row in rows:
+                entities.append(MessageEntity(
+                    type=MessageEntity.TEXT_MENTION,
+                    offset=offset,
+                    length=1,
+                    user=User(id=int(row.user_id), first_name="Member"),
+                ))
+                offset += 2  # one marker plus the following space in UTF-16 units
+            await message.reply_text(body, entities=entities)
+            context.chat_data["xyron_mention_all_last_sent"] = now
+        except Exception:
+            await message.reply_text("I couldn't send the mention-all message. Check XYRON's permissions and logs.")
+        context.chat_data["xyron_owner_control_message_id"] = message.message_id
+        return
 
     # Answer explicit requests for the bot's saved mute list before AI routing.
     addressed = _addressed(text, bot_username)
