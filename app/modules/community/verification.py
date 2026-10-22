@@ -123,10 +123,14 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
     message = update.effective_message
     query = update.callback_query
 
-    # Leave ordinary group chat messages alone; gate commands and bot interactions.
-    if chat.type != Chat.PRIVATE and not query and not (
-        message and message.text and message.text.lstrip().startswith("/")
-    ):
+    # The community join prompt is DM-only. In groups, silently stop non-owner
+    # slash commands so XYRON never posts its private gate message in the group.
+    if chat.type != Chat.PRIVATE:
+        if query:
+            await query.answer("Please message XYRON privately to continue.", show_alert=True)
+            raise ApplicationHandlerStop
+        if message and message.text and message.text.lstrip().startswith("/"):
+            raise ApplicationHandlerStop
         return
 
     # Keep human-verification and the community membership-check callbacks working.
