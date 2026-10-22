@@ -88,8 +88,8 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await _send_manual_start_message(message)
         return
 
-    # Non-owners always receive the original master message, regardless of community membership.
-    await _send_manual_start_message(message)
+    # Ask non-owners to join and confirm XYRON ARMY before showing the master notice.
+    await _send_community_join_prompt(message)
 
 
 async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -112,8 +112,10 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
     ):
         return
 
-    # Keep the existing human-verification deep link and its confirmation button working.
-    if query and query.data and _PAYLOAD.fullmatch(query.data):
+    # Keep human-verification and the community membership-check callbacks working.
+    if query and query.data and (
+        _PAYLOAD.fullmatch(query.data) or query.data == _COMMUNITY_CHECK
+    ):
         return
     if message and message.text:
         parts = message.text.strip().split(maxsplit=1)
@@ -173,9 +175,9 @@ async def community_join_check_callback(
         )
         return
 
-    await query.answer("Membership confirmed. Welcome to XYRON.")
+    await query.answer("Membership confirmed.")
     try:
-        await query.edit_message_text("✓ XYRON ARMY membership confirmed. Access granted.")
+        await query.edit_message_text("✓ XYRON ARMY membership confirmed.")
     except TelegramError:
         pass
     await context.bot.send_message(
