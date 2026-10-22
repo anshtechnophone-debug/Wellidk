@@ -120,15 +120,21 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
     """Block private bot interactions until XYRON ARMY membership is confirmed."""
     user = update.effective_user
     chat = update.effective_chat
-    if not user or not chat or chat.type != Chat.PRIVATE:
+    if not user or not chat:
+        return
+
+    message = update.effective_message
+    query = update.callback_query
+    # In groups, gate commands and inline-button actions, but do not spam the
+    # group by gating every ordinary message.
+    if chat.type != Chat.PRIVATE and not query and not (
+        message and message.text and message.text.lstrip().startswith("/")
+    ):
         return
 
     settings = context.application.bot_data.get("settings")
     if settings and user.id == settings.owner_id:
         return
-
-    message = update.effective_message
-    query = update.callback_query
 
     # Keep the join button functional and preserve the existing group-human
     # verification deep link/button; all other private bot features are gated.
