@@ -216,7 +216,17 @@ def detect_event(
     ):
         return None
 
-    if _MODERATION_TERMS.search(text):
+    # Route incident-analysis requests separately from action requests.
+    # Action language (mute/unmute/ban/kick) is handled by the owner-control
+    # layer; treating every such word as an incident causes JSON-analysis
+    # errors for ordinary questions and follow-up instructions.
+    incident_terms = re.compile(
+        r"\\b(?:fight|fighting|abuse|harass(?:ment)?|report|threat|"
+        r"deserves? a ban|should be banned|ban hone layak|mute hone layak|"
+        r"gaali|gali|lad raha|ladai|kisko ban|kon ban|kaun ban)\\b",
+        re.IGNORECASE,
+    )
+    if incident_terms.search(text):
         return "moderation"
 
     return "conversation"
