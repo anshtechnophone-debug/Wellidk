@@ -17,6 +17,7 @@ from app.modules.moderation.handlers import (
     _moderate,
     _resolve_target,
     unmute_command,
+    mutelist_command,
 )
 
 _ALLOWED_ACTIONS = {"none", "mute", "unmute", "ban", "kick", "last_target"}
@@ -164,10 +165,29 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         return
     bot_username = getattr(context.bot, "username", None)
     text = (message.text or "").strip()
-    if not _addressed(text, bot_username):
-        return
-
     request = _strip_address(text, bot_username)
+
+    # Answer explicit requests for the bot's saved mute list before AI routing.
+    addressed = _addressed(text, bot_username)
+    asks_mute_list = bool(re.search(
+        r"\\b(?:who(?:'s| is) muted|who is on mute|show (?:the )?muted|list (?:the )?muted|"
+        r"muted members|members (?:who are )?muted|kon kon muted|kaun kaun muted|"
+        r"kitne members muted|mute list|mutelist)\\b",
+        request,
+        re.I,
+    ))
+    explicit_action = bool(re.search(
+        r"^(?:(?:please )?(?:mute|unmute|un-mute|ban|kick|remove)\\b|"
+        r"(?:isko|ise|iss member ko|@?[A-Za-z0-9_]{5,32})\\s+(?:mute|unmute|ban|kick)\\b)",
+        request,
+        re.I,
+    ))
+    if not addressed and not asks_mute_list and not explicit_action:
+        return
+    if asks_mute_list:
+        await mutelist_command(update, context)
+        context.chat_data["xyron_owner_control_message_id"] = message.message_id
+        return
     intent = parse_owner_instruction(text, bot_username)
     if intent:
         action, duration = intent
