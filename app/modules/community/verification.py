@@ -83,6 +83,11 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
+    settings = context.application.bot_data.get("settings")
+    if settings and user.id == settings.owner_id:
+        await _send_manual_start_message(message)
+        return
+
     community_id = _community_chat_id()
     if community_id is not None:
         try:
