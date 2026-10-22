@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import UTC, datetime
 
@@ -27,6 +28,7 @@ from app.modules.moderation.handlers import (
 )
 
 _ALLOWED_ACTIONS = {"none", "mute", "unmute", "ban", "kick", "last_target", "admin"}
+logger = logging.getLogger(__name__)
 _PLANNER_PROMPT = """
 You classify the configured Telegram group owner's message to XYRON.
 Return exactly one JSON object with keys:
@@ -242,7 +244,10 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             await message.reply_text(body, entities=entities)
             context.chat_data["xyron_mention_all_last_sent"] = now
         except Exception:
-            await message.reply_text("I couldn't send the mention-all message. Check XYRON's permissions and logs.")
+            logger.exception("Mention-all failed in chat_id=%s", chat.id)
+            await message.reply_text(
+                "Mention-all failed. Check the terminal logs for the exact error."
+            )
         context.chat_data["xyron_owner_control_message_id"] = message.message_id
         return
 
