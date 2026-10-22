@@ -126,7 +126,7 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
         await context.bot.send_message(
             chat_id=user.id,
             text=(
-                'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\\n\\n'
+                'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\n\n'
                 'Must join my Master\'s <a href="https://t.me/+75hmQ06GsjhjMTg9">Secret Society</a>♥️'
             ),
             parse_mode="HTML",
