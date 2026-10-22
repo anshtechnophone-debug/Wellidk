@@ -170,15 +170,15 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     # Answer explicit requests for the bot's saved mute list before AI routing.
     addressed = _addressed(text, bot_username)
     asks_mute_list = bool(re.search(
-        r"\\b(?:who(?:'s| is) muted|who is on mute|show (?:the )?muted|list (?:the )?muted|"
+        r"\b(?:who(?:'s| is) muted|who is on mute|show (?:the )?muted|list (?:the )?muted|"
         r"muted members|members (?:who are )?muted|kon kon muted|kaun kaun muted|"
-        r"kitne members muted|mute list|mutelist)\\b",
+        r"kitne members muted|mute list|mutelist)\b",
         request,
         re.I,
     ))
     explicit_action = bool(re.search(
-        r"^(?:(?:please )?(?:mute|unmute|un-mute|ban|kick|remove)\\b|"
-        r"(?:isko|ise|iss member ko|@?[A-Za-z0-9_]{5,32})\\s+(?:mute|unmute|ban|kick)\\b)",
+        r"^(?:(?:please )?(?:mute|unmute|un-mute|ban|kick|remove)\b|"
+        r"(?:isko|ise|iss member ko|@?[A-Za-z0-9_]{5,32})\s+(?:mute|unmute|ban|kick)\b)",
         request,
         re.I,
     ))
