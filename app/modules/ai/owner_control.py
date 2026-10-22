@@ -188,26 +188,40 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         await mutelist_command(update, context)
         context.chat_data["xyron_owner_control_message_id"] = message.message_id
         return
-    intent = parse_owner_instruction(text, bot_username)
-    if intent:
-        action, duration = intent
-        previous = context.chat_data.get("xyron_last_moderation_action")
-        if message.reply_to_message and message.reply_to_message.from_user:
-            inferred_target = "reply"
-        elif isinstance(previous, dict) and previous.get("target_id"):
-            inferred_target = "last"
-        else:
-            inferred_target = None
-        plan = {"action": action, "target": inferred_target, "duration": duration, "reason": None, "handled": True}
+    # Deterministic handling for target-first Hinglish commands such as
+    # "@username isko unmute karna" so they don't fall through to chat AI.
+    target_first = re.match(
+        r"^(@[A-Za-z0-9_]{5,32})\\s+(?:(?:isko|ise)\\s+)?"
+        r"(unmute|un-mute|mute|ban|kick|remove)"
+        r"(?:\\s+(?:karna|karo|kar\\s*do|do))?(?:\\s+xyron)?[.!?]*$",
+        request,
+        re.I,
+    )
+    if target_first:
+        target_name, target_action = target_first.groups()
+        action = "unmute" if target_action.casefold() in {"unmute", "un-mute"} else target_action.casefold()
+        plan = {"action": action, "target": target_name, "duration": None, "reason": None, "handled": True}
     else:
-        plan = await _ai_plan(request, context, chat.id)
-        if plan is None:
-            # Let the general assistant answer normal conversation if intent
-            # parsing is unavailable; never guess a moderation action.
-            if re.search(r"\b(?:mute|unmute|ban|kick|remove)\b", request, re.I):
-                await message.reply_text("I couldn't safely determine your request. Please rephrase it or reply to the target member's message.")
-                context.chat_data["xyron_owner_control_message_id"] = message.message_id
-            return
+        intent = parse_owner_instruction(text, bot_username)
+        if intent:
+            action, duration = intent
+            previous = context.chat_data.get("xyron_last_moderation_action")
+            if message.reply_to_message and message.reply_to_message.from_user:
+                inferred_target = "reply"
+            elif isinstance(previous, dict) and previous.get("target_id"):
+                inferred_target = "last"
+            else:
+                inferred_target = None
+            plan = {"action": action, "target": inferred_target, "duration": duration, "reason": None, "handled": True}
+        else:
+            plan = await _ai_plan(request, context, chat.id)
+            if plan is None:
+                # Let the general assistant answer normal conversation if intent
+                # parsing is unavailable; never guess a moderation action.
+                if re.search(r"\\b(?:mute|unmute|ban|kick|remove)\\b", request, re.I):
+                    await message.reply_text("I couldn't safely determine your request. Please rephrase it or reply to the target member's message.")
+                    context.chat_data["xyron_owner_control_message_id"] = message.message_id
+                return
 
     action = plan["action"]
     if action == "none":
