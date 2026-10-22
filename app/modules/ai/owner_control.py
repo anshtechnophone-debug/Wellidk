@@ -6,7 +6,6 @@ import json
 import re
 from datetime import UTC, datetime
 
-from sqlalchemy import select
 from types import SimpleNamespace
 from typing import Any
 
