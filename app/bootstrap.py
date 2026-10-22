@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from telegram import Chat, Update
+from telegram import BotCommandScopeChat, BotCommandScopeDefault, Chat, Update
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -364,7 +364,13 @@ async def _post_init(application: Application) -> None:
     # so initialize_schema can create the group history table as well.
     await initialize_schema(engine)
 
-    await application.bot.set_my_commands(bot_commands())
+    # Hide the slash-command menu from everyone by default; publish it only
+    # in the configured owner's private chat.
+    await application.bot.set_my_commands([], scope=BotCommandScopeDefault())
+    await application.bot.set_my_commands(
+        bot_commands(),
+        scope=BotCommandScopeChat(chat_id=settings.owner_id),
+    )
 
     stop_event = asyncio.Event()
     application.bot_data["shutdown_event"] = stop_event
