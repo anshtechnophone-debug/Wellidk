@@ -154,9 +154,9 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
         [InlineKeyboardButton("✓ I've Joined — Check", callback_data=_COMMUNITY_CHECK)],
     ])
     gate_text = (
-        "☠️ <b>XYRON ARMY ACCESS REQUIRED</b> ☠️\\n\\n"
+        "☠️ <b>XYRON ARMY ACCESS REQUIRED</b> ☠️\n\n"
         "Join the XYRON community to use XYRON's commands and features. "
-        "After joining, tap <b>I've Joined — Check</b>.\\n\\n"
+        "After joining, tap <b>I've Joined — Check</b>.\n\n"
         "♛ <b>JOIN XYRON ARMY TO STAY IN POWER.</b> ♛"
     )
     if query:
