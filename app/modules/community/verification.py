@@ -18,7 +18,7 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
-_PAYLOAD = re.compile(r"^verify_(-?\\d{1,15})_(\\d{1,15})$")
+_PAYLOAD = re.compile(r"^verify_(-?\d{1,15})_(\d{1,15})$")
 COMMUNITY_URL = "https://t.me/+krgZfOwfpZxhODYx"
 _COMMUNITY_CHECK = "community_join_check"
 
@@ -50,7 +50,7 @@ def _is_member(member) -> bool:
 async def _send_manual_start_message(message) -> None:
     """Send the original manual /start message after the community gate passes."""
     await message.reply_text(
-        'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\\n\\n'
+        'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\n\n'
         'Must join my Master\'s <a href="https://t.me/+75hmQ06GsjhjMTg9">Secret Society</a>♥️',
         parse_mode="HTML",
         disable_web_page_preview=True,
@@ -101,9 +101,9 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         [InlineKeyboardButton("✓ I've Joined — Check", callback_data=_COMMUNITY_CHECK)],
     ])
     await message.reply_text(
-        "☠️ <b>XYRON ARMY ACCESS REQUIRED</b> ☠️\\n\\n"
+        "☠️ <b>XYRON ARMY ACCESS REQUIRED</b> ☠️\n\n"
         "Join the XYRON community to proceed. Once you've joined, tap "
-        "<b>I've Joined — Check</b> and XYRON will verify your membership.\\n\\n"
+        "<b>I've Joined — Check</b> and XYRON will verify your membership.\n\n"
         "♛ <b>JOIN XYRON ARMY TO STAY IN POWER.</b> ♛",
         parse_mode="HTML",
         reply_markup=keyboard,
@@ -154,7 +154,7 @@ async def community_join_check_callback(
     await context.bot.send_message(
         chat_id=user.id,
         text=(
-            'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\\n\\n'
+            'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\n\n'
             'Must join my Master\'s <a href="https://t.me/+75hmQ06GsjhjMTg9">Secret Society</a>♥️'
         ),
         parse_mode="HTML",
