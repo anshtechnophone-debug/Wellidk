@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, datetime
+
+from sqlalchemy import select
 from types import SimpleNamespace
 from typing import Any
 
@@ -11,6 +14,7 @@ from telegram import Chat, Update
 from telegram.ext import ContextTypes
 
 from app.core.permissions import AuthorizationError
+from app.database.models import BotAdmin
 from app.modules.ai.assistant import OpenAICompatibleProvider
 from app.modules.moderation.handlers import (
     TargetError,
@@ -21,11 +25,11 @@ from app.modules.moderation.handlers import (
     _repository,
 )
 
-_ALLOWED_ACTIONS = {"none", "mute", "unmute", "ban", "kick", "last_target"}
+_ALLOWED_ACTIONS = {"none", "mute", "unmute", "ban", "kick", "last_target", "admin"}
 _PLANNER_PROMPT = """
 You classify the configured Telegram group owner's message to XYRON.
 Return exactly one JSON object with keys:
-action: none|mute|unmute|ban|kick|last_target
+action: none|mute|unmute|ban|kick|last_target|admin
 target: reply|last|@username|numeric_user_id|null
 duration: null or a short duration such as 15m, 2h, 1d
 reason: short string or null
@@ -152,7 +156,7 @@ async def _resolve_plan_target(update: Update, context: ContextTypes.DEFAULT_TYP
         if not isinstance(previous, dict) or not previous.get("target_id"):
             raise OwnerIntentError("I don't have a recent successful moderation target saved in this group. Reply to the member's message or give their @username/ID.")
         return int(previous["target_id"]), []
-    if isinstance(target, str) and re.fullmatch(r"[1-9][0-9]{4,19}", target):
+    if isinstance(target, str) and re.fullmatch(r"[1-9][0-9]{0,19}", target):
         return await _resolve_target(update, context, [target])
     if isinstance(target, str) and re.fullmatch(r"@[A-Za-z0-9_]{5,32}", target):
         return await _resolve_target(update, context, [target])
@@ -184,7 +188,9 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     ))
     explicit_action = bool(re.search(
         r"^(?:(?:please )?(?:mute|unmute|un-mute|ban|kick|remove)\b|"
-        r"(?:isko|ise|iss member ko|@?[A-Za-z0-9_]{5,32})\s+(?:mute|unmute|ban|kick)\b)",
+        r"(?:isko|ise|iss member ko|@?[A-Za-z0-9_]{5,32})\s+(?:mute|unmute|ban|kick|admin)\b|"
+        r"(?:admin|administrator)\s+(?:bana|banao|make|add|promote)\b|"
+        r"(?:bana|banao|make|add|promote)\s+(?:isko\s+)?admin\b)",
         request,
         re.I,
     ))
@@ -267,13 +273,35 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             await message.reply_text("I couldn't safely understand that duration. Use a duration like 15m, 2h, or 1d.")
             context.chat_data["xyron_owner_control_message_id"] = message.message_id
             return
-    if action not in {"mute", "unmute", "ban", "kick"}:
+    if action not in {"mute", "unmute", "ban", "kick", "admin"}:
         return
 
     try:
         target_id, remaining = await _resolve_plan_target(update, context, plan.get("target"))
         if remaining:
             raise OwnerIntentError("Please specify only one target.")
+
+        if action == "admin":
+            if target_id == settings.owner_id:
+                await message.reply_text("Malik, you're already the owner.")
+                context.chat_data["xyron_owner_control_message_id"] = message.message_id
+                return
+            async with context.application.bot_data["sessions"].begin() as session:
+                existing = await session.get(BotAdmin, target_id)
+                if existing:
+                    await message.reply_text(f"That user (ID {target_id}) is already a XYRON bot admin.")
+                else:
+                    session.add(BotAdmin(
+                        user_id=target_id,
+                        added_by=actor.id,
+                        created_at=datetime.now(UTC),
+                    ))
+                    await message.reply_text(
+                        f"Done, Malik. User {target_id} is now a XYRON bot admin. "
+                        "This does not promote them to Telegram group admin."
+                    )
+            context.chat_data["xyron_owner_control_message_id"] = message.message_id
+            return
         target_user = None
         try:
             target_user = await context.bot.get_chat_member(chat.id, target_id)
