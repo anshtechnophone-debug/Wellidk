@@ -57,6 +57,23 @@ async def _send_manual_start_message(message) -> None:
     )
 
 
+def _community_join_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Join XYRON ARMY", url=COMMUNITY_URL)],
+        [InlineKeyboardButton("I’ve Joined — Check", callback_data=_COMMUNITY_CHECK)],
+    ])
+
+
+async def _send_community_join_prompt(message) -> None:
+    """Ask non-owners to join XYRON ARMY before showing the master notice."""
+    await message.reply_text(
+        "Before continuing, please join XYRON ARMY using the button below. "
+        "After joining, tap “I’ve Joined — Check”. I’ll confirm your membership first.",
+        reply_markup=_community_join_keyboard(),
+        disable_web_page_preview=True,
+    )
+
+
 async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle group-verification deep links and gate manual starts on XYRON ARMY."""
     message = update.effective_message
@@ -135,7 +152,7 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
             disable_web_page_preview=True,
         )
     elif message:
-        await _send_manual_start_message(message)
+        await _send_community_join_prompt(message)
 
     raise ApplicationHandlerStop
 
