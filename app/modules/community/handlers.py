@@ -340,6 +340,12 @@ async def group_member_event(update: Update, context: ContextTypes.DEFAULT_TYPE)
     }
     if not (joined or left) or new_member.user.is_bot:
         return
+
+    if joined:
+        from app.modules.community.verification import gate_new_member
+
+        await gate_new_member(chat, member_update, context)
+
     policy = await _repository(context).get(chat.id)
     template = str(policy.get("welcome" if joined else "goodbye", ""))
     if not template:
@@ -359,7 +365,6 @@ async def group_member_event(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await context.bot.send_message(chat.id, safe_template, parse_mode="HTML")
     except TelegramError:
         logger.info("Could not send group greeting for chat %s", chat.id)
-
 
 async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message, chat = update.effective_message, update.effective_chat
