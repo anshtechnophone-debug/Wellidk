@@ -117,6 +117,7 @@ from app.modules.games.team_handlers import (
     teamword_command,
     teamwordcancel_command,
 )
+from app.modules.moderation.bot_admins import admin_command, unadmin_command, botadminlist_command, pin_command
 from app.modules.moderation.handlers import (
     adminlist_command,
     banlist_command,
@@ -193,6 +194,10 @@ async def collect_group_message(
 
 def _register_general(application: Application) -> None:
     for command, callback in (
+        ("admin", admin_command),
+        ("unadmin", unadmin_command),
+        ("botadminlist", botadminlist_command),
+        ("pin", pin_command),
         ("start", start_command),
         ("help", help_command),
         ("about", about_command),
