@@ -183,7 +183,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     # this group's stored message history are eligible; Bot API cannot enumerate
     # every group member. A cooldown prevents repeated accidental mass pings.
     mention_request = re.search(
-        r"\b(?:mention|tag|ping)\s*(?:karo|kro|kar\s*do|kr\s*do|do)?\s*(?:sabko|sabhi|everyone|everybody|all)\b|"
+        r"\b(?:mention|tag|ping)\s*(?:karna|karna\s+hai|karo|kro|kar\s*do|kr\s*do|do)?\s*(?:sabko|sabhi|everyone|everybody|all)\b|"
         r"\b(?:sabko|sabhi|everyone|everybody|all)\s+(?:mention|tag|ping)(?:\s+(?:karo|kro|kar\s*do|kr\s*do|do))?\b|"
         r"\b(?:sabko|sabhi)\s+(?:uthao|uthaoo)\b",
         request,
