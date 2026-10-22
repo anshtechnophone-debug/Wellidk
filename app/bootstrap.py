@@ -64,7 +64,7 @@ from app.modules.community.handlers import (
     unapprove_command,
     unlock_command,
 )
-from app.modules.community.verification import verify_human_callback
+from app.modules.community.verification import community_join_check_callback, verify_human_callback
 from app.modules.community.message_tools import (
     delete_command,
     groupinfo_command,
@@ -343,6 +343,7 @@ def _register_general(application: Application) -> None:
         group=1,
     )
     application.add_handler(CallbackQueryHandler(verify_human_callback, pattern="^verify_"))
+    application.add_handler(CallbackQueryHandler(community_join_check_callback, pattern="^community_join_check$"))
     application.add_handler(
         CallbackQueryHandler(help_callback, pattern=r"^help:")
     )
