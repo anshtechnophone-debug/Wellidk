@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import BigInteger, Index, String, Text, delete, select
+from sqlalchemy import BigInteger, Index, String, Text, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -95,8 +95,17 @@ class GroupHistoryRepository:
                 existing.edited_at = datetime.now(UTC)
                 return
 
+            # SQLite does not auto-generate INTEGER PRIMARY KEY values for
+            # a BIGINT primary-key column. Assign an ID explicitly so this
+            # also works with databases created by older versions of XYRON.
+            current_max_id = await session.scalar(
+                select(func.max(GroupMessage.id))
+            )
+            next_id = (current_max_id or 0) + 1
+
             session.add(
                 GroupMessage(
+                    id=next_id,
                     chat_id=chat_id,
                     message_id=message_id,
                     user_id=user_id,
