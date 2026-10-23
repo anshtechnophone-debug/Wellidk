@@ -219,16 +219,38 @@ async def handle_owner_memory_request(
         await message.reply_text("\n".join(lines))
         return True
 
-    # Abuse checks need surrounding context, not only isolated keyword hits.
-    hours = 36 if re.search(r"last night|yesterday", text) else 24 if asks_abuse else 6
-    start = now - timedelta(hours=hours)
+    # Resolve everyday time references before fetching evidence. In India,
+    # "subah" means today's morning unless the owner says yesterday/kal.
+    local_now = datetime.now(IST)
+    yesterday = bool(re.search(r"\b(?:yesterday|kal)\b", text))
+    morning = bool(re.search(r"\b(?:subah|morning)\b", text))
+    last_night = bool(re.search(r"last night|kal raat|yesterday evening", text))
+    if morning:
+        day = local_now.date() - (timedelta(days=1) if yesterday else timedelta(days=0))
+        local_start = datetime.combine(day, time.min, tzinfo=IST)
+        local_end = datetime.combine(day, time(hour=12), tzinfo=IST)
+        start = local_start.astimezone(UTC)
+        end = min(local_end.astimezone(UTC), now)
+        hours = max(1, int((end - start).total_seconds() // 3600))
+        window_label = "yesterday morning" if yesterday else "this morning"
+    elif last_night or yesterday:
+        hours = 36 if last_night else 24
+        start = now - timedelta(hours=hours)
+        end = now
+        window_label = "last night" if last_night else "yesterday / the last 24 hours"
+    else:
+        hours = 24 if asks_abuse else 6
+        start = now - timedelta(hours=hours)
+        end = now
+        window_label = f"the last {hours} hours"
+
     async with sessions() as session:
         rows = (await session.scalars(
             select(GroupMessage)
             .where(
                 GroupMessage.chat_id == chat.id,
                 GroupMessage.sent_at >= start,
-                GroupMessage.sent_at <= now,
+                GroupMessage.sent_at <= end,
             )
             .order_by(GroupMessage.sent_at.desc())
             .limit(80 if asks_abuse else 60)
@@ -236,12 +258,12 @@ async def handle_owner_memory_request(
 
     if not rows:
         await message.reply_text(
-            f"Malik, I couldn't find saved messages from this group in the last {hours} hours. "
-            "That doesn't prove nothing happened; history may be incomplete."
+            f"Malik, I couldn't find saved messages from {window_label} in this group. "
+            "History may be incomplete."
         )
         return True
 
-    report_kind = "abuse / targeted-insult review" if asks_abuse else "conversation summary"
+    report_kind = "abuse question" if asks_abuse else "short conversational group summary"
     report = await _ai_group_report(
         update, context, request, rows, hours, report_kind
     )
