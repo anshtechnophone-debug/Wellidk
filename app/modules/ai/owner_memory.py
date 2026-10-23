@@ -98,7 +98,7 @@ async def handle_owner_memory_request(
         "These are keyword candidates, not confirmed abuse. No moderation action was taken.",
     ]
     for row in matches[:20]:
-        snippet = row.message_text.replace("\\n", " ")[:180]
+        snippet = row.message_text.replace("\n", " ")[:180]
         username = f" (@{row.username})" if row.username else ""
         lines.append(
             f"• {row.sent_at.isoformat()} | group {row.chat_id} | "
@@ -107,5 +107,5 @@ async def handle_owner_memory_request(
         )
     if len(matches) > 20:
         lines.append(f"Showing latest 20 of {len(matches)} matches.")
-    await message.reply_text("\\n".join(lines))
+    await message.reply_text("\n".join(lines))
     return True
