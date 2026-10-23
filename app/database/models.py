@@ -282,13 +282,3 @@ class BotAdmin(Base):
     added_by: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
 
-
-class OwnerSleepSession(Base):
-    """Explicit owner sleep intervals; never inferred from clock time."""
-    __tablename__ = "owner_sleep_sessions"
-    __table_args__ = (Index("ix_owner_sleep_owner_start", "owner_id", "started_at"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    owner_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
-    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
-    ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
