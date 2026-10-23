@@ -303,6 +303,18 @@ def _register_general(application: Application) -> None:
     # Lower group number runs first. The history collector runs independently
     # of the AI router, so ordinary group messages are saved even when they
     # do not mention XYRON.
+    # Accept plain-text kick Name as well as /kick Name.
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS
+            & filters.TEXT
+            & ~filters.COMMAND
+            & filters.Regex(r"(?i)^kick\s+.+$"),
+            moderation_command,
+        ),
+        group=0,
+    )
+
     application.add_handler(
         MessageHandler(
             filters.ALL & ~filters.COMMAND,
