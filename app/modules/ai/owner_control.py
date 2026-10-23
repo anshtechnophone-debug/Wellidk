@@ -18,6 +18,7 @@ from app.core.permissions import AuthorizationError
 from app.database.models import BotAdmin
 from app.services.group_history import GroupMessage
 from app.modules.ai.assistant import OpenAICompatibleProvider
+from app.modules.ai.owner_memory import handle_owner_memory_request
 from app.modules.moderation.handlers import (
     TargetError,
     _moderate,
@@ -178,6 +179,10 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     bot_username = getattr(context.bot, "username", None)
     text = (message.text or "").strip()
     request = _strip_address(text, bot_username)
+
+    if await handle_owner_memory_request(update, context, request):
+        context.chat_data["xyron_owner_control_message_id"] = message.message_id
+        return
 
     # Owner-only natural-language mention-all. Only users XYRON has seen in
     # this group's stored message history are eligible; Bot API cannot enumerate
