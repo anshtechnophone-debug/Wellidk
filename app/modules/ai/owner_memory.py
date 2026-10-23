@@ -24,7 +24,7 @@ _CANDIDATE_TERMS = (
 def _normalise(value: str) -> str:
     value = value.casefold()
     value = re.sub(r"[^a-z0-9]+", "", value)
-    return re.sub(r"(.)\\1{2,}", r"\\1\\1", value)
+    return re.sub(r"(.)\1{2,}", r"\1\1", value)
 
 
 def _candidate(text: str) -> bool:
