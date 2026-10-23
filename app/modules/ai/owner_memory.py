@@ -206,7 +206,7 @@ async def handle_owner_memory_request(
     ]
     for row in rows[:25]:
         label = row.display_name or f"User {row.user_id}"
-        snippet = re.sub(r"\\s+", " ", row.message_text).strip()[:220]
+        snippet = re.sub(r"\s+", " ", row.message_text).strip()[:220]
         lines.append(
             f"• {row.sent_at.astimezone(IST).strftime('%d %b %H:%M')} IST — "
             f"{label}: {snippet}"
