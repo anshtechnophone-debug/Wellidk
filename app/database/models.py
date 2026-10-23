@@ -281,3 +281,4 @@ class BotAdmin(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     added_by: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
+
