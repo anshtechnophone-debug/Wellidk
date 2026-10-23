@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
+from difflib import SequenceMatcher
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -21,6 +23,7 @@ from app.core.permissions import (
     require_admin_access,
 )
 from app.database.models import Group, KnownUser
+from app.services.group_history import GroupMessage
 from app.services.moderation import ModerationRepository
 
 logger = logging.getLogger(__name__)
@@ -35,27 +38,122 @@ def _repository(context: ContextTypes.DEFAULT_TYPE) -> ModerationRepository:
     return ModerationRepository(context.application.bot_data["sessions"])
 
 
+def _normalize_name(value: str) -> str:
+    """Normalize case and compatibility Unicode, including many styled fonts."""
+
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    normalized = "".join(
+        char for char in normalized if unicodedata.category(char) != "Cf"
+    )
+    return " ".join(
+        "".join(char if char.isalnum() else " " for char in normalized).split()
+    )
+
+
+async def _resolve_name_target(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, query: str
+) -> int:
+    """Resolve a name against users observed in this group's message history."""
+
+    wanted = _normalize_name(query)
+    if not wanted:
+        raise TargetError("Give a username or display name to kick.")
+
+    async with context.application.bot_data["sessions"]() as session:
+        known_users = list(
+            (
+                await session.scalars(
+                    select(KnownUser).where(KnownUser.chat_id == chat_id)
+                )
+            ).all()
+        )
+        history_rows = (
+            await session.execute(
+                select(GroupMessage.user_id, GroupMessage.display_name, GroupMessage.username)
+                .where(GroupMessage.chat_id == chat_id)
+                .distinct()
+            )
+        ).all()
+
+    names_by_id: dict[int, set[str]] = {}
+    for known in known_users:
+        names_by_id.setdefault(known.user_id, set()).add(known.first_name or "")
+        if known.username:
+            names_by_id[known.user_id].add("@" + known.username)
+    for user_id, display_name, username in history_rows:
+        if display_name:
+            names_by_id.setdefault(user_id, set()).add(display_name)
+        if username:
+            names_by_id.setdefault(user_id, set()).add("@" + username)
+
+    exact = {
+        user_id
+        for user_id, names in names_by_id.items()
+        if any(_normalize_name(name) == wanted for name in names if name)
+    }
+    if len(exact) == 1:
+        return exact.pop()
+    if len(exact) > 1:
+        raise TargetError(
+            "That name matches multiple users. Use @username, a numeric ID, "
+            "or reply to the correct user's message."
+        )
+
+    best_by_user: dict[int, tuple[float, str]] = {}
+    for user_id, names in names_by_id.items():
+        for name in names:
+            normalized = _normalize_name(name)
+            if not normalized or name.startswith("@"):
+                continue
+            score = SequenceMatcher(None, wanted, normalized).ratio()
+            if normalized.startswith(wanted + " "):
+                score = max(score, 0.90)
+            if score >= 0.86 and (
+                user_id not in best_by_user or score > best_by_user[user_id][0]
+            ):
+                best_by_user[user_id] = (score, name)
+
+    ranked = sorted(
+        ((score, user_id, name) for user_id, (score, name) in best_by_user.items()),
+        reverse=True,
+    )
+    if ranked and (len(ranked) == 1 or ranked[0][0] - ranked[1][0] >= 0.08):
+        return ranked[0][1]
+    if ranked:
+        options = "\n".join(
+            f"• {name} (ID: {user_id})" for _, user_id, name in ranked[:5]
+        )
+        raise TargetError(
+            "I found multiple possible matches. Use @username/ID or reply to the right user:\n"
+            + options
+        )
+    raise TargetError(
+        "I couldn't match that name to anyone XYRON has seen in this group. "
+        "Try @username, numeric ID, or reply to their message."
+    )
+
+
 async def _resolve_target(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, args: list[str]
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    args: list[str],
+    *,
+    allow_name: bool = False,
 ) -> tuple[int, list[str]]:
     message = update.effective_message
     chat = update.effective_chat
     if message is None or chat is None:
         raise TargetError("This command requires a group message.")
     if message.reply_to_message and message.reply_to_message.from_user:
-        # Natural-language moderation may pass the resolved reply target as
-        # its first argument. Consume that duplicate instead of treating the
-        # user ID as a reason or as an unexpected extra argument.
         reply_user_id = message.reply_to_message.from_user.id
         if args and args[0].isdecimal() and int(args[0]) == reply_user_id:
             return reply_user_id, args[1:]
         return reply_user_id, args
     if not args:
-        raise TargetError("Reply to the user's message or provide a numeric user ID.")
+        raise TargetError("Reply to the user's message or provide a username, name, or numeric ID.")
     value = args[0]
-    remaining = args[1:]
     if value.isdecimal() and int(value) > 0:
-        return int(value), remaining
+        return int(value), args[1:]
     if value.startswith("@") and len(value) > 1:
         async with context.application.bot_data["sessions"]() as session:
             known = await session.scalar(
@@ -64,12 +162,27 @@ async def _resolve_target(
                     KnownUser.username == value[1:].casefold(),
                 )
             )
+            history_user_id = await session.scalar(
+                select(GroupMessage.user_id)
+                .where(
+                    GroupMessage.chat_id == chat.id,
+                    GroupMessage.username == value[1:],
+                )
+                .limit(1)
+            )
         if known:
-            return known.user_id, remaining
-    raise TargetError(
-        "That username is not known to XYRON. Ask the user to send a message, "
-        "or use their numeric ID."
-    )
+            return known.user_id, args[1:]
+        if history_user_id:
+            return history_user_id, args[1:]
+        if allow_name:
+            return await _resolve_name_target(context, chat.id, value), args[1:]
+        raise TargetError(
+            "That username is not known to XYRON yet. Try a name match, numeric ID, "
+            "or reply to the user's message."
+        )
+    if allow_name:
+        return await _resolve_name_target(context, chat.id, " ".join(args)), []
+    raise TargetError("Use a username or numeric ID, or reply to the user's message.")
 
 
 def _permissions_dict(permissions: ChatPermissions | None) -> dict[str, bool] | None:
@@ -159,6 +272,14 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
     if not message or not chat or not actor_user:
         return
     command = context.args
+    # Also accept plain-text kick Name in group chats, without requiring a slash.
+    if (
+        not command
+        and message.text
+        and not message.text.lstrip().startswith("/")
+        and message.text.split(maxsplit=1)[0].casefold() == "kick"
+    ):
+        command = message.text.split()[1:]
     silent = action.startswith("s")
     delete_target_message = action.startswith("d")
     normalized = action[1:] if action[0] in {"s", "d"} else action
@@ -174,7 +295,9 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
         access = await require_admin_access(
             update, context, context.application.bot_data["settings"], "can_restrict_members"
         )
-    target_id, remaining = await _resolve_target(update, context, command)
+    target_id, remaining = await _resolve_target(
+        update, context, command, allow_name=normalized == "kick"
+    )
     duration = None
     if (
         normalized == "mute"
