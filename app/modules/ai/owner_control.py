@@ -206,6 +206,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     addressed = _addressed(text, bot_username)
     asks_mod_history = bool(re.search(
         r"\b(?:who|kisne|kaun|kon).{0,70}\b(?:muted|unmuted|banned|unbanned|kicked|removed|warned|mute|unmute|ban|unban|kick)\b|"
+        r"\b(?:last time|last|pichli baar|pichli dafa).{0,50}\b(?:kisko|kis ko|who|whom).{0,30}\b(?:unmute|unmuted|unban|unbanned|mute|ban|kick)\b|"
         r"\b(?:moderation history|modlog|who muted who|who banned who|who kicked who|"
         r"kisne kisko (?:mute|unmute|ban|unban|kick)|kisne (?:mute|unmute|ban|unban|kick) kiya)\b",
         request,
