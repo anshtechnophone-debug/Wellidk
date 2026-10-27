@@ -510,12 +510,12 @@ async def mutelist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if not entries:
             await _reply(update, "XYRON has no saved mute restrictions in this group.")
             return
-        rows = [
-            f"User {entry.target_id}; set by {entry.actor_id}; "
-            f"updated {entry.updated_at:%Y-%m-%d %H:%M} UTC"
-            for entry in entries[:50]
-        ]
-        await _reply(update, "Saved XYRON mutes:\n" + "\n".join(rows))
+        rows = []
+        for entry in entries[:50]:
+            target = await _user_label(context, update.effective_chat.id, entry.target_id)
+            actor = await _user_label(context, update.effective_chat.id, entry.actor_id)
+            rows.append(f"{target}; set by {actor}; updated {entry.updated_at:%Y-%m-%d %H:%M} UTC")
+        await _reply_html(update, "Saved XYRON mutes:\n" + "\n".join(rows))
     except AuthorizationError as exc:
         await _reply(update, str(exc))
 
@@ -527,11 +527,12 @@ async def banlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not entries:
             await _reply(update, "XYRON has no currently tracked bans in this group.")
             return
-        rows = [
-            f"User {event.target_id}; {event.action}; set by {event.actor_id}"
-            for event in entries[:50]
-        ]
-        await _reply(update, "Tracked bans (up to 50):\n" + "\n".join(rows))
+        rows = []
+        for event in entries[:50]:
+            target = await _user_label(context, update.effective_chat.id, event.target_id)
+            actor = await _user_label(context, update.effective_chat.id, event.actor_id)
+            rows.append(f"{target}; {event.action}; set by {actor}")
+        await _reply_html(update, "Tracked bans (up to 50):\n" + "\n".join(rows))
     except AuthorizationError as exc:
         await _reply(update, str(exc))
 
@@ -626,11 +627,14 @@ async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     saved_permissions,
                 )
             await repository.record(chat.id, actor_user.id, target_id, f"warn_limit_{action}", None)
-            await _reply(
-                update, f"Warning limit reached ({count}/{limit}); {action} applied to {target_id}."
+            target_label = await _user_label(context, chat.id, target_id)
+            await _reply_html(
+                update, f"Warning limit reached ({count}/{limit}); {action} applied to {target_label}."
             )
         else:
-            await _reply(update, f"Warned user {target_id} ({count}/{limit}).")
+            await _reply_html(
+                update, f"Warned {await _user_label(context, chat.id, target_id)} ({count}/{limit})."
+            )
     except (AuthorizationError, TargetError, DurationError) as exc:
         await _reply(update, str(exc))
     except TelegramError as exc:
@@ -649,10 +653,10 @@ async def warning_query_command(update: Update, context: ContextTypes.DEFAULT_TY
             await repository.record(
                 update.effective_chat.id, update.effective_user.id, target_id, "resetwarn", None
             )
-            await _reply(update, f"Cleared warnings for user {target_id}.")
+            await _reply_html(update, f"Cleared warnings for {await _user_label(context, update.effective_chat.id, target_id)}.")
             return
         count = await repository.warning_count(update.effective_chat.id, target_id)
-        await _reply(update, f"User {target_id} has {count} warning(s).")
+        await _reply_html(update, f"{await _user_label(context, update.effective_chat.id, target_id)} has {count} warning(s).")
     except (AuthorizationError, TargetError) as exc:
         await _reply(update, str(exc))
 
@@ -682,12 +686,12 @@ async def modlog_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not events:
             await _reply(update, "No moderation events recorded yet.")
             return
-        lines = [
-            f"{item.action}: {item.target_id} by {item.actor_id} "
-            f"({item.created_at:%Y-%m-%d %H:%M} UTC)"
-            for item in events
-        ]
-        await _reply(update, "Recent moderation events:\n" + "\n".join(lines))
+        lines = []
+        for item in events:
+            target = await _user_label(context, update.effective_chat.id, item.target_id)
+            actor = await _user_label(context, update.effective_chat.id, item.actor_id)
+            lines.append(f"{item.action}: {target} by {actor} ({item.created_at:%Y-%m-%d %H:%M} UTC)")
+        await _reply_html(update, "Recent moderation events:\n" + "\n".join(lines))
     except (AuthorizationError, TargetError, ValueError) as exc:
         await _reply(update, str(exc))
 
@@ -696,8 +700,13 @@ async def adminlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     try:
         await require_admin_access(update, context, context.application.bot_data["settings"], None)
         admins = await context.bot.get_chat_administrators(update.effective_chat.id)
-        names = [f"{member.user.full_name} ({member.user.id})" for member in admins]
-        await _reply(update, "Group administrators:\n" + "\n".join(names))
+        names = []
+        for member in admins:
+            if member.user.username:
+                names.append("@" + html.escape(member.user.username))
+            else:
+                names.append(f'<a href="tg://user?id={member.user.id}">{html.escape(member.user.full_name)}</a>')
+        await _reply_html(update, "Group administrators:\n" + "\n".join(names))
     except (AuthorizationError, TelegramError) as exc:
         await _reply(update, str(exc))
 
