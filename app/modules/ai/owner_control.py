@@ -504,9 +504,13 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         proxy = SimpleNamespace(application=context.application, bot=context.bot, args=proxy_args)
 
         if action == "unmute":
-            await unmute_command(update, proxy)
-            # unmute_command currently reports Telegram/permission errors itself;
-            # record the prior target only as an attempted reference, not success.
+            # Ignore a reply to XYRON confirmation; the resolved numeric target is authoritative.
+            safe_update = SimpleNamespace(
+                effective_message=SimpleNamespace(reply_to_message=None, reply_text=message.reply_text),
+                effective_chat=chat,
+                effective_user=actor,
+            )
+            await unmute_command(safe_update, proxy)
         else:
             await _moderate(update, proxy, action)
             context.chat_data["xyron_last_moderation_action"] = {
