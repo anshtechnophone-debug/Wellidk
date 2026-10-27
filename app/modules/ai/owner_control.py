@@ -15,7 +15,7 @@ from telegram import Chat, MessageEntity, Update, User
 from telegram.ext import ContextTypes
 
 from app.core.permissions import AuthorizationError
-from app.database.models import BotAdmin
+from app.database.models import BotAdmin, ModerationEvent
 from app.services.group_history import GroupMessage
 from app.modules.ai.assistant import OpenAICompatibleProvider
 from app.modules.ai.owner_memory import handle_owner_memory_request
@@ -23,6 +23,7 @@ from app.modules.moderation.handlers import (
     TargetError,
     _moderate,
     _resolve_target,
+    _user_label,
     unmute_command,
     mutelist_command,
     _repository,
@@ -151,21 +152,38 @@ async def _ai_plan(text: str, context: ContextTypes.DEFAULT_TYPE, chat_id: int) 
     return _parse_plan(result.text)
 
 
+async def _latest_persisted_moderation_event(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    actions: set[str] | None = None,
+) -> ModerationEvent | None:
+    """Read durable moderation history; chat_data is only a non-durable cache."""
+    events = await _repository(context).recent_events(chat_id, limit=200)
+    for event in events:
+        if actions is None or event.action in actions:
+            return event
+    return None
+
+
 async def _resolve_plan_target(update: Update, context: ContextTypes.DEFAULT_TYPE, target: Any) -> tuple[int, list[str]]:
     message = update.effective_message
+    chat = update.effective_chat
     if message and message.reply_to_message and message.reply_to_message.from_user and target in (None, "reply"):
         return await _resolve_target(update, context, [])
     if target == "last":
         previous = context.chat_data.get("xyron_last_moderation_action")
-        if not isinstance(previous, dict) or not previous.get("target_id"):
-            raise OwnerIntentError("I don't have a recent successful moderation target saved in this group. Reply to the member's message or give their @username/ID.")
-        return int(previous["target_id"]), []
+        target_id = previous.get("target_id") if isinstance(previous, dict) else None
+        if not target_id and chat:
+            event = await _latest_persisted_moderation_event(context, chat.id)
+            target_id = event.target_id if event else None
+        if not target_id:
+            raise OwnerIntentError("I don't have a saved moderation target for this group yet. Reply to the member's message or give their @username/ID.")
+        return int(target_id), []
     if isinstance(target, str) and re.fullmatch(r"[1-9][0-9]{0,19}", target):
         return await _resolve_target(update, context, [target])
     if isinstance(target, str) and re.fullmatch(r"@[A-Za-z0-9_]{5,32}", target):
         return await _resolve_target(update, context, [target])
     raise OwnerIntentError("Target kisko karna hai? Reply to their message or provide their @username/Telegram user ID.")
-
 
 async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message, chat, actor = update.effective_message, update.effective_chat, update.effective_user
