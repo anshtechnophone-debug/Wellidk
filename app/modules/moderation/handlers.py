@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 import unicodedata
@@ -36,6 +37,38 @@ class TargetError(ValueError):
 
 def _repository(context: ContextTypes.DEFAULT_TYPE) -> ModerationRepository:
     return ModerationRepository(context.application.bot_data["sessions"])
+
+
+async def _user_label(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int) -> str:
+    """Use a username or clickable display name instead of numeric IDs."""
+    username = None
+    display_name = None
+    async with context.application.bot_data["sessions"]() as session:
+        known = await session.scalar(
+            select(KnownUser).where(
+                KnownUser.chat_id == chat_id, KnownUser.user_id == user_id
+            ).limit(1)
+        )
+        if known:
+            username, display_name = known.username, known.first_name
+        if not username or not display_name:
+            history = (await session.execute(
+                select(GroupMessage.username, GroupMessage.display_name)
+                .where(GroupMessage.chat_id == chat_id, GroupMessage.user_id == user_id)
+                .order_by(GroupMessage.sent_at.desc()).limit(1)
+            )).first()
+            if history:
+                username = username or history.username
+                display_name = display_name or history.display_name
+    if username:
+        return "@" + html.escape(username.lstrip("@"))
+    name = html.escape(display_name or "Telegram user")
+    return f'<a href="tg://user?id={user_id}">{name}</a>'
+
+
+async def _reply_html(update: Update, text: str) -> None:
+    if update.effective_message:
+        await update.effective_message.reply_text(text, parse_mode="HTML")
 
 
 def _normalize_name(value: str) -> str:
@@ -121,7 +154,7 @@ async def _resolve_name_target(
         return ranked[0][1]
     if ranked:
         options = "\n".join(
-            f"• {name} (ID: {user_id})" for _, user_id, name in ranked[:5]
+            f"• {html.escape(name)}" for _, user_id, name in ranked[:5]
         )
         raise TargetError(
             "I found multiple possible matches. Use @username/ID or reply to the right user:\n"
@@ -396,7 +429,7 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
         )
         suffix = f" for {duration}" if duration else ""
         await _reply(
-            update, f"{label} user {target_id}{suffix}." + (f" Reason: {reason}" if reason else "")
+            update, f"{label} {await _user_label(context, chat.id, target_id)}{suffix}." + (f" Reason: {html.escape(reason)}" if reason else "")
         )
 
 
@@ -441,7 +474,7 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await context.bot.unban_chat_member(chat_id, target_id, only_if_banned=True)
         await _repository(context).cancel_temporary(chat_id, target_id, "unban")
         await _repository(context).record(chat_id, actor_id, target_id, "unban", None)
-        await _reply(update, f"Unbanned user {target_id}.")
+        await _reply_html(update, f"Unbanned {await _user_label(context, chat_id, target_id)}.")
     except (AuthorizationError, TargetError) as exc:
         await _reply(update, str(exc))
     except TelegramError as exc:
@@ -463,7 +496,7 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await repository.cancel_temporary(chat_id, target_id, "unmute")
         await repository.forget_permissions(chat_id, target_id)
         await repository.record(chat_id, actor_id, target_id, "unmute", None)
-        await _reply(update, f"Restored group permissions for user {target_id}.")
+        await _reply_html(update, f"Restored group permissions for {await _user_label(context, chat_id, target_id)}.")
     except (AuthorizationError, TargetError) as exc:
         await _reply(update, str(exc))
     except TelegramError as exc:
