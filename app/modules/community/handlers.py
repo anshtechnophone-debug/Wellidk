@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from datetime import UTC, datetime
 from collections import defaultdict, deque
 from html import escape
 
@@ -13,6 +14,7 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from app.config import Settings
+from app.database.models import KnownUser
 from app.core.permissions import AuthorizationError, require_admin_access
 from app.services.group_policy import GroupPolicyRepository
 from app.services.reports import ReportRepository
@@ -337,6 +339,34 @@ async def group_member_event(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # because its command handlers already write a richer audit event.
     actor = member_update.from_user
     target = new_member.user
+
+    # Remember members from Telegram member updates, including people who have
+    # not posted messages. Telegram does not provide a complete member-list scan.
+    sessions = context.application.bot_data.get("sessions")
+    if sessions is not None and not target.is_bot:
+        try:
+            async with sessions.begin() as session:
+                known = await session.get(KnownUser, (chat.id, target.id))
+                if known is None:
+                    session.add(
+                        KnownUser(
+                            chat_id=chat.id,
+                            user_id=target.id,
+                            username=target.username.casefold() if target.username else None,
+                            first_name=target.first_name or "",
+                            last_seen=datetime.now(UTC),
+                        )
+                    )
+                else:
+                    known.username = target.username.casefold() if target.username else None
+                    known.first_name = target.first_name or ""
+                    known.last_seen = datetime.now(UTC)
+        except Exception:
+            logger.exception(
+                "Could not update known-member directory chat_id=%s user_id=%s",
+                chat.id, target.id,
+            )
+
     action = None
     if old in {ChatMember.MEMBER, ChatMember.RESTRICTED} and new_status == ChatMember.BANNED:
         action = "ban"
