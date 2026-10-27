@@ -428,7 +428,7 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
             }[normalized]
         )
         suffix = f" for {duration}" if duration else ""
-        await _reply(
+        await _reply_html(
             update, f"{label} {await _user_label(context, chat.id, target_id)}{suffix}." + (f" Reason: {html.escape(reason)}" if reason else "")
         )
 
