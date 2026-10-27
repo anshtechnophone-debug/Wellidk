@@ -171,11 +171,13 @@ async def _resolve_plan_target(update: Update, context: ContextTypes.DEFAULT_TYP
     if message and message.reply_to_message and message.reply_to_message.from_user and target in (None, "reply"):
         return await _resolve_target(update, context, [])
     if target == "last":
-        previous = context.chat_data.get("xyron_last_moderation_action")
-        target_id = previous.get("target_id") if isinstance(previous, dict) else None
-        if not target_id and chat:
-            event = await _latest_persisted_moderation_event(context, chat.id)
-            target_id = event.target_id if event else None
+        # The database is authoritative. The in-memory cache can point to an
+        # older target when a later action (especially unmute/unban) happened.
+        event = await _latest_persisted_moderation_event(context, chat.id) if chat else None
+        target_id = event.target_id if event else None
+        if not target_id:
+            previous = context.chat_data.get("xyron_last_moderation_action")
+            target_id = previous.get("target_id") if isinstance(previous, dict) else None
         if not target_id:
             raise OwnerIntentError("I don't have a saved moderation target for this group yet. Reply to the member's message or give their @username/ID.")
         return int(target_id), []
