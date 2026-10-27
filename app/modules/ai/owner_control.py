@@ -35,7 +35,7 @@ _PLANNER_PROMPT = """
 You classify the configured Telegram group owner's message to XYRON.
 Return exactly one JSON object with keys:
 action: none|mute|unmute|ban|kick|last_target|admin
-target: reply|last|last_unmute|@username|numeric_user_id|null
+target: reply|last|last_mute|last_unmute|@username|numeric_user_id|null
 duration: null or a short duration such as 15m, 2h, 1d
 reason: short string or null
 handled: boolean
@@ -43,7 +43,7 @@ handled: boolean
 Use action=none for questions, discussion, hypothetical requests, or ordinary
 conversation (e.g. "can you mute a member?"). Only explicit requests to perform
 an action are actionable. Interpret English and Hinglish naturally.
-Use target=last_unmute when the owner refers to the person most recently unmuted, e.g. 'jisko last time unmute kia tha'. Resolve it from the persistent moderation event log, not chat memory.\nUse last_target for questions asking who XYRON most recently muted/banned/kicked,
+Use target=last_unmute when the owner refers to the person most recently unmuted, e.g. 'jisko last time unmute kia tha'. Resolve it from the persistent moderation event log, not chat memory. Use target=last_mute when the owner asks to unmute the person most recently muted, e.g. 'jisko last time mute kia tha usko unmute kar'. Resolve it from the persistent moderation event log.\nUse last_target for questions asking who XYRON most recently muted/banned/kicked,
 including requests for that person's numeric Telegram user ID (e.g. "what is the
 ID of the person you just muted?", "abhi jisko mute kiya uski ID kya hai?").
 For last_target queries, set target=last and action=last_target; do not answer
@@ -183,17 +183,21 @@ async def _resolve_plan_target(update: Update, context: ContextTypes.DEFAULT_TYP
     chat = update.effective_chat
     if message and message.reply_to_message and message.reply_to_message.from_user and target in (None, "reply"):
         return await _resolve_target(update, context, [])
-    if target in {"last", "last_unmute"}:
-        # The database is authoritative. The in-memory cache can point to an
-        # older target when a later action (especially unmute/unban) happened.
-        actions = {"unmute", "auto_unmute"} if target == "last_unmute" else None
+    if target in {"last", "last_mute", "last_unmute"}:
+        # The database is authoritative; filter by action for specific references.
+        if target == "last_mute":
+            actions = {"mute", "tmute"}
+        elif target == "last_unmute":
+            actions = {"unmute", "auto_unmute"}
+        else:
+            actions = None
         event = await _latest_persisted_moderation_event(context, chat.id, actions) if chat else None
         target_id = event.target_id if event else None
         if not target_id and target == "last":
             previous = context.chat_data.get("xyron_last_moderation_action")
             target_id = previous.get("target_id") if isinstance(previous, dict) else None
         if not target_id:
-            description = "last unmuted member" if target == "last_unmute" else "saved moderation target"
+            description = {"last_mute": "last muted member", "last_unmute": "last unmuted member"}.get(target, "saved moderation target")
             raise OwnerIntentError(f"I don't have a {description} recorded for this group yet. Reply to the member's message or give their @username/ID.")
         return int(target_id), []
     if isinstance(target, str) and re.fullmatch(r"[1-9][0-9]{0,19}", target):
@@ -390,6 +394,16 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             previous = context.chat_data.get("xyron_last_moderation_action")
             if message.reply_to_message and message.reply_to_message.from_user:
                 inferred_target = "reply"
+            elif action == "unmute" and re.search(
+                r"\\b(?:ab\\s+)?(?:jisko|jis\\s+ko|the\\s+one|the\\s+person|whoever)\\b"
+                r".{0,60}\\b(?:last\\s+time|last|pichli\\s+baar|pichli\\s+dafa)\\b"
+                r".{0,35}\\b(?:mute|muted|mute\\s+kia|mute\\s+kiya)\\b"
+                r".{0,45}\\b(?:usko|use|him|her|them|that\\s+person)?\\s*"
+                r"(?:unmute|un-mute)\\b",
+                request,
+                re.I,
+            ):
+                inferred_target = "last_mute"
             elif isinstance(previous, dict) and previous.get("target_id"):
                 inferred_target = "last"
             else:
