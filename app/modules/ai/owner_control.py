@@ -274,6 +274,32 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         context.chat_data["xyron_owner_control_message_id"] = message.message_id
         return
 
+    # Moderation history is read from the database, not volatile conversation memory.
+    addressed = _addressed(text, bot_username)
+    asks_mod_history = bool(re.search(
+        r"\b(?:who|kisne|kaun|kon).{0,70}\b(?:muted|unmuted|banned|unbanned|kicked|removed|warned|mute|unmute|ban|unban|kick)\b|"
+        r"\b(?:moderation history|modlog|who muted who|who banned who|who kicked who|"
+        r"kisne kisko (?:mute|unmute|ban|unban|kick)|kisne (?:mute|unmute|ban|unban|kick) kiya)\b",
+        request,
+        re.I,
+    ))
+    if asks_mod_history and (
+        addressed or re.match(r"^(?:who|kisne|kaun|kon|show|list|modlog|moderation history)\b", request, re.I)
+    ):
+        events = await _repository(context).recent_events(chat.id, limit=10)
+        if not events:
+            await message.reply_text("Malik, XYRON ke saved moderation log mein abhi koi event nahi mila.")
+        else:
+            lines = ["Recent moderation actions (newest first):"]
+            for event in events:
+                actor_label = await _user_label(context, chat.id, event.actor_id)
+                target_label = await _user_label(context, chat.id, event.target_id)
+                when = event.created_at.strftime("%d %b %H:%M UTC")
+                lines.append(f"{event.action}: {actor_label} → {target_label} ({when})")
+            await message.reply_text("\n".join(lines))
+        context.chat_data["xyron_owner_control_message_id"] = message.message_id
+        return
+
     # Answer explicit requests for the bot's saved mute list before AI routing.
     addressed = _addressed(text, bot_username)
     asks_mute_list = bool(re.search(
