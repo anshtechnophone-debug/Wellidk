@@ -69,6 +69,19 @@ def parse_owner_instruction(text: str, bot_username: str | None = None) -> tuple
     value = re.sub(r"^(?:please\s+)?", "", value, flags=re.I)
     value = " ".join(value.split()).casefold()
 
+    # Reference the most recent moderation target in natural Hinglish commands.
+    # The caller resolves target=last against persisted moderation events.
+    if re.search(
+        r"\\b(?:ab\\s+)?(?:jisko|jis\\s+ko|the\\s+one|the\\s+person|whoever)\\b"
+        r".{0,60}\\b(?:last\\s+time|last|pichli\\s+baar|pichli\\s+dafa)\\b"
+        r".{0,35}\\b(?:mute|muted|mute\\s+kia|mute\\s+kiya)\\b"
+        r".{0,45}\\b(?:usko|use|him|her|them|that\\s+person)?\\s*"
+        r"(?:unmute|un-mute)\\b",
+        value,
+        re.I,
+    ):
+        return "unmute", None
+
     if re.fullmatch(r"(?:unmute|un-mute)(?:\s+(?:him|her|this person|this user|that person|isko))?", value) or re.fullmatch(r"(?:isko\s+)?unmute(?:\s+karo|\s+kar\s*do)?", value):
         return "unmute", None
     match = re.fullmatch(r"(ban|kick)(?:\s+(?:him|her|this person|this user|that person|isko))?", value)
