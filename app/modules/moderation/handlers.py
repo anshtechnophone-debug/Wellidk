@@ -153,11 +153,11 @@ async def _resolve_name_target(
     if ranked and (len(ranked) == 1 or ranked[0][0] - ranked[1][0] >= 0.08):
         return ranked[0][1]
     if ranked:
-        options = "\n".join(
-            f"• {html.escape(name)}" for _, user_id, name in ranked[:5]
-        )
+        options = []
+        for _, user_id, _name in ranked[:5]:
+            options.append("• " + await _user_label(context, chat_id, user_id))
         raise TargetError(
-            "I found multiple possible matches. Use @username/ID or reply to the right user:\n"
+            "I found multiple possible matches. Use @username or reply to the right user:\n"
             + options
         )
     raise TargetError(
@@ -437,7 +437,9 @@ async def moderation_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     name = update.effective_message.text.split()[0].split("@")[0].lstrip("/").lower()
     try:
         await _moderate(update, context, name)
-    except (AuthorizationError, TargetError, DurationError) as exc:
+    except TargetError as exc:
+        await _reply_html(update, str(exc))
+    except (AuthorizationError, DurationError) as exc:
         await _reply(update, str(exc))
     except (BadRequest, Forbidden) as exc:
         await _reply(update, f"Telegram rejected the action: {exc.message}")
