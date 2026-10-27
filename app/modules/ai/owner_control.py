@@ -334,7 +334,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         re.I,
     ))
     if asks_mod_history and (
-        addressed or re.match(r"^(?:who|kisne|kaun|kon|show|list|modlog|moderation history)\b", request, re.I)
+        addressed or re.match(r"^(?:who|kisne|kaun|kon|show|list|modlog|moderation history|last(?:\s+time)?|pichli\s+(?:baar|dafa))\b", request, re.I)
     ):
         asks_last_unmute = bool(re.search(
             r"\b(?:last time|last|pichli baar|pichli dafa).{0,50}\b(?:kisko|kis ko|who|whom).{0,30}\b(?:unmute|unmuted)\b",
