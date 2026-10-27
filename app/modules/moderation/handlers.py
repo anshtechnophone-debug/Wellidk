@@ -328,7 +328,7 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
             update, context, context.application.bot_data["settings"], "can_restrict_members"
         )
     target_id, remaining = await _resolve_target(
-        update, context, command, allow_name=normalized == "kick"
+        update, context, command, allow_name=True
     )
     duration = None
     if (
