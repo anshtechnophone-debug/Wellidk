@@ -455,7 +455,7 @@ async def _require_target_admin(
     access = await require_admin_access(
         update, context, context.application.bot_data["settings"], "can_restrict_members"
     )
-    target_id, rest = await _resolve_target(update, context, context.args)
+    target_id, rest = await _resolve_target(update, context, context.args, allow_name=True)
     if rest:
         raise TargetError("This command does not accept extra arguments.")
     await ensure_target_is_moderatable(
