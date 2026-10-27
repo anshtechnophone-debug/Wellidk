@@ -215,9 +215,21 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     if asks_mod_history and (
         addressed or re.match(r"^(?:who|kisne|kaun|kon|show|list|modlog|moderation history)\b", request, re.I)
     ):
-        events = await _repository(context).recent_events(chat.id, limit=10)
+        asks_last_unmute = bool(re.search(
+            r"\b(?:last time|last|pichli baar|pichli dafa).{0,50}\b(?:kisko|kis ko|who|whom).{0,30}\b(?:unmute|unmuted)\b",
+            request,
+            re.I,
+        ))
+        all_events = await _repository(context).recent_events(chat.id, limit=200 if asks_last_unmute else 10)
+        events = [event for event in all_events if event.action == "unmute"][:1] if asks_last_unmute else all_events
         if not events:
-            await message.reply_text("Malik, XYRON ke saved moderation log mein abhi koi event nahi mila.")
+            await message.reply_text("Malik, XYRON ke saved moderation log mein is action ka koi record nahi mila.")
+        elif asks_last_unmute:
+            event = events[0]
+            actor_label = await _user_label(context, chat.id, event.actor_id)
+            target_label = await _user_label(context, chat.id, event.target_id)
+            when = event.created_at.strftime("%d %b %H:%M UTC")
+            await message.reply_text(f"Last unmute: {target_label}. Unmuted by {actor_label} ({when}).")
         else:
             lines = ["Recent moderation actions (newest first):"]
             for event in events:
