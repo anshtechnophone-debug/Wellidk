@@ -1,15 +1,51 @@
 """Owner-only management of XYRON's independent bot-admin list."""
 from __future__ import annotations
+import html
 from datetime import UTC, datetime
 from sqlalchemy import select
 from telegram import Chat
 from telegram.ext import ContextTypes
 from app.config import Settings
-from app.database.models import BotAdmin
+from app.database.models import BotAdmin, KnownUser
+from app.services.group_history import GroupMessage
 
-async def _reply(update, text: str) -> None:
+async def _reply(update, text: str, *, html_mode: bool = False) -> None:
     if update.effective_message:
-        await update.effective_message.reply_text(text)
+        await update.effective_message.reply_text(
+            text, parse_mode="HTML" if html_mode else None
+        )
+
+
+async def _user_label(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> str:
+    """Return a username or clickable display name, never a raw numeric ID."""
+    username = None
+    display_name = None
+    async with context.application.bot_data["sessions"]() as session:
+        known = await session.scalar(
+            select(KnownUser).where(KnownUser.user_id == user_id).limit(1)
+        )
+        if known:
+            username, display_name = known.username, known.first_name
+        history = (await session.execute(
+            select(GroupMessage.username, GroupMessage.display_name)
+            .where(GroupMessage.user_id == user_id)
+            .order_by(GroupMessage.sent_at.desc()).limit(1)
+        )).first()
+        if history:
+            username = username or history.username
+            display_name = display_name or history.display_name
+    if username:
+        return "@" + html.escape(username.lstrip("@"))
+    try:
+        user = await context.bot.get_chat(user_id)
+        display_name = display_name or getattr(user, "full_name", None)
+        username = getattr(user, "username", None) or username
+    except Exception:
+        pass
+    if username:
+        return "@" + html.escape(username.lstrip("@"))
+    name = html.escape(display_name or "Telegram user")
+    return f'<a href="tg://user?id={user_id}">{name}</a>'
 
 async def admin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user, chat = update.effective_user, update.effective_chat
@@ -23,9 +59,9 @@ async def admin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _reply(update, "You are already the owner."); return
     async with context.application.bot_data["sessions"].begin() as session:
         if await session.get(BotAdmin, target_id):
-            await _reply(update, f"User {target_id} is already a XYRON bot admin."); return
+            await _reply(update, f"{await _user_label(context, target_id)} is already a XYRON bot admin.", html_mode=True); return
         session.add(BotAdmin(user_id=target_id, added_by=user.id, created_at=datetime.now(UTC)))
-    await _reply(update, f"Added {target_id} as a XYRON bot admin. They do not need group-admin status.")
+    await _reply(update, f"Added {await _user_label(context, target_id)} as a XYRON bot admin. They do not need group-admin status.", html_mode=True)
 
 async def unadmin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user, chat = update.effective_user, update.effective_chat
@@ -40,7 +76,7 @@ async def unadmin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not existing:
             await _reply(update, "That user is not a XYRON bot admin."); return
         await session.delete(existing)
-    await _reply(update, f"Removed {target_id} from XYRON bot admins.")
+    await _reply(update, f"Removed {await _user_label(context, target_id)} from XYRON bot admins.", html_mode=True)
 
 async def botadminlist_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user, chat = update.effective_user, update.effective_chat
@@ -49,7 +85,8 @@ async def botadminlist_command(update, context: ContextTypes.DEFAULT_TYPE) -> No
         await _reply(update, "Only the owner can view the bot-admin list, in DM."); return
     async with context.application.bot_data["sessions"]() as session:
         rows = (await session.scalars(select(BotAdmin).order_by(BotAdmin.user_id))).all()
-    await _reply(update, "XYRON bot admins:\n" + ("\n".join(str(row.user_id) for row in rows) if rows else "No additional admins."))
+        labels = [await _user_label(context, row.user_id) for row in rows]
+    await _reply(update, "XYRON bot admins:\n" + ("\n".join(labels) if labels else "No additional admins."), html_mode=True)
 
 async def pin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     from telegram import Chat
