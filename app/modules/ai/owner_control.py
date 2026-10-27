@@ -93,7 +93,7 @@ def parse_owner_instruction(text: str, bot_username: str | None = None) -> tuple
     ):
         return "mute", None
 
-    if re.fullmatch(r"(?:unmute|un-mute)(?:\s+(?:him|her|this person|this user|that person|isko))?", value) or re.fullmatch(r"(?:isko\s+)?unmute(?:\s+karo|\s+kar\s*do)?", value):
+    if re.fullmatch(r"(?:unmute|un-mute)(?:\s+(?:(?:kr|kar)\s+)?(?:him|her|this person|this user|that person|isko|ise|usko|use))?", value) or re.fullmatch(r"(?:isko|ise|usko|use)\s+(?:unmute|un-mute)(?:\s+(?:kr|kar|karo|karde|kardo|kar\s*do|kr\s*do))?", value) or re.fullmatch(r"(?:isko\s+)?unmute(?:\s+karo|\s+kar\s*do)?", value):
         return "unmute", None
     match = re.fullmatch(r"(ban|kick)(?:\s+(?:him|her|this person|this user|that person|isko))?", value)
     if match:
