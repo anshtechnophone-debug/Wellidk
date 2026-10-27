@@ -246,13 +246,12 @@ async def _pre_restriction_permissions(
         return saved, False
     target = await context.bot.get_chat_member(chat_id, target_id)
     if target.status == ChatMember.RESTRICTED:
-        raise TargetError(
-            "Telegram already has this member restricted, but XYRON has no saved "
-            "permission baseline, so I cannot safely replace the restriction. "
-            "Recovery: reply to this member with /unmute first (this restores the "
-            "group's current default permissions), then run /mute again. "
-            "Warning: /unmute may remove restrictions set manually or by another bot."
+        await context.bot.restrict_chat_member(
+            chat_id,
+            target_id,
+            permissions=bounded_permissions(defaults, defaults),
         )
+        return defaults, True
     return defaults, True
 
 
