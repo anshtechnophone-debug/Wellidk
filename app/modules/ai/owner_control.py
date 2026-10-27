@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import func, select
 from telegram import Chat, MessageEntity, Update, User
 from telegram.ext import ContextTypes
+from telegram.error import TelegramError
 
 from app.core.permissions import AuthorizationError
 from app.database.models import BotAdmin, ModerationEvent
@@ -69,18 +70,28 @@ def parse_owner_instruction(text: str, bot_username: str | None = None) -> tuple
     value = re.sub(r"^(?:please\s+)?", "", value, flags=re.I)
     value = " ".join(value.split()).casefold()
 
-    # Reference the most recent moderation target in natural Hinglish commands.
-    # The caller resolves target=last against persisted moderation events.
+    # Resolve references to the most recent mute/unmute from durable moderation history.
     if re.search(
-        r"\\b(?:ab\\s+)?(?:jisko|jis\\s+ko|the\\s+one|the\\s+person|whoever)\\b"
-        r".{0,60}\\b(?:last\\s+time|last|pichli\\s+baar|pichli\\s+dafa)\\b"
-        r".{0,35}\\b(?:mute|muted|mute\\s+kia|mute\\s+kiya)\\b"
-        r".{0,45}\\b(?:usko|use|him|her|them|that\\s+person)?\\s*"
-        r"(?:unmute|un-mute)\\b",
+        r"\b(?:ab\s+)?(?:jisko|jis\s+ko|the\s+one|the\s+person|whoever)\b"
+        r".{0,60}\b(?:last\s+time|last|pichli\s+baar|pichli\s+dafa)\b"
+        r".{0,35}\b(?:mute|muted|mute\s+kia|mute\s+kiya)\b"
+        r".{0,45}\b(?:usko|use|him|her|them|that\s+person)?\s*"
+        r"(?:unmute|un-mute)\b",
         value,
         re.I,
     ):
         return "unmute", None
+
+    # Common short Hinglish forms: "isko wapis mute karde", "mute kr usko".
+    if re.fullmatch(
+        r"(?:(?:isko|ise|usko|use|him|her|that\s+person)\s+"
+        r"(?:(?:wapis|wapas|dobara|again|back)\s+)?mute"
+        r"(?:\s+(?:kar|kr|karde|kardo|kar\s*de|kar\s*do|kr\s*de|kr\s*do))?|"
+        r"mute\s+(?:(?:kar|kr)\s+)?(?:usko|isko|use|him|her|that\s+person))",
+        value,
+        re.I,
+    ):
+        return "mute", None
 
     if re.fullmatch(r"(?:unmute|un-mute)(?:\s+(?:him|her|this person|this user|that person|isko))?", value) or re.fullmatch(r"(?:isko\s+)?unmute(?:\s+karo|\s+kar\s*do)?", value):
         return "unmute", None
@@ -347,7 +358,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     ))
     explicit_action = bool(re.search(
         r"^(?:(?:please )?(?:mute|unmute|un-mute|ban|kick|remove)\b|"
-        r"(?:isko|ise|iss member ko|@?[A-Za-z0-9_]{5,32})\s+(?:mute|unmute|ban|kick|admin)\b|"
+        r"(?:isko|ise|usko|use|iss member ko|@?[A-Za-z0-9_]{5,32})\s+(?:(?:wapis|wapas|dobara|again)\s+)?(?:mute|unmute|ban|kick|admin)\b|"
         r"(?:admin|administrator)\s+(?:bana|banao|make|add|promote)\b|"
         r"(?:bana|banao|make|add|promote)\s+(?:isko\s+)?admin\b)",
         request,
@@ -395,15 +406,23 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             if message.reply_to_message and message.reply_to_message.from_user:
                 inferred_target = "reply"
             elif action == "unmute" and re.search(
-                r"\\b(?:ab\\s+)?(?:jisko|jis\\s+ko|the\\s+one|the\\s+person|whoever)\\b"
-                r".{0,60}\\b(?:last\\s+time|last|pichli\\s+baar|pichli\\s+dafa)\\b"
-                r".{0,35}\\b(?:mute|muted|mute\\s+kia|mute\\s+kiya)\\b"
-                r".{0,45}\\b(?:usko|use|him|her|them|that\\s+person)?\\s*"
-                r"(?:unmute|un-mute)\\b",
+                r"\b(?:ab\s+)?(?:jisko|jis\s+ko|the\s+one|the\s+person|whoever)\b"
+                r".{0,60}\b(?:last\s+time|last|pichli\s+baar|pichli\s+dafa)\b"
+                r".{0,35}\b(?:mute|muted|mute\s+kia|mute\s+kiya)\b"
+                r".{0,45}\b(?:usko|use|him|her|them|that\s+person)?\s*"
+                r"(?:unmute|un-mute)\b",
                 request,
                 re.I,
             ):
                 inferred_target = "last_mute"
+            elif action == "mute" and re.search(
+                r"\b(?:isko|ise|usko|use|him|her|that\s+person)\b", request, re.I
+            ) and re.search(
+                r"\b(?:wapis|wapas|dobara|again|back|mute|kar|kr|karde|kardo)\b",
+                request,
+                re.I,
+            ):
+                inferred_target = "last_unmute"
             elif isinstance(previous, dict) and previous.get("target_id"):
                 inferred_target = "last"
             else:
@@ -498,7 +517,13 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             }
     except (AuthorizationError, TargetError, OwnerIntentError) as exc:
         await message.reply_text(str(exc))
+    except TelegramError as exc:
+        logger.exception("Telegram error during owner moderation in chat_id=%s", chat.id)
+        await message.reply_text(
+            f"Telegram rejected the moderation request: {exc}. No successful action was recorded."
+        )
     except Exception:
-        await message.reply_text("Telegram couldn't complete that request. No successful action was recorded.")
+        logger.exception("Owner moderation failed in chat_id=%s", chat.id)
+        await message.reply_text("The moderation request failed unexpectedly. Check the XYRON service logs; no success was recorded.")
     finally:
         context.chat_data["xyron_owner_control_message_id"] = message.message_id
