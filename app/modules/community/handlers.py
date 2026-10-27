@@ -16,6 +16,7 @@ from app.config import Settings
 from app.core.permissions import AuthorizationError, require_admin_access
 from app.services.group_policy import GroupPolicyRepository
 from app.services.reports import ReportRepository
+from app.services.moderation import ModerationRepository
 
 logger = logging.getLogger(__name__)
 _LINK = re.compile(r"(?:https?://|www\.|t\.me/|telegram\.me/)", re.IGNORECASE)
@@ -330,6 +331,43 @@ async def group_member_event(update: Update, context: ContextTypes.DEFAULT_TYPE)
     old = member_update.old_chat_member.status
     new_member = member_update.new_chat_member
     new_status = new_member.status
+
+    # Record moderation performed directly in Telegram by admins or other bots,
+    # not only commands issued through XYRON. Ignore XYRON's own API updates
+    # because its command handlers already write a richer audit event.
+    actor = member_update.from_user
+    target = new_member.user
+    action = None
+    if old in {ChatMember.MEMBER, ChatMember.RESTRICTED} and new_status == ChatMember.BANNED:
+        action = "ban"
+    elif old == ChatMember.MEMBER and new_status == ChatMember.RESTRICTED:
+        action = "mute"
+    elif old == ChatMember.RESTRICTED and new_status == ChatMember.MEMBER:
+        action = "unmute"
+    elif old == ChatMember.BANNED and new_status in {
+        ChatMember.LEFT, ChatMember.MEMBER, ChatMember.RESTRICTED,
+    }:
+        action = "unban"
+    elif old in {ChatMember.MEMBER, ChatMember.RESTRICTED} and new_status == ChatMember.LEFT:
+        action = "kick" if actor and actor.id != target.id else None
+
+    if (
+        action
+        and actor
+        and actor.id != context.bot.id
+        and actor.id != target.id
+        and context.application.bot_data.get("sessions") is not None
+    ):
+        try:
+            await ModerationRepository(context.application.bot_data["sessions"]).record(
+                chat.id, actor.id, target.id, action, None
+            )
+        except Exception:
+            logger.exception(
+                "Could not record external moderation event chat_id=%s target_id=%s action=%s",
+                chat.id, target.id, action,
+            )
+
     joined = old in {ChatMember.LEFT, ChatMember.BANNED} and new_status in {
         ChatMember.MEMBER,
         ChatMember.RESTRICTED,
