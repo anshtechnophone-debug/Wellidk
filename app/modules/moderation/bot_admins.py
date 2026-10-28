@@ -4,6 +4,7 @@ import html
 from datetime import UTC, datetime
 from sqlalchemy import select
 from telegram import Chat
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 from app.config import Settings
 from app.database.models import BotAdmin, KnownUser
@@ -82,12 +83,82 @@ async def unadmin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def botadminlist_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user, chat = update.effective_user, update.effective_chat
     settings: Settings = context.application.bot_data["settings"]
-    if not user or user.id != settings.owner_id or not chat or chat.type != Chat.PRIVATE:
-        await _reply(update, "Only the owner can view the bot-admin list, in DM."); return
+    if not user or not settings.is_owner(user.id) or not chat:
+        await _reply(update, "Only the configured owner can view the XYRON bot-admin list.")
+        return
+    if chat.type not in {Chat.PRIVATE, Chat.GROUP, Chat.SUPERGROUP}:
+        await _reply(update, "Use /botadminlist in a private chat or a group.")
+        return
+
     async with context.application.bot_data["sessions"]() as session:
         rows = (await session.scalars(select(BotAdmin).order_by(BotAdmin.user_id))).all()
+
+    if chat.type == Chat.PRIVATE:
         labels = [await _user_label(context, row.user_id) for row in rows]
-    await _reply(update, "XYRON bot admins:\n" + ("\n".join(labels) if labels else "No additional admins."), html_mode=True)
+        await _reply(
+            update,
+            "All XYRON bot admins:\n" + ("\n".join(labels) if labels else "No additional admins."),
+            html_mode=True,
+        )
+        return
+
+    # In a group, list only bot admins Telegram confirms are current members.
+    labels = []
+    unverified = 0
+    for row in rows:
+        try:
+            member = await context.bot.get_chat_member(chat.id, row.user_id)
+        except TelegramError:
+            unverified += 1
+            continue
+        status = getattr(member, "status", "")
+        is_member = status in {"creator", "administrator", "member"} or (
+            status == "restricted" and bool(getattr(member, "is_member", False))
+        )
+        if is_member:
+            labels.append(await _user_label(context, row.user_id))
+
+    heading = f"XYRON bot admins in this group ({len(labels)}):"
+    body = "\n".join(labels) if labels else "No XYRON bot admins from the bot-admin list are in this group."
+    if unverified:
+        body += f"\n\nNote: Telegram could not verify {unverified} account(s), so they were not included."
+    await _reply(update, heading + "\n" + body, html_mode=True)
+
+
+async def demote_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Remove the replied-to user from XYRON's independent bot-admin list."""
+    message = update.effective_message
+    user = update.effective_user
+    chat = update.effective_chat
+    settings: Settings = context.application.bot_data["settings"]
+
+    if not message or not user or not settings.is_owner(user.id):
+        await _reply(update, "Only the configured owner can demote XYRON bot admins.")
+        return
+    if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        await _reply(update, "Reply to that user's message in a group and send: demote")
+        return
+    target_message = message.reply_to_message
+    target = target_message.from_user if target_message else None
+    if not target:
+        await _reply(update, "Reply directly to the user's message, then send: demote")
+        return
+    if settings.is_owner(target.id):
+        await _reply(update, "The configured owner cannot be demoted.")
+        return
+
+    async with context.application.bot_data["sessions"].begin() as session:
+        existing = await session.get(BotAdmin, target.id)
+        if not existing:
+            await _reply(update, "That user is not on XYRON's bot-admin list.")
+            return
+        await session.delete(existing)
+
+    await _reply(
+        update,
+        f"Removed {await _user_label(context, target.id)} from XYRON bot admins.",
+        html_mode=True,
+    )
 
 async def pin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     from telegram import Chat
