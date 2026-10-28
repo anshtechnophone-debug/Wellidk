@@ -17,8 +17,6 @@ from telegram import (
 from telegram.error import TelegramError
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
-from app.database.models import BotAdmin
-
 logger = logging.getLogger(__name__)
 _PAYLOAD = re.compile(r"^verify_(-?\d{1,15})_(\d{1,15})$")
 COMMUNITY_URL = "https://t.me/+krgZfOwfpZxhODYx"
@@ -125,21 +123,14 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
     message = update.effective_message
     query = update.callback_query
 
-    # The community join prompt is DM-only. In groups, allow registered XYRON
-    # bot admins to reach command handlers; each sensitive command still performs
-    # its own authorization and Telegram-permission checks. Natural-language AI
-    # remains owner-only in owner_natural_control / AIEventRouter.
+    # This gate controls private-chat/community access, not group command
+    # authorization. Group commands must reach their handlers: public commands
+    # are usable by members, while sensitive commands enforce owner/admin and
+    # Telegram-permission checks themselves. Natural-language AI remains
+    # owner-only in owner_natural_control / AIEventRouter.
     if chat.type != Chat.PRIVATE:
         if query:
             await query.answer("Please message XYRON privately to continue.", show_alert=True)
-            raise ApplicationHandlerStop
-        if message and message.text and message.text.lstrip().startswith("/"):
-            sessions = context.application.bot_data.get("sessions")
-            if sessions is not None:
-                async with sessions() as session:
-                    is_bot_admin = bool(await session.get(BotAdmin, user.id))
-                if is_bot_admin:
-                    return
             raise ApplicationHandlerStop
         return
 
