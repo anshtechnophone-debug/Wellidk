@@ -312,10 +312,10 @@ async def plain_spamprotector_command(update: Update, context: ContextTypes.DEFA
     settings: Settings = context.application.bot_data["settings"]
     if not message or not user or not settings.is_owner(user.id):
         return
-    phrase = re.sub(r"\\s+", " ", (message.text or "").strip().casefold())
-    if re.fullmatch(r"xyron\\s+spam\\s+protector\\s+(?:on|onn)", phrase):
+    phrase = re.sub(r"\s+", " ", (message.text or "").strip().casefold())
+    if re.fullmatch(r"xyron\s+spam\s+protector\s+(?:on|onn)", phrase):
         context.args = ["on"]
-    elif re.fullmatch(r"xyron\\s+spam\\s+protector\\s+off", phrase):
+    elif re.fullmatch(r"xyron\s+spam\s+protector\s+off", phrase):
         context.args = ["off"]
     else:
         return
