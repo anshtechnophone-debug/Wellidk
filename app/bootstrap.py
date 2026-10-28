@@ -557,10 +557,11 @@ async def _post_init(application: Application) -> None:
     # Hide the slash-command menu from everyone by default; publish it only
     # in the configured owner's private chat.
     await application.bot.set_my_commands([], scope=BotCommandScopeDefault())
-    await application.bot.set_my_commands(
-        bot_commands(),
-        scope=BotCommandScopeChat(chat_id=settings.owner_id),
-    )
+    for owner_id in settings.owner_ids:
+        await application.bot.set_my_commands(
+            bot_commands(),
+            scope=BotCommandScopeChat(chat_id=owner_id),
+        )
 
     stop_event = asyncio.Event()
     application.bot_data["shutdown_event"] = stop_event
