@@ -11,18 +11,8 @@ from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
 
-# Per-process counts keyed by (chat_id, message_id, user_id). Each changed,
-# non-empty reaction set counts as one action; selecting multiple reactions at
-# once also triggers the guard immediately.
-WINDOW = timedelta(days=30)
-MAX_TRACKED_KEYS = 20_000
-
-
-def _permission_names() -> tuple[str, ...]:
-    return tuple(
-        name for name in ChatPermissions.__slots__ if name.startswith("can_")
-    )
-
+# A user is restricted only when their current reaction set contains multiple
+# reactions on the same message. Changing a single reaction is not punished.
 
 async def reaction_guard_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -43,10 +33,9 @@ async def reaction_guard_handler(
     if settings and settings.is_owner(user.id):
         return
 
-    old_reaction = reaction.old_reaction or []
     new_reaction = reaction.new_reaction or []
-    if not new_reaction or old_reaction == new_reaction:
-        # Ignore reaction removals; count additions and changes only.
+    if len(new_reaction) < 2:
+        # A single reaction, removal, or change from one emoji to another is fine.
         return
 
     sessions = context.application.bot_data.get("sessions")
@@ -60,38 +49,9 @@ async def reaction_guard_handler(
             return
         if member.status not in {ChatMember.MEMBER, ChatMember.RESTRICTED}:
             return
-        if member.status == ChatMember.RESTRICTED and not getattr(
-            member, "can_react_to_messages", True
-        ):
-            return
-
-        key = (chat.id, reaction.message_id, user.id)
-        now = datetime.now(UTC)
-        counts = context.application.bot_data.setdefault(
-            "reaction_guard_counts", {}
-        )
-
-        # Prune stale entries occasionally and cap memory use.
-        if len(counts) > MAX_TRACKED_KEYS:
-            cutoff = now - WINDOW
-            for tracked_key, value in list(counts.items()):
-                if value["updated_at"] < cutoff:
-                    counts.pop(tracked_key, None)
-            if len(counts) > MAX_TRACKED_KEYS:
-                oldest = sorted(
-                    counts.items(), key=lambda item: item[1]["updated_at"]
-                )[: len(counts) - MAX_TRACKED_KEYS]
-                for tracked_key, _ in oldest:
-                    counts.pop(tracked_key, None)
-
-        previous = counts.get(key)
-        if previous is None or now - previous["updated_at"] > WINDOW:
-            action_count = 1
-        else:
-            action_count = previous["count"] + 1
-        counts[key] = {"count": action_count, "updated_at": now}
-
-        if len(new_reaction) < 2 and action_count < 2:
+        if member.status == ChatMember.RESTRICTED and getattr(
+            member, "can_react_to_messages", None
+        ) is False:
             return
 
         bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
@@ -135,13 +95,26 @@ async def reaction_guard_handler(
             permissions=ChatPermissions(**permissions),
             use_independent_chat_permissions=True,
         )
-        counts.pop(key, None)
+
+        # Remove this user's reactions from the triggering message when XYRON
+        # also has permission to delete reactions. Restriction still applies
+        # even if this optional cleanup is not permitted.
+        if getattr(bot_member, "can_delete_messages", False):
+            try:
+                await context.bot.delete_message_reaction(
+                    chat.id, reaction.message_id, user_id=user.id
+                )
+            except TelegramError as exc:
+                logger.info(
+                    "Could not remove triggering reaction in chat %s for user %s: %s",
+                    chat.id, user.id, exc,
+                )
 
         display = user.full_name or (f"@{user.username}" if user.username else str(user.id))
         try:
             await context.bot.send_message(
                 chat.id,
-                f"🚫 {display} has lost reaction permission for reacting more than once "
+                f"🚫 {display} has lost reaction permission for adding multiple reactions "
                 f"to the same message. Other chat permissions were preserved.",
             )
         except TelegramError:
