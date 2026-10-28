@@ -510,6 +510,10 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await context.bot.unban_chat_member(chat_id, target_id, only_if_banned=True)
         await _repository(context).cancel_temporary(chat_id, target_id, "unban")
         await _repository(context).record(chat_id, actor_id, target_id, "unban", None)
+        await ActivityLogRepository(context.application.bot_data["sessions"]).record(
+            chat_id=chat_id, event_type="moderation", actor_id=actor_id,
+            target_id=target_id, action="unban", status="success",
+        )
         await _reply_html(update, f"Unbanned {await _user_label(context, chat_id, target_id)}.")
     except (AuthorizationError, TargetError) as exc:
         await _reply(update, str(exc))
@@ -532,6 +536,10 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await repository.cancel_temporary(chat_id, target_id, "unmute")
         await repository.forget_permissions(chat_id, target_id)
         await repository.record(chat_id, actor_id, target_id, "unmute", None)
+        await ActivityLogRepository(context.application.bot_data["sessions"]).record(
+            chat_id=chat_id, event_type="moderation", actor_id=actor_id,
+            target_id=target_id, action="unmute", status="success",
+        )
         await _reply_html(update, f"Restored group permissions for {await _user_label(context, chat_id, target_id)}.")
     except (AuthorizationError, TargetError) as exc:
         await _reply(update, str(exc))
@@ -638,6 +646,11 @@ async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         count = await repository.add_warning(chat.id, actor_user.id, target_id, reason)
         limit, action = await repository.warn_settings(chat.id)
         await repository.record(chat.id, actor_user.id, target_id, "warn", reason)
+        await ActivityLogRepository(context.application.bot_data["sessions"]).record(
+            chat_id=chat.id, event_type="moderation", actor_id=actor_user.id,
+            target_id=target_id, action="warn", status="success",
+            details={"reason": reason},
+        )
         if count >= limit:
             if action == "ban":
                 await context.bot.ban_chat_member(chat.id, target_id)
