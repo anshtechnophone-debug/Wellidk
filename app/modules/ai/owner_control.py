@@ -369,11 +369,12 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
 
     # Owner-only natural-language mention-all. Only users XYRON has seen in
     # this group's stored message history are eligible; Bot API cannot enumerate
-    # every group member. A cooldown prevents repeated accidental mass pings.
+    # every group member. Send at most 20 mentions per message, with a hard cap
+    # of 100 recorded users per request and a cooldown to prevent repeated pings.
     mention_request = re.search(
-        r"\b(?:mention|tag|ping)\s*(?:karna|karna\s+hai|karo|kro|kar\s*do|kr\s*do|do)?\s*(?:sabko|sabhi|everyone|everybody|all)\b|"
-        r"\b(?:sabko|sabhi|everyone|everybody|all)\s+(?:mention|tag|ping)(?:\s+(?:karo|kro|kar\s*do|kr\s*do|do))?\b|"
-        r"\b(?:sabko|sabhi)\s+(?:uthao|uthaoo)\b",
+        r"\\b(?:mention|tag|ping)\\s*(?:karna|karna\\s+hai|karo|kro|kar\\s*do|kr\\s*do|do)?\\s*(?:sabko|sabhi|everyone|everybody|all)\\b|"
+        r"\\b(?:sabko|sabhi|everyone|everybody|all)\\s+(?:mention|tag|ping)(?:\\s+(?:karo|kro|kar\\s*do|kr\\s*do|do))?\\b|"
+        r"\\b(?:sabko|sabhi)\\s+(?:uthao|uthaoo)\\b",
         request,
         re.I,
     )
@@ -386,7 +387,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         announcement = (request[:mention_request.start()] + " " + request[mention_request.end():]).strip(" \\t,:;.!-—")
-        announcement = re.sub(r"\s+", " ", announcement).strip()
+        announcement = re.sub(r"\\s+", " ", announcement).strip()
         if not announcement:
             announcement = "Everyone, please check this message!"
 
@@ -414,27 +415,38 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
                 context.chat_data["xyron_owner_control_message_id"] = message.message_id
                 return
 
-            # A single compact, generic marker per user keeps usernames/names out
-            # of the visible text while preserving clickable text_mention entities.
-            marker = "•"
-            prefix = announcement + "\n\n" if announcement else ""
-            body = prefix + " ".join(marker for _ in rows)
-            entities = []
-            offset = len(prefix.encode("utf-16-le")) // 2
-            for row in rows:
-                entities.append(MessageEntity(
-                    type=MessageEntity.TEXT_MENTION,
-                    offset=offset,
-                    length=1,
-                    user=User(id=int(row.user_id), first_name="Member", is_bot=False),
-                ))
-                offset += 2  # one marker plus the following space in UTF-16 units
-            await message.reply_text(body, entities=entities)
+            # Set the cooldown before sending any batch so a partial Telegram/API
+            # failure cannot be retried immediately and duplicate already-sent pings.
             context.chat_data["xyron_mention_all_last_sent"] = now
+            batch_size = 20
+            sent = 0
+            for batch_index, start_index in enumerate(range(0, len(rows), batch_size)):
+                batch = rows[start_index:start_index + batch_size]
+                prefix_text = announcement if batch_index == 0 else "More members:"
+                prefix = prefix_text + "\\n\\n"
+                body = prefix + " ".join("•" for _ in batch)
+                entities = []
+                offset = len(prefix.encode("utf-16-le")) // 2
+                for row in batch:
+                    entities.append(MessageEntity(
+                        type=MessageEntity.TEXT_MENTION,
+                        offset=offset,
+                        length=1,
+                        user=User(id=int(row.user_id), first_name="Member", is_bot=False),
+                    ))
+                    offset += 2  # marker plus the following space, in UTF-16 units
+                await message.reply_text(body, entities=entities)
+                sent += len(batch)
+
+            await message.reply_text(
+                f"Done, Malik — mentioned {sent} recorded members in "
+                f"{(sent + batch_size - 1) // batch_size} message(s), with up to 20 users per message."
+            )
         except Exception:
             logger.exception("Mention-all failed in chat_id=%s", chat.id)
             await message.reply_text(
-                "Mention-all failed. Check the terminal logs for the exact error."
+                "Mention-all failed or partially completed. Check the terminal logs for the exact error; "
+                "the cooldown remains active to avoid duplicate pings."
             )
         context.chat_data["xyron_owner_control_message_id"] = message.message_id
         return
