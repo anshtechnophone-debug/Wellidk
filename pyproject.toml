@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "XYRON - One Bot. Every Feature."
 requires-python = ">=3.12"
 dependencies = [
-    "python-telegram-bot[ext]==22.6",
+    "python-telegram-bot[ext]==22.8",
     "SQLAlchemy[asyncio]==2.0.44",
     "aiosqlite==0.21.0",
     "alembic==1.16.5",
