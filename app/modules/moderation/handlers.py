@@ -422,6 +422,23 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
         )
     if delete_target_message:
         deleted = await _delete_reply(update, context)
+        if deleted and message.reply_to_message:
+            try:
+                await ActivityLogRepository(context.application.bot_data["sessions"]).record(
+                    chat_id=chat.id,
+                    event_type="message_deletion",
+                    actor_id=actor_user.id,
+                    target_id=(
+                        message.reply_to_message.from_user.id
+                        if message.reply_to_message.from_user else None
+                    ),
+                    message_id=message.reply_to_message.message_id,
+                    action=normalized,
+                    status="success",
+                    details={"trigger": "moderation command"},
+                )
+            except Exception:
+                logger.exception("Could not audit message deletion by moderation command")
         if not deleted:
             await _reply(
                 update, "Action succeeded, but XYRON could not delete the replied-to message."
