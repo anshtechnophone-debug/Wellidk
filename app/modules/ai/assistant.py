@@ -894,9 +894,9 @@ class AIEventRouter:
                         for row in relevant
                     ]
                     prompt += (
-                        "\\n\\nTemporary 24-hour activity/audit evidence (only events XYRON observed or executed; "
-                        "not a complete Telegram admin log):\\n"
-                        + ("\\n".join(activity_lines) if activity_lines else "[No matching recent activity records]")
+                        "\n\nTemporary 24-hour activity/audit evidence (only events XYRON observed or executed; "
+                        "not a complete Telegram admin log):\n"
+                        + ("\n".join(activity_lines) if activity_lines else "[No matching recent activity records]")
                     )
                 except Exception:
                     logger.warning("Could not load temporary activity log", exc_info=True)
