@@ -25,6 +25,7 @@ from app.core.permissions import (
 )
 from app.database.models import Group, KnownUser
 from app.services.group_history import GroupMessage
+from app.services.activity_log import ActivityLogRepository
 from app.services.moderation import ModerationRepository
 
 logger = logging.getLogger(__name__)
@@ -398,6 +399,19 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
         await repository.cancel_temporary(chat.id, target_id, "unmute")
 
     await repository.record(chat.id, actor_user.id, target_id, normalized, reason)
+    try:
+        await ActivityLogRepository(context.application.bot_data["sessions"]).record(
+            chat_id=chat.id,
+            event_type="moderation",
+            actor_id=actor_user.id,
+            target_id=target_id,
+            action=normalized,
+            status="success",
+            details={"reason": reason, "duration": str(duration) if duration else None},
+            created_at=message.date,
+        )
+    except Exception:
+        logger.exception("Could not write temporary moderation audit event")
     if duration:
         await repository.schedule(
             chat.id,
@@ -433,16 +447,37 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
 
 
 async def moderation_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    name = update.effective_message.text.split()[0].split("@")[0].lstrip("/").lower()
+    message = update.effective_message
+    chat = update.effective_chat
+    actor = update.effective_user
+    name = message.text.split()[0].split("@")[0].lstrip("/").lower() if message and message.text else "moderation"
+    async def log_failure(reason: str) -> None:
+        if chat and chat.type in {Chat.GROUP, Chat.SUPERGROUP}:
+            try:
+                await ActivityLogRepository(context.application.bot_data["sessions"]).record(
+                    chat_id=chat.id,
+                    event_type="moderation",
+                    actor_id=actor.id if actor else None,
+                    target_id=int(context.args[0]) if context.args and context.args[0].isdecimal() else None,
+                    action=name,
+                    status="failed",
+                    details={"reason": reason[:1000], "command_text": (message.text or "")[:1000] if message else ""},
+                )
+            except Exception:
+                logger.exception("Could not write failed moderation audit event")
     try:
         await _moderate(update, context, name)
     except TargetError as exc:
+        await log_failure(str(exc))
         await _reply_html(update, str(exc))
     except (AuthorizationError, DurationError) as exc:
+        await log_failure(str(exc))
         await _reply(update, str(exc))
     except (BadRequest, Forbidden) as exc:
+        await log_failure(exc.message)
         await _reply(update, f"Telegram rejected the action: {exc.message}")
-    except TelegramError:
+    except TelegramError as exc:
+        await log_failure(str(exc))
         logger.exception("Telegram moderation request failed")
         await _reply(
             update, "Telegram could not complete that moderation action. No success was recorded."
