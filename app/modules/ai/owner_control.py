@@ -504,17 +504,38 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
                 batch = targets[start_index:start_index + batch_size]
                 prefix_text = announcement if batch_index == 0 else f"More members ({batch_index + 1}/{batch_count}):"
                 prefix = prefix_text + "\n\n"
-                body = prefix + " ".join("•" for _ in batch)
+                # Use @username when available; otherwise use a clickable text
+                # mention linked to the member's Telegram account.
+                parts: list[str] = [prefix]
                 entities = []
                 offset = len(prefix.encode("utf-16-le")) // 2
-                for target in batch:
-                    entities.append(MessageEntity(
-                        type=MessageEntity.TEXT_MENTION,
-                        offset=offset,
-                        length=1,
-                        user=target,
-                    ))
-                    offset += 2  # marker plus following space, in UTF-16 units
+                for index, target in enumerate(batch):
+                    username = getattr(target, "username", None)
+                    if username:
+                        label = f"@{username}"
+                        parts.append(label)
+                        entities.append(MessageEntity(
+                            type=MessageEntity.TEXT_LINK,
+                            offset=offset,
+                            length=len(label.encode("utf-16-le")) // 2,
+                            url=f"https://t.me/{username}",
+                        ))
+                        offset += len(label.encode("utf-16-le")) // 2
+                    else:
+                        label = (getattr(target, "first_name", None) or "Member").strip()
+                        label = label[:64] or "Member"
+                        parts.append(label)
+                        entities.append(MessageEntity(
+                            type=MessageEntity.TEXT_MENTION,
+                            offset=offset,
+                            length=len(label.encode("utf-16-le")) // 2,
+                            user=target,
+                        ))
+                        offset += len(label.encode("utf-16-le")) // 2
+                    if index + 1 < len(batch):
+                        parts.append(", ")
+                        offset += 2  # comma and space, in UTF-16 units
+                body = "".join(parts)
                 await message.reply_text(body, entities=entities)
                 sent += len(batch)
                 if batch_index + 1 < batch_count:
