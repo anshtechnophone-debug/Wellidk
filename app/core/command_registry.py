@@ -141,6 +141,7 @@ COMMANDS = (
     CommandInfo("unlock", "Disable a message lock", "/unlock <lock>", "Locks", True),
     CommandInfo("locks", "List enabled message locks", "/locks", "Locks"),
     CommandInfo(
+    CommandInfo("spamprotector", "Owner-controlled automatic spam muting", "/spamprotector <on|off>", "Anti-Spam", owner_only=True),
         "antiflood",
         "Configure message flood deletion",
         "/antiflood <on|off> [threshold] [seconds] [repeat threshold]",
