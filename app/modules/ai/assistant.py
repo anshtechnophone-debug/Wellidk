@@ -881,7 +881,7 @@ class AIEventRouter:
                             chat_id=chat.id,
                             action_terms=action_terms,
                             event_types=(
-                                "moderation", "admin_action",
+                                "moderation", "admin_action", "command",
                                 "admin_or_member_change", "message_deletion",
                             ),
                             target_id=target_ids[0] if target_ids and len(target_ids) == 1 else None,
