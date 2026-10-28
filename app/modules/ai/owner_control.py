@@ -369,10 +369,9 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         context.chat_data["xyron_owner_control_message_id"] = message.message_id
         return
 
-    # Owner-only natural-language mention-all. Only users XYRON has seen in
-    # this group's stored message history are eligible; Bot API cannot enumerate
-    # every group member. Send at most 20 mentions per message, with a hard cap
-    # of 100 recorded users per request and a cooldown to prevent repeated pings.
+    # Owner-only natural-language mention-all. MTProto can enumerate retrievable
+    # group participants; without it, fall back to every user in saved message history.
+    # Keep batches to 20 mentions per message and a cooldown to prevent repeated pings.
     mention_request = re.search(
         r"\b(?:mention|tag|ping)\s*(?:karna|karna\s+hai|karo|kro|kar\s*do|kr\s*do|do)?\s*(?:sabko|sabhi|everyone|everybody|all)\b|"
         r"\b(?:sabko|sabhi|everyone|everybody|all)\s+(?:mention|tag|ping)(?:\s+(?:karo|kro|kar\s*do|kr\s*do|do))?\b|"
@@ -459,7 +458,6 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
                             .where(GroupMessage.chat_id == chat.id)
                             .group_by(GroupMessage.user_id)
                             .order_by(func.max(GroupMessage.sent_at).desc())
-                            .limit(100)
                         )).all()
                     targets = [
                         User(id=int(row.user_id), first_name="Member", is_bot=False)
