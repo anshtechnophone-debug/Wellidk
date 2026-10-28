@@ -25,6 +25,7 @@ from app.database.models import BotAdmin, ModerationEvent
 from app.services.group_history import GroupMessage
 from app.modules.ai.assistant import OpenAICompatibleProvider
 from app.modules.ai.owner_memory import handle_owner_memory_request
+from app.modules.moderation.bot_admins import notify_bot_admin
 from app.modules.moderation.handlers import (
     TargetError,
     _moderate,
@@ -643,8 +644,16 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             if already_admin:
                 await message.reply_text(f"{safe_label} is already a XYRON bot admin.", parse_mode="HTML")
             else:
+                delivered, guide_url = await notify_bot_admin(context, target_user.id)
+                if delivered:
+                    notice = " I sent them their command guide in DM."
+                elif guide_url:
+                    notice = f' Share this link with them for their DM command guide: <a href="{guide_url}">XYRON bot-admin commands</a>.'
+                else:
+                    notice = " Ask them to open XYRON and send /start so they can receive their command guide."
                 await message.reply_text(
-                    f"Added {safe_label} as a XYRON bot admin. This does not grant Telegram group-admin rights.",
+                    f"Added {safe_label} as a XYRON bot admin. This does not grant Telegram group-admin rights."
+                    + notice,
                     parse_mode="HTML",
                 )
         context.chat_data["xyron_owner_control_message_id"] = message.message_id
@@ -773,9 +782,17 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
                         added_by=actor.id,
                         created_at=datetime.now(UTC),
                     ))
+                    delivered, guide_url = await notify_bot_admin(context, target_id)
+                    if delivered:
+                        notice = " I sent them their command guide in DM."
+                    elif guide_url:
+                        notice = f' Share this link with them for their DM command guide: <a href="{guide_url}">XYRON bot-admin commands</a>.'
+                    else:
+                        notice = " Ask them to open XYRON and send /start so they can receive their command guide."
                     await message.reply_text(
                         f"Done, Malik. User {target_id} is now a XYRON bot admin. "
-                        "This does not promote them to Telegram group admin."
+                        "This does not promote them to Telegram group admin." + notice,
+                        parse_mode="HTML",
                     )
             context.chat_data["xyron_owner_control_message_id"] = message.message_id
             return
