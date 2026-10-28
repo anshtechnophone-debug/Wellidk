@@ -16,7 +16,7 @@ import re
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -401,80 +401,87 @@ class AIEventRouter:
         context: ContextTypes.DEFAULT_TYPE,
         question: str,
     ) -> list[str]:
-        """Search stored group history using the repository's actual API."""
+        """Retrieve a small, SQL-filtered slice of the last 24 hours."""
         sessions = context.application.bot_data.get("sessions")
-
         if not sessions or not question.strip():
             return []
 
-        # Search useful terms separately. The repository accepts `query`,
-        # and returns dictionaries rather than ORM objects.
         ignored = {
-            "xyron", "zyron", "please", "about", "group", "groups",
-            "kya", "hai", "the", "and", "who", "what", "when",
-            "where", "tell", "mujhe", "batao", "member", "members",
-            "online", "deleted", "account", "accounts", "history",
-            "message", "messages", "purane", "kisne", "kaha", "bola",
-            "happened", "conversation", "search", "mein", "mere",
-            "ke", "ki", "ka", "ko", "se", "par", "tha", "thi",
+            "xyron", "zyron", "please", "about", "group", "groups", "kya",
+            "hai", "the", "and", "who", "what", "when", "where", "tell",
+            "mujhe", "batao", "member", "members", "online", "deleted",
+            "account", "accounts", "history", "message", "messages", "purane",
+            "kisne", "kaha", "bola", "happened", "conversation", "search",
+            "mein", "mere", "ke", "ki", "ka", "ko", "se", "par", "tha",
+            "thi", "did", "say", "said", "write", "wrote", "everyone",
+            "anyone", "last", "yesterday", "today", "yesterday's",
         }
-
-        terms = []
-        for word in re.findall(r"[\w@.-]+", question.lower()):
-            word = word.strip("._-")
-            if len(word) >= 3 and word not in ignored and word not in terms:
-                terms.append(word)
-
-        if not terms:
-            return []
-
+        question_lower = question.lower()
+        name_match = re.search(
+            r"\\b(?:what did|messages from|msg from|chat by|what was said by|"
+            r"did)\\s+@?([\\w.-]{2,})",
+            question_lower,
+        )
+        target_ids: list[int] = []
+        name_token = None
         repository = GroupHistoryRepository(sessions)
-        found: dict[tuple[int, int], dict[str, object]] = {}
-
         try:
-            for term in terms[:5]:
-                rows = await repository.search(
-                    chat_id=chat_id,
-                    query=term,
-                    limit=10,
+            if name_match:
+                name_token = name_match.group(1)
+                target_ids = await repository.find_user_ids_by_name(
+                    chat_id=chat_id, name=name_token
                 )
 
-                for row in rows:
-                    message_id = row.get("message_id")
-                    row_chat_id = row.get("chat_id")
+            terms = []
+            for word in re.findall(r"[\\w@.-]+", question_lower):
+                word = word.strip("._-@")
+                if (
+                    len(word) >= 3 and word not in ignored
+                    and word != name_token and word not in terms
+                ):
+                    terms.append(word)
 
-                    if not isinstance(message_id, int):
-                        continue
-                    if row_chat_id != chat_id:
-                        continue
+            found: dict[tuple[int, int], dict[str, object]] = {}
+            # If a person was named, query only that person's rows. When the
+            # question is about a topic too, apply that topic as a SQL text filter.
+            user_filters = target_ids if len(target_ids) == 1 else [None]
+            search_terms = terms[:4] or [""]
+            for user_filter in user_filters:
+                if target_ids and user_filter is None:
+                    continue
+                for term in search_terms:
+                    rows = await repository.search(
+                        chat_id=chat_id,
+                        query=term,
+                        user_id=user_filter,
+                        since=datetime.now(UTC) - timedelta(hours=24),
+                        limit=8,
+                    )
+                    for row in rows:
+                        message_id = row.get("message_id")
+                        if isinstance(message_id, int) and row.get("chat_id") == chat_id:
+                            found[(chat_id, message_id)] = row
 
-                    found[(chat_id, message_id)] = row
+            # If a named person couldn't be resolved, don't silently return
+            # unrelated messages as if they were that person's statements.
+            if name_match and not target_ids:
+                return []
 
-            # Most recent evidence first; do not exceed the prompt budget.
             rows_sorted = sorted(
-                found.values(),
-                key=lambda row: str(row.get("sent_at", "")),
-                reverse=True,
-            )[:25]
-
-            result = []
-            for row in rows_sorted:
-                result.append(
-                    f"sent_at={row.get('sent_at', 'unknown')} "
-                    f"message_id={row.get('message_id', 'unknown')} "
-                    f"user_id={row.get('user_id', 'unknown')} "
-                    f"name={row.get('display_name', 'unknown')!r} "
-                    f"username={row.get('username', None)!r}: "
-                    f"{str(row.get('text', ''))[:1500]!r}"
-                )
-
-            return result
-
+                found.values(), key=lambda row: str(row.get("sent_at", "")), reverse=True
+            )[:20]
+            return [
+                f"sent_at={row.get('sent_at', 'unknown')} "
+                f"message_id={row.get('message_id', 'unknown')} "
+                f"user_id={row.get('user_id', 'unknown')} "
+                f"name={row.get('display_name', 'unknown')!r} "
+                f"username={row.get('username', None)!r}: "
+                f"{str(row.get('text', ''))[:1000]!r}"
+                for row in rows_sorted
+            ]
         except Exception:
             logger.warning(
-                "Could not search saved history for chat %s",
-                chat_id,
-                exc_info=True,
+                "Could not search saved history for chat %s", chat_id, exc_info=True
             )
             return []
 
