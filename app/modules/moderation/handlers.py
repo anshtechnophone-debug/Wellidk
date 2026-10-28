@@ -555,23 +555,112 @@ async def _require_target_admin(
     return target_id, access
 
 
+async def _resolve_historical_ban_username(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, username: str
+) -> int:
+    """Resolve an absent banned user from XYRON's saved ban and username history."""
+    wanted = _normalize_name(username.lstrip("@"))
+    async with context.application.bot_data["sessions"]() as session:
+        banned_ids = set(
+            (await session.scalars(
+                select(ModerationEvent.target_id).where(
+                    ModerationEvent.chat_id == chat_id,
+                    ModerationEvent.action.in_(("ban", "tban")),
+                ).distinct()
+            )).all()
+        )
+        if not banned_ids:
+            raise TargetError(
+                "I couldn't find a saved ban for that username. XYRON needs a saved username-to-user-ID record."
+            )
+        known_rows = (
+            await session.execute(
+                select(KnownUser.user_id, KnownUser.username).where(
+                    KnownUser.chat_id == chat_id,
+                    KnownUser.user_id.in_(banned_ids),
+                    KnownUser.username.is_not(None),
+                )
+            )
+        ).all()
+        history_rows = (
+            await session.execute(
+                select(GroupMessage.user_id, GroupMessage.username).where(
+                    GroupMessage.chat_id == chat_id,
+                    GroupMessage.user_id.in_(banned_ids),
+                    GroupMessage.username.is_not(None),
+                ).distinct()
+            )
+        ).all()
+
+    matches = {
+        user_id
+        for user_id, saved_username in [*known_rows, *history_rows]
+        if saved_username and _normalize_name(saved_username) == wanted
+    }
+    if len(matches) == 1:
+        return matches.pop()
+    if len(matches) > 1:
+        raise TargetError(
+            "That username matches multiple saved ban records. Please use the user's numeric Telegram ID."
+        )
+    raise TargetError(
+        "I couldn't match that username to a saved banned user. If they changed their username or XYRON never recorded it, use their numeric Telegram ID."
+    )
+
+
 async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
-        target_id, _ = await _require_target_admin(update, context)
-        chat_id, actor_id = update.effective_chat.id, update.effective_user.id
-        await context.bot.unban_chat_member(chat_id, target_id, only_if_banned=True)
-        await _repository(context).cancel_temporary(chat_id, target_id, "unban")
-        await _repository(context).record(chat_id, actor_id, target_id, "unban", None)
+        message, chat, actor_user = (
+            update.effective_message, update.effective_chat, update.effective_user
+        )
+        if not message or not chat or not actor_user:
+            return
+        access = await require_admin_access(
+            update, context, context.application.bot_data["settings"], "can_restrict_members"
+        )
+        args = list(context.args)
+        if message.reply_to_message and message.reply_to_message.from_user:
+            target_id = message.reply_to_message.from_user.id
+            if args and args[0].isdecimal() and int(args[0]) == target_id:
+                args = args[1:]
+        elif args and args[0].startswith("@") and len(args[0]) > 1:
+            username = args[0]
+            args = args[1:]
+            if args:
+                raise TargetError("This command does not accept extra arguments.")
+            try:
+                target_id, rest = await _resolve_target(
+                    update, context, [username], allow_name=True
+                )
+                if rest:
+                    raise TargetError("This command does not accept extra arguments.")
+            except TargetError:
+                target_id = await _resolve_historical_ban_username(
+                    context, chat.id, username
+                )
+        else:
+            target_id, rest = await _resolve_target(
+                update, context, args, allow_name=True
+            )
+            if rest:
+                raise TargetError("This command does not accept extra arguments.")
+
+        await ensure_target_is_moderatable(
+            context, chat.id, target_id, access.actor,
+            context.application.bot_data["settings"],
+        )
+        await context.bot.unban_chat_member(chat.id, target_id, only_if_banned=True)
+        await _repository(context).cancel_temporary(chat.id, target_id, "unban")
+        await _repository(context).record(chat.id, actor_user.id, target_id, "unban", None)
         await ActivityLogRepository(context.application.bot_data["sessions"]).record(
-            chat_id=chat_id, event_type="moderation", actor_id=actor_id,
+            chat_id=chat.id, event_type="moderation", actor_id=actor_user.id,
             target_id=target_id, action="unban", status="success",
         )
-        await _reply_html(update, f"Unbanned {await _user_label(context, chat_id, target_id)}.")
+        await _reply_html(update, f"Unbanned {await _user_label(context, chat.id, target_id)}.")
     except (AuthorizationError, TargetError) as exc:
         await _reply(update, str(exc))
     except TelegramError as exc:
         await _reply(update, f"Telegram rejected the unban: {exc.message}")
-
 
 async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
