@@ -55,4 +55,4 @@ def get_dm_system_prompt(user_id: int) -> str:
     special_prompt = PERSONA_DM_PROMPTS.get(user_id)
     if not special_prompt:
         return DM_CONVERSATION_SYSTEM_PROMPT
-    return DM_CONVERSATION_SYSTEM_PROMPT + "\\n\\nPERSONALITY FOR THIS USER:\\n" + special_prompt
+    return DM_CONVERSATION_SYSTEM_PROMPT + "\n\nPERSONALITY FOR THIS USER:\n" + special_prompt
