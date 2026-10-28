@@ -603,6 +603,52 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             await mutelist_command(update, context)
         context.chat_data["xyron_owner_control_message_id"] = message.message_id
         return
+    # Deterministic reply-based promotion to XYRON's internal bot-admin role.
+    # This is separate from Telegram group administrator privileges.
+    bot_admin_request = bool(re.search(
+        r"\\b(?:bot\\s+admin|admin(?:istrator)?\\s+(?:bana|banao|bana\\s+do|make|add|promote)|"
+        r"(?:make|add|promote)\\s+(?:him|her|them|this\\s+user|this\\s+person)?\\s*"
+        r"(?:a\\s+)?(?:xyron\\s+)?bot\\s+admin|"
+        r"(?:admin\\s+)?banao\\s+(?:isko|inhe|ise|is\\s+ko|in\\s+ko)|"
+        r"(?:xyron\\s+)?admin\\s+dena\\s+(?:inhe|isko|ise|him|her|them))\\b",
+        request,
+        re.I,
+    ))
+    if bot_admin_request:
+        replied = message.reply_to_message
+        if not replied or not replied.from_user:
+            await message.reply_text("Reply to the person's message and say 'bot admin' to promote them.")
+            context.chat_data["xyron_owner_control_message_id"] = message.message_id
+            return
+        target_user = replied.from_user
+        if target_user.is_bot:
+            await message.reply_text("I can't add bots as XYRON bot admins.")
+        elif settings.is_owner(target_user.id):
+            await message.reply_text("They're already the configured owner.")
+        else:
+            async with context.application.bot_data["sessions"].begin() as session:
+                existing = await session.get(BotAdmin, target_user.id)
+                if existing:
+                    already_admin = True
+                else:
+                    session.add(BotAdmin(
+                        user_id=target_user.id,
+                        added_by=actor.id,
+                        created_at=datetime.now(UTC),
+                    ))
+                    already_admin = False
+            label = ("@" + target_user.username) if target_user.username else target_user.full_name
+            safe_label = html.escape(label)
+            if already_admin:
+                await message.reply_text(f"{safe_label} is already a XYRON bot admin.", parse_mode="HTML")
+            else:
+                await message.reply_text(
+                    f"Added {safe_label} as a XYRON bot admin. This does not grant Telegram group-admin rights.",
+                    parse_mode="HTML",
+                )
+        context.chat_data["xyron_owner_control_message_id"] = message.message_id
+        return
+
     # Deterministic handling for target-first Hinglish commands such as
     # "@username isko unmute karna" so they don't fall through to chat AI.
     target_first = re.match(
