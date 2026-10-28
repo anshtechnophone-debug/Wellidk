@@ -354,6 +354,22 @@ async def collect_chat_member_activity(
         logger.exception("Failed to log chat member update")
 
 
+async def plain_moderation_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle only exact standalone moderation words without a slash."""
+    message = update.effective_message
+    if not message or not message.text:
+        return
+    action = message.text.strip().casefold()
+    if action == "unmute":
+        await unmute_command(update, context)
+    elif action == "unban":
+        await unban_command(update, context)
+    else:
+        # moderation_command derives the action from the exact message text;
+        # its target resolver uses the replied-to user's message.
+        await moderation_command(update, context)
+
+
 def _register_general(application: Application) -> None:
     for command, callback in (
         ("admin", admin_command),
@@ -462,10 +478,20 @@ def _register_general(application: Application) -> None:
     ):
         application.add_handler(CommandHandler(command, moderation_command))
 
-    # Lower group number runs first. The history collector runs independently
-    # of the AI router, so ordinary group messages are saved even when they
-    # do not mention XYRON.
-    # Accept plain-text kick Name as well as /kick Name.
+    # Accept exact standalone moderation words without a slash. Longer
+    # conversational sentences (e.g. "mute kra hai kal kisi ko") never match.
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS
+            & filters.TEXT
+            & ~filters.COMMAND
+            & filters.Regex(r"(?i)^\s*(mute|unmute|kick|ban|unban)\s*$"),
+            plain_moderation_command,
+        ),
+        group=0,
+    )
+
+    # Also accept plain-text "kick Name" as well as /kick Name.
     application.add_handler(
         MessageHandler(
             filters.ChatType.GROUPS
