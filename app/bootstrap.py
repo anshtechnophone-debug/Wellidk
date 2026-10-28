@@ -43,6 +43,7 @@ from app.modules.appeals.handlers import (
     appeals_command,
     reviewappeal_command,
 )
+from app.modules.community.daily import daily_command
 from app.modules.community.handlers import (
     antiflood_command,
     spamprotector_command,
@@ -384,6 +385,7 @@ def _register_general(application: Application) -> None:
         ("help", help_command),
         ("about", about_command),
         ("ping", ping_command),
+        ("daily", daily_command),
         ("health", health_command),
         ("id", id_command),
         ("modules", modules_command),
