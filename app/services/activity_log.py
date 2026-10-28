@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import BigInteger, Index, Integer, String, Text, delete, select
@@ -10,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.models import Base, UTCDateTime, ModerationEvent
+
+logger = logging.getLogger(__name__)
 
 
 class ActivityEvent(Base):
@@ -114,3 +118,22 @@ class ActivityLogRepository:
             }
             for row in rows
         ]
+
+
+
+async def activity_retention_worker(application, stop_event: asyncio.Event) -> None:
+    """Expire temporary activity/message/moderation rows every five minutes."""
+    sessions = application.bot_data["sessions"]
+    repository = ActivityLogRepository(sessions)
+    # Prune immediately at startup so stale records do not linger after downtime.
+    while not stop_event.is_set():
+        try:
+            removed = await repository.prune_expired(retention_hours=24)
+            if any(removed.values()):
+                logger.info("24-hour activity retention removed rows: %s", removed)
+        except Exception:
+            logger.exception("24-hour activity retention cleanup failed")
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=300)
+        except TimeoutError:
+            continue
