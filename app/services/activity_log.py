@@ -95,13 +95,38 @@ class ActivityLogRepository:
                 "messages": max(0, message_result.rowcount or 0),
             }
 
-    async def recent(self, *, chat_id: int, limit: int = 50) -> list[dict[str, object]]:
+    async def search(
+        self,
+        *,
+        chat_id: int,
+        action_terms: tuple[str, ...] = (),
+        event_types: tuple[str, ...] = (),
+        actor_id: int | None = None,
+        target_id: int | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, object]]:
+        """Search the last 24 hours in SQL, before records enter the AI prompt."""
         cutoff = datetime.now(UTC) - timedelta(hours=24)
+        conditions = [
+            ActivityEvent.chat_id == chat_id,
+            ActivityEvent.created_at >= cutoff,
+        ]
+        if event_types:
+            conditions.append(ActivityEvent.event_type.in_(event_types))
+        if actor_id is not None:
+            conditions.append(ActivityEvent.actor_id == actor_id)
+        if target_id is not None:
+            conditions.append(ActivityEvent.target_id == target_id)
+        if action_terms:
+            from sqlalchemy import or_
+            conditions.append(or_(*[
+                ActivityEvent.action.ilike(f"%{term}%") for term in action_terms
+            ]))
         statement = (
             select(ActivityEvent)
-            .where(ActivityEvent.chat_id == chat_id, ActivityEvent.created_at >= cutoff)
+            .where(*conditions)
             .order_by(ActivityEvent.created_at.desc(), ActivityEvent.id.desc())
-            .limit(max(1, min(limit, 100)))
+            .limit(max(1, min(limit, 30)))
         )
         async with self.sessions() as session:
             rows = (await session.scalars(statement)).all()
@@ -118,6 +143,10 @@ class ActivityLogRepository:
             }
             for row in rows
         ]
+
+    async def recent(self, *, chat_id: int, limit: int = 50) -> list[dict[str, object]]:
+        """Compatibility wrapper for callers that need recent events."""
+        return await self.search(chat_id=chat_id, limit=limit)
 
 
 
