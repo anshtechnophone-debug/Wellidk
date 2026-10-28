@@ -947,7 +947,7 @@ class AIEventRouter:
         ):
             return
 
-        if reporter.id != settings.owner_id:
+        if not settings.is_owner(reporter.id):
             return
 
         if (
