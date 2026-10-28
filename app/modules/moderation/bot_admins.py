@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes
 from app.config import Settings
 from app.database.models import BotAdmin, KnownUser
 from app.services.group_history import GroupMessage
+from app.services.activity_log import ActivityLogRepository
 
 async def _reply(update, text: str, *, html_mode: bool = False) -> None:
     if update.effective_message:
@@ -100,6 +101,15 @@ async def pin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         await require_admin_access(update, context, context.application.bot_data["settings"], "can_pin_messages")
         await context.bot.pin_chat_message(chat.id, message.reply_to_message.message_id)
+        await ActivityLogRepository(context.application.bot_data["sessions"]).record(
+            chat_id=chat.id,
+            event_type="admin_action",
+            actor_id=update.effective_user.id if update.effective_user else None,
+            message_id=message.reply_to_message.message_id,
+            action="pin",
+            status="success",
+            details={"command": "/pin"},
+        )
         await _reply(update, "Message pinned.")
     except AuthorizationError as exc:
         await _reply(update, str(exc))
