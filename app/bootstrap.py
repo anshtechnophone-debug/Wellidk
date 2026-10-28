@@ -280,13 +280,20 @@ async def collect_group_activity(
     try:
         await ActivityLogRepository(sessions).record(
             chat_id=chat.id,
-            event_type="message_edit" if update.edited_message else "message",
+            event_type=(
+                "message_edit" if update.edited_message
+                else "admin_action" if message.pinned_message
+                else "message"
+            ),
             actor_id=user.id if user else None,
             message_id=message.message_id,
+            action="pin" if message.pinned_message else None,
             status="observed",
             details={
                 "text_or_caption": raw[:10000],
                 "media_type": media_type,
+                "pinned_message_id": message.pinned_message.message_id
+                if message.pinned_message else None,
                 "has_attachment": attachment is not None,
                 "reply_to_message_id": message.reply_to_message.message_id
                 if message.reply_to_message else None,
