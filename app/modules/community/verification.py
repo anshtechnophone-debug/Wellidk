@@ -19,6 +19,7 @@ from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 logger = logging.getLogger(__name__)
 _PAYLOAD = re.compile(r"^verify_(-?\d{1,15})_(\d{1,15})$")
+_ADMIN_GUIDE_PAYLOAD = re.compile(r"^botadmin_guide_(\d{1,15})$")
 COMMUNITY_URL = "https://t.me/+krgZfOwfpZxhODYx"
 _COMMUNITY_CHECK = "community_join_check"
 
@@ -98,15 +99,15 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await message.reply_text("You are not currently on XYRON's bot-admin list. Ask the bot owner if you think this is a mistake.")
             return
         await message.reply_text(
-            "✅ You are now a XYRON bot admin!\\n\\n"
-            "Your moderation commands (use them in a group where XYRON is present):\\n"
-            "• /mute — permanently mute a member (reply to their message or use their user ID)\\n"
-            "• /mute 30m — temporary mute for 30 minutes\\n"
-            "• /tmute 2h — temporary mute for 2 hours\\n"
-            "• /unmute — restore a member's saved/default permissions\\n"
-            "• /mutelist — view XYRON-tracked mutes\\n\\n"
+            "✅ You are now a XYRON bot admin!\n\n"
+            "Your moderation commands (use them in a group where XYRON is present):\n"
+            "• /mute — permanently mute a member (reply to their message or use their user ID)\n"
+            "• /mute 30m — temporary mute for 30 minutes\n"
+            "• /tmute 2h — temporary mute for 2 hours\n"
+            "• /unmute — restore a member's saved/default permissions\n"
+            "• /mutelist — view XYRON-tracked mutes\n\n"
             "How to use: reply to the member's message with /mute, /tmute 30m, or /unmute. "
-            "You can also put their numeric Telegram user ID after the command.\\n\\n"
+            "You can also put their numeric Telegram user ID after the command.\n\n"
             "Limits: bot admins can mute only one member per group every 10 minutes. "
             "Ban and kick commands are reserved for the bot owner. "
             "You do not need Telegram group-admin status to be a XYRON bot admin."
