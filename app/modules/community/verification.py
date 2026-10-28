@@ -103,7 +103,7 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     settings = context.application.bot_data.get("settings")
-    if settings and user.id == settings.owner_id:
+    if settings and settings.is_owner(user.id):
         await _send_manual_start_message(message)
         return
 
