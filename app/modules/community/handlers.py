@@ -5,11 +5,11 @@ from __future__ import annotations
 import logging
 import re
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from collections import defaultdict, deque
 from html import escape
 
-from telegram import Chat, ChatMember, Update
+from telegram import Chat, ChatMember, ChatPermissions, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
@@ -25,6 +25,10 @@ _LINK = re.compile(r"(?:https?://|www\.|t\.me/|telegram\.me/)", re.IGNORECASE)
 _ALLOWED_LOCKS = {"links", "forwards", "stickers", "media", "bots", "commands"}
 _flood_events: dict[tuple[int, int], deque[float]] = defaultdict(deque)
 _repeat_events: dict[tuple[int, int], deque[tuple[float, str]]] = defaultdict(deque)
+_spam_protector_events: dict[tuple[int, int], deque[float]] = defaultdict(deque)
+_SPAM_PROTECTOR_THRESHOLD = 15
+_SPAM_PROTECTOR_WINDOW_SECONDS = 30
+_SPAM_PROTECTOR_MUTE_SECONDS = 600
 
 
 def _repository(context: ContextTypes.DEFAULT_TYPE) -> GroupPolicyRepository:
@@ -278,6 +282,110 @@ async def antiflood_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await _respond(update, str(exc))
 
 
+async def spamprotector_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Owner-only, persistent per-group spam protector switch."""
+    user, chat = update.effective_user, update.effective_chat
+    settings: Settings = context.application.bot_data["settings"]
+    if not user or not settings.is_owner(user.id):
+        await _respond(update, "Only the configured owner can control XYRON Spam Protector.")
+        return
+    if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        await _respond(update, "Use this command in the group you want to protect.")
+        return
+    if len(context.args) != 1 or context.args[0].casefold() not in {"on", "onn", "off"}:
+        await _respond(update, "Usage: /spamprotector on|off")
+        return
+    enabled = context.args[0].casefold() in {"on", "onn"}
+    await _repository(context).set_value(
+        chat.id, "spam_protector",
+        {"enabled": enabled, "threshold": 15, "window_seconds": 30, "mute_seconds": 600},
+    )
+    if enabled:
+        await _respond(update, "XYRON Spam Protector: ON. 15 messages within 30 seconds triggers an automatic 10-minute mute.")
+    else:
+        await _respond(update, "XYRON Spam Protector: OFF. Automatic spam muting is disabled.")
+
+
+async def plain_spamprotector_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Accept the owner's natural-language ON/OFF phrases as an alias."""
+    message, user = update.effective_message, update.effective_user
+    settings: Settings = context.application.bot_data["settings"]
+    if not message or not user or not settings.is_owner(user.id):
+        return
+    phrase = re.sub(r"\\s+", " ", (message.text or "").strip().casefold())
+    if re.fullmatch(r"xyron\\s+spam\\s+protector\\s+(?:on|onn)", phrase):
+        context.args = ["on"]
+    elif re.fullmatch(r"xyron\\s+spam\\s+protector\\s+off", phrase):
+        context.args = ["off"]
+    else:
+        return
+    await spamprotector_command(update, context)
+
+
+async def _auto_mute_spammer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    message, chat, user = update.effective_message, update.effective_chat, update.effective_user
+    if not message or not chat or not user:
+        return False
+    from app.services.moderation import ModerationRepository
+    from app.services.activity_log import ActivityLogRepository
+
+    repository = ModerationRepository(context.application.bot_data["sessions"])
+    actor_id = context.bot.id
+    try:
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        if member.status != ChatMember.MEMBER:
+            return False
+        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
+        if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER} or not getattr(bot_member, "can_restrict_members", False):
+            logger.warning("Spam protector cannot mute in chat %s: missing restrict rights", chat.id)
+            return False
+    except TelegramError:
+        return False
+
+    permissions_obj = getattr(member, "permissions", None)
+    previous = {
+        name: bool(getattr(permissions_obj, name, True))
+        for name in ChatPermissions.__slots__
+        if name.startswith("can_")
+    }
+    created_snapshot = await repository.remember_permissions(chat.id, user.id, actor_id, previous)
+    try:
+        await context.bot.restrict_chat_member(
+            chat.id, user.id,
+            permissions=ChatPermissions(**{name: False for name in previous}),
+            until_date=datetime.now(UTC) + timedelta(seconds=_SPAM_PROTECTOR_MUTE_SECONDS),
+        )
+    except TelegramError:
+        if created_snapshot:
+            await repository.forget_permissions(chat.id, user.id)
+        logger.exception("Spam protector failed to mute user %s in chat %s", user.id, chat.id)
+        return False
+    await repository.schedule(
+        chat.id, user.id, "unmute",
+        datetime.now(UTC) + timedelta(seconds=_SPAM_PROTECTOR_MUTE_SECONDS), previous,
+    )
+    await repository.record(
+        chat.id, actor_id, user.id, "spam_auto_mute",
+        "XYRON Spam Protector: 15 messages within 30 seconds",
+    )
+    try:
+        await ActivityLogRepository(context.application.bot_data["sessions"]).record(
+            chat_id=chat.id, event_type="moderation", actor_id=actor_id,
+            target_id=user.id, action="spam_auto_mute", status="success",
+            details={"duration_seconds": 600, "threshold": 15, "window_seconds": 30},
+        )
+    except Exception:
+        logger.exception("Could not log spam-protector mute")
+    try:
+        await message.reply_text(
+            f"Spam detected. {user.mention_html()} has been automatically muted for 10 minutes.",
+            parse_mode="HTML",
+        )
+    except TelegramError:
+        pass
+    return True
+
+
 async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _approval(update, context, True)
 
@@ -444,15 +552,17 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
     locks = set(policy.get("locks", []))
     antiflood = policy.get("antiflood", {})
     flood_enabled = isinstance(antiflood, dict) and bool(antiflood.get("enabled"))
+    spam_config = policy.get("spam_protector", {})
+    spam_enabled = isinstance(spam_config, dict) and bool(spam_config.get("enabled"))
     approved = user.id in set(int(value) for value in policy.get("approved_users", []))
     text = message.text or message.caption or ""
-    if not locks and not flood_enabled:
+    if not locks and not flood_enabled and not spam_enabled:
         if not approved:
             await _apply_saved_filter(message, text, policy.get("filters", {}))
         return
     if user.is_bot and "bots" not in locks:
         return
-    if approved and not user.is_bot:
+    if approved and not user.is_bot and not spam_enabled:
         return
     try:
         actor = await context.bot.get_chat_member(chat.id, user.id)
@@ -473,6 +583,20 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
         return
     if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
         return
+
+    # Dedicated spam protection is independent of the existing delete-only antiflood.
+    # Group admins/owner are skipped above; approved users are still counted here.
+    if spam_enabled and not user.is_bot:
+        key = (chat.id, user.id)
+        now = time.monotonic()
+        events = _spam_protector_events[key]
+        while events and events[0] <= now - _SPAM_PROTECTOR_WINDOW_SECONDS:
+            events.popleft()
+        events.append(now)
+        if len(events) >= _SPAM_PROTECTOR_THRESHOLD:
+            events.clear()
+            await _auto_mute_spammer(update, context)
+            return
 
     violation = None
     if "links" in locks and _LINK.search(text):
