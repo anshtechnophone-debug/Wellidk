@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
 
+
 def _permission_names() -> tuple[str, ...]:
     return tuple(
         name for name in ChatPermissions.__slots__ if name.startswith("can_")
