@@ -450,10 +450,10 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         re.I,
     ))
     explicit_action = bool(re.search(
-        r"^(?:(?:please )?(?:mute|unmute|un-mute|ban|kick|remove)\b|"
-        r"(?:isko|ise|usko|use|iss member ko|@?[A-Za-z0-9_]{5,32})\s+(?:(?:wapis|wapas|dobara|again)\s+)?(?:mute|unmute|ban|kick|admin)\b|"
-        r"(?:admin|administrator)\s+(?:bana|banao|make|add|promote)\b|"
-        r"(?:bana|banao|make|add|promote)\s+(?:isko\s+)?admin\b)",
+        r"^(?:(?:(?:ok(?:ay)?|haan|han|yes|please)[,\\s]+)*(?:please )?(?:purge|delete|mute|unmute|un-mute|ban|kick|remove)\\b|"
+        r"(?:isko|ise|usko|use|iss member ko|@?[A-Za-z0-9_]{5,32})\\s+(?:(?:wapis|wapas|dobara|again)\\s+)?(?:mute|unmute|ban|kick|admin)\\b|"
+        r"(?:admin|administrator)\\s+(?:bana|banao|make|add|promote)\\b|"
+        r"(?:bana|banao|make|add|promote)\\s+(?:isko\\s+)?admin\\b)",
         request,
         re.I,
     ))
