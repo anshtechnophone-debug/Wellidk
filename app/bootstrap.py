@@ -43,7 +43,9 @@ from app.modules.appeals.handlers import (
     reviewappeal_command,
 )
 from app.modules.community.handlers import (
-    antiflood_command,\n    spamprotector_command,\n    plain_spamprotector_command,
+    antiflood_command,
+    spamprotector_command,
+    plain_spamprotector_command,
     approve_command,
     filter_command,
     filters_command,
@@ -418,7 +420,8 @@ def _register_general(application: Application) -> None:
         ("lock", lock_command),
         ("unlock", unlock_command),
         ("locks", locks_command),
-        ("antiflood", antiflood_command),\n        ("spamprotector", spamprotector_command),
+        ("antiflood", antiflood_command),
+        ("spamprotector", spamprotector_command),
         ("approve", approve_command),
         ("unapprove", unapprove_command),
         ("setwelcome", setwelcome_command),
