@@ -2,7 +2,7 @@
 
 Generated from the enabled command registry: 95 commands in 26 categories.
 
-Access labels describe XYRON's command-level gate. Administrative operations additionally re-check the configured owner's current group membership and the bot's required Telegram rights.
+Access labels describe XYRON's command-level gate. Administrative operations additionally re-check the configured owner's current group membership and the bot's required Telegram rights. XYRON bot admins (non-owner) are mute-only: they cannot ban or kick, and can mute at most one member per group every 10 minutes. The configured owner is exempt from this cooldown and retains full moderation access.
 
 ## Admin Logs
 
