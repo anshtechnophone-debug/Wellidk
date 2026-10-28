@@ -75,7 +75,7 @@ async def require_admin_access(
 
     actor = await context.bot.get_chat_member(chat.id, actor_user.id)
     async with context.application.bot_data["sessions"]() as session:
-        is_bot_admin = actor_user.id == settings.owner_id or bool(
+        is_bot_admin = settings.is_owner(actor_user.id) or bool(
             await session.get(BotAdmin, actor_user.id)
         )
     if not is_bot_admin:
@@ -103,7 +103,7 @@ async def ensure_target_is_moderatable(
     actor: ChatMember,
     settings: Settings,
 ) -> None:
-    if target_id == settings.owner_id or target_id in settings.protected_user_ids:
+    if settings.is_owner(target_id) or target_id in settings.protected_user_ids:
         raise AuthorizationError("That user is protected from moderation.")
     target = await context.bot.get_chat_member(chat_id, target_id)
     if target.status == ChatMember.OWNER:
