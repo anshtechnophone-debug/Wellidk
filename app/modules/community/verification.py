@@ -82,6 +82,37 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     payload = context.args[0] if context.args else ""
+    admin_guide_match = _ADMIN_GUIDE_PAYLOAD.fullmatch(payload)
+    if admin_guide_match:
+        expected_user_id = int(admin_guide_match.group(1))
+        if user.id != expected_user_id:
+            await message.reply_text("This command-guide link belongs to another Telegram account.")
+            return
+        from app.database.models import BotAdmin
+        sessions = context.application.bot_data.get("sessions")
+        is_bot_admin = False
+        if sessions is not None:
+            async with sessions() as session:
+                is_bot_admin = await session.get(BotAdmin, user.id) is not None
+        if not is_bot_admin:
+            await message.reply_text("You are not currently on XYRON's bot-admin list. Ask the bot owner if you think this is a mistake.")
+            return
+        await message.reply_text(
+            "✅ You are now a XYRON bot admin!\\n\\n"
+            "Your moderation commands (use them in a group where XYRON is present):\\n"
+            "• /mute — permanently mute a member (reply to their message or use their user ID)\\n"
+            "• /mute 30m — temporary mute for 30 minutes\\n"
+            "• /tmute 2h — temporary mute for 2 hours\\n"
+            "• /unmute — restore a member's saved/default permissions\\n"
+            "• /mutelist — view XYRON-tracked mutes\\n\\n"
+            "How to use: reply to the member's message with /mute, /tmute 30m, or /unmute. "
+            "You can also put their numeric Telegram user ID after the command.\\n\\n"
+            "Limits: bot admins can mute only one member per group every 10 minutes. "
+            "Ban and kick commands are reserved for the bot owner. "
+            "You do not need Telegram group-admin status to be a XYRON bot admin."
+        )
+        return
+
     match = _PAYLOAD.fullmatch(payload)
     if match:
         chat_id, expected_user_id = int(match.group(1)), int(match.group(2))
@@ -142,7 +173,11 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
     if message and message.text:
         parts = message.text.strip().split(maxsplit=1)
         if parts and parts[0].split("@", 1)[0].lower() == "/start" and len(parts) > 1:
-            if _PAYLOAD.fullmatch(parts[1].strip()):
+            start_payload = parts[1].strip()
+            if _PAYLOAD.fullmatch(start_payload):
+                return
+            admin_guide_match = _ADMIN_GUIDE_PAYLOAD.fullmatch(start_payload)
+            if admin_guide_match and user.id == int(admin_guide_match.group(1)):
                 return
 
     if query:
