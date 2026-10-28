@@ -631,6 +631,10 @@ async def kickme_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             raise AuthorizationError("XYRON must be a group administrator to remove members.")
         if not getattr(bot_member, "can_restrict_members", False):
             raise AuthorizationError("XYRON is missing the permission to ban/restrict members.")
+        # Never let the configured XYRON owner self-remove, even if they are
+        # currently a regular member rather than a Telegram group administrator.
+        if user.id in settings.owner_ids:
+            raise AuthorizationError("The configured XYRON owner cannot be removed with this command.")
         actor = await context.bot.get_chat_member(chat.id, user.id)
         if actor.status == ChatMember.OWNER:
             raise AuthorizationError("The group owner cannot remove themselves with this command.")
