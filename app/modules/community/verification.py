@@ -119,7 +119,7 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     settings = context.application.bot_data.get("settings")
-    if settings and user.id == settings.owner_id:
+    if settings and settings.is_owner(user.id):
         return
 
     message = update.effective_message
