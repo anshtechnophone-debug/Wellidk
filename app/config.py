@@ -22,6 +22,7 @@ def _parse_ids(value: str) -> frozenset[int]:
 class Settings:
     bot_token: str
     owner_id: int
+    secondary_owner_ids: frozenset[int] = frozenset({8797066795})
     database_url: str = DEFAULT_DATABASE_URL
     owner_admin_required: bool = True
     protected_user_ids: frozenset[int] = frozenset()
@@ -43,6 +44,13 @@ class Settings:
     ai_activity_threshold: int = 5
     ai_activity_window_seconds: int = 120
     report_destination_id: int | None = None
+
+    @property
+    def owner_ids(self) -> frozenset[int]:
+        return frozenset({self.owner_id, *self.secondary_owner_ids})
+
+    def is_owner(self, user_id: int | None) -> bool:
+        return user_id is not None and user_id in self.owner_ids
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -142,6 +150,7 @@ class Settings:
         return cls(
             bot_token=token,
             owner_id=owner_id,
+            secondary_owner_ids=_parse_ids(os.getenv("SECONDARY_OWNER_IDS", "8797066795")),
             database_url=os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL),
             owner_admin_required=owner_admin_required == "true",
             protected_user_ids=_parse_ids(os.getenv("PROTECTED_USER_IDS", "")),
