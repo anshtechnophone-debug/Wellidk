@@ -442,7 +442,8 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
                             continue
                         seen_ids.add(user_id)
                         first_name = (getattr(participant, "first_name", None) or "Member").strip()
-                        targets.append(User(id=user_id, first_name=first_name[:64], is_bot=False))
+                        username = (getattr(participant, "username", None) or "").strip() or None
+                        targets.append(User(id=user_id, first_name=first_name[:64], is_bot=False, username=username))
                 finally:
                     await client.disconnect()
             else:
@@ -455,16 +456,29 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
                         rows = (await session.execute(
                             select(
                                 GroupMessage.user_id,
-                                func.max(GroupMessage.sent_at).label("last_seen"),
+                                GroupMessage.username,
+                                GroupMessage.display_name,
+                                GroupMessage.sent_at,
                             )
                             .where(GroupMessage.chat_id == chat.id)
-                            .group_by(GroupMessage.user_id)
-                            .order_by(func.max(GroupMessage.sent_at).desc())
+                            .order_by(GroupMessage.sent_at.desc())
                         )).all()
-                    targets = [
-                        User(id=int(row.user_id), first_name="Member", is_bot=False)
-                        for row in rows
-                    ]
+                    # Keep the newest saved display name/username for each distinct user.
+                    seen_history_ids: set[int] = set()
+                    targets = []
+                    for row in rows:
+                        user_id = int(row.user_id)
+                        if user_id in seen_history_ids:
+                            continue
+                        seen_history_ids.add(user_id)
+                        display_name = (row.display_name or "").strip() or "Member"
+                        username = (row.username or "").strip().lstrip("@") or None
+                        targets.append(User(
+                            id=user_id,
+                            first_name=display_name[:64],
+                            is_bot=False,
+                            username=username,
+                        ))
 
             if not targets:
                 await message.reply_text(
@@ -487,12 +501,6 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
 
             desired_count = max(1, math.ceil(total_members * 0.75))
             mention_count = min(desired_count, len(targets))
-            if mention_count < desired_count:
-                await message.reply_text(
-                    f"I can retrieve only {len(targets)} members, but 75% of this group is "
-                    f"about {desired_count}. I'll mention the {mention_count} retrievable members; "
-                    "the MTProto account may need to be added to the group or refreshed."
-                )
             targets = random.sample(targets, mention_count)
 
             # Avoid mass duplicate pings after a partial Telegram/API failure.
@@ -541,11 +549,12 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
                 if batch_index + 1 < batch_count:
                     await asyncio.sleep(0.6)
 
-            await message.reply_text(
-                f"Done, Malik — mentioned {sent} retrievable members in {batch_count} message(s), "
-                f"up to 20 users per message. Source: {discovery_source}. "
-                "Telegram may still limit which participants can be retrieved or notified."
+            completion = (
+                f"Mentioned {sent} members."
+                if sent >= desired_count
+                else f"Done — mentioned {sent} available members."
             )
+            await message.reply_text(completion)
         except Exception:
             logger.exception("Mention-all failed in chat_id=%s", chat.id)
             await message.reply_text(
