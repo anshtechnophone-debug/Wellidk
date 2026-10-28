@@ -63,7 +63,44 @@ async def admin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if await session.get(BotAdmin, target_id):
             await _reply(update, f"{await _user_label(context, target_id)} is already a XYRON bot admin.", html_mode=True); return
         session.add(BotAdmin(user_id=target_id, added_by=user.id, created_at=datetime.now(UTC)))
-    await _reply(update, f"Added {await _user_label(context, target_id)} as a XYRON bot admin. They do not need group-admin status.", html_mode=True)
+
+    # Send the guide directly if the user has already started XYRON. Otherwise
+    # give the owner a personal deep link to share; Telegram bots cannot initiate
+    # a private conversation with a user who has never opened the bot.
+    me = await context.bot.get_me()
+    guide_url = f"https://t.me/{me.username}?start=botadmin_guide_{target_id}"
+    try:
+        await context.bot.send_message(
+            chat_id=target_id,
+            text=(
+                "✅ You are now a XYRON bot admin!\n\n"
+                "Your moderation commands (use them in a group where XYRON is present):\n"
+                "• /mute — permanently mute a member (reply to their message or use their user ID)\n"
+                "• /mute <duration> — temporary mute, e.g. /mute 30m\n"
+                "• /tmute <duration> — temporary mute, e.g. /tmute 2h\n"
+                "• /unmute — restore a member's saved/default permissions\n"
+                "• /mutelist — view XYRON-tracked mutes\n\n"
+                "How to use: reply to the member's message with /mute, /tmute 30m, or /unmute. "
+                "You can also put their numeric Telegram user ID after the command.\n\n"
+                "Limits: bot admins can mute only one member per group every 10 minutes. "
+                "Ban and kick commands are reserved for the bot owner. "
+                "You do not need Telegram group-admin status to be a XYRON bot admin."
+            ),
+        )
+        await _reply(
+            update,
+            f"Added {await _user_label(context, target_id)} as a XYRON bot admin. "
+            "I sent them their command guide in DM.",
+            html_mode=True,
+        )
+    except TelegramError:
+        await _reply(
+            update,
+            f"Added {await _user_label(context, target_id)} as a XYRON bot admin. "
+            f"Share this link with them to open their command guide: <a href=\"{guide_url}\">XYRON bot-admin commands</a>. "
+            "Telegram only lets me DM them after they start the bot.",
+            html_mode=True,
+        )
 
 async def unadmin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user, chat = update.effective_user, update.effective_chat
