@@ -575,10 +575,11 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         re.I,
     ))
     explicit_action = bool(re.search(
-        r"^(?:(?:(?:ok(?:ay)?|haan|han|yes|please)[,\\s]+)*(?:please )?(?:purge|delete|mute|unmute|un-mute|ban|kick|remove)\\b|"
-        r"(?:isko|ise|usko|use|iss member ko|@?[A-Za-z0-9_]{5,32})\\s+(?:(?:wapis|wapas|dobara|again)\\s+)?(?:mute|unmute|ban|kick|admin)\\b|"
-        r"(?:admin|administrator)\\s+(?:bana|banao|make|add|promote)\\b|"
-        r"(?:bana|banao|make|add|promote)\\s+(?:isko\\s+)?admin\\b)",
+        r"^(?:(?:bot\s+admin|make\s+(?:him|her|them)?\s*(?:a\s+)?bot\s+admin|admin\s+(?:bana|banao)|(?:bana|banao)\s+(?:isko|inhe|ise)|(?:xyron\s+)?admin\s+dena)\b|"
+        r"(?:(?:ok(?:ay)?|haan|han|yes|please)[,\s]+)*(?:please )?(?:purge|delete|mute|unmute|un-mute|ban|kick|remove)\b|"
+        r"(?:isko|ise|usko|use|iss member ko|@?[A-Za-z0-9_]{5,32})\s+(?:(?:wapis|wapas|dobara|again)\s+)?(?:mute|unmute|ban|kick|admin)\b|"
+        r"(?:admin|administrator)\s+(?:bana|banao|make|add|promote)\b|"
+        r"(?:bana|banao|make|add|promote)\s+(?:isko\s+)?admin\b)",
         request,
         re.I,
     ))
@@ -606,11 +607,11 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     # Deterministic reply-based promotion to XYRON's internal bot-admin role.
     # This is separate from Telegram group administrator privileges.
     bot_admin_request = bool(re.search(
-        r"\\b(?:bot\\s+admin|admin(?:istrator)?\\s+(?:bana|banao|bana\\s+do|make|add|promote)|"
-        r"(?:make|add|promote)\\s+(?:him|her|them|this\\s+user|this\\s+person)?\\s*"
-        r"(?:a\\s+)?(?:xyron\\s+)?bot\\s+admin|"
-        r"(?:admin\\s+)?banao\\s+(?:isko|inhe|ise|is\\s+ko|in\\s+ko)|"
-        r"(?:xyron\\s+)?admin\\s+dena\\s+(?:inhe|isko|ise|him|her|them))\\b",
+        r"\b(?:bot\s+admin|admin(?:istrator)?\s+(?:bana|banao|bana\s+do|make|add|promote)|"
+        r"(?:make|add|promote)\s+(?:him|her|them|this\s+user|this\s+person)?\s*"
+        r"(?:a\s+)?(?:xyron\s+)?bot\s+admin|"
+        r"(?:admin\s+)?banao\s+(?:isko|inhe|ise|is\s+ko|in\s+ko)|"
+        r"(?:xyron\s+)?admin\s+dena\s+(?:inhe|isko|ise|him|her|them))\b",
         request,
         re.I,
     ))
