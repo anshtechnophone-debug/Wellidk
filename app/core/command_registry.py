@@ -23,6 +23,7 @@ COMMANDS = (
     CommandInfo("help", "Browse commands by category", "/help", "Help and About"),
     CommandInfo("about", "About XYRON", "/about", "Help and About"),
     CommandInfo("ping", "Check bot responsiveness", "/ping", "General"),
+    CommandInfo("daily", "Show the top 50 group chatters today", "/daily", "Leaderboards"),
     CommandInfo("health", "Check database and background workers", "/health", "General"),
     CommandInfo("id", "Show Telegram IDs", "/id [reply]", "User Tools"),
     CommandInfo("admin", "Add a XYRON bot admin (owner only)", "/admin <numeric_user_id>", "Owner Tools", owner_only=True),
