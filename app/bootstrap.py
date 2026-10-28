@@ -409,6 +409,12 @@ async def _post_shutdown(application: Application) -> None:
     if stop_event:
         stop_event.set()
 
+    ai_router = application.bot_data.get("ai_router")
+    provider = getattr(ai_router, "provider", None)
+    close_provider = getattr(provider, "close", None)
+    if close_provider:
+        await close_provider()
+
     engine = application.bot_data.get("engine")
     if engine:
         await engine.dispose()
