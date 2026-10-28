@@ -51,7 +51,7 @@ DEFAULT STYLE:
 def _owner(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user = update.effective_user
     settings = context.application.bot_data.get("settings")
-    return bool(user and settings and user.id == settings.owner_id)
+    return bool(user and settings and settings.is_owner(user.id))
 
 
 def _display(row: GroupMessage) -> str:
