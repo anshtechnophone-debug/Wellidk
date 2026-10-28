@@ -117,7 +117,7 @@ from app.modules.games.team_handlers import (
     teamword_command,
     teamwordcancel_command,
 )
-from app.modules.moderation.bot_admins import admin_command, unadmin_command, botadminlist_command, pin_command
+from app.modules.moderation.bot_admins import admin_command, unadmin_command, botadminlist_command, demote_command, pin_command
 from app.modules.moderation.handlers import (
     adminlist_command,
     banlist_command,
@@ -477,6 +477,18 @@ def _register_general(application: Application) -> None:
         "skick",
     ):
         application.add_handler(CommandHandler(command, moderation_command))
+
+    # Owner can demote a replied-to user from XYRON's independent bot-admin list.
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS
+            & filters.TEXT
+            & ~filters.COMMAND
+            & filters.Regex(r"(?i)^\\s*demote\\s*$"),
+            demote_command,
+        ),
+        group=0,
+    )
 
     # Accept exact standalone moderation words without a slash. Longer
     # conversational sentences (e.g. "mute kra hai kal kisi ko") never match.
