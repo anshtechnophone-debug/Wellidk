@@ -72,7 +72,7 @@ _INCIDENT_CATEGORIES = {
 _SEVERITIES = {"low", "medium", "high"}
 
 from app.modules.ai.group_prompt import CONVERSATION_SYSTEM_PROMPT
-from app.modules.ai.dm_prompt import DM_CONVERSATION_SYSTEM_PROMPT
+from app.modules.ai.dm_prompt import DM_CONVERSATION_SYSTEM_PROMPT, get_dm_system_prompt
 
 MODERATION_SYSTEM_PROMPT = """
 You are XYRON, Ansh's fiercely loyal group incident analyst.
@@ -634,8 +634,11 @@ class AIEventRouter:
             )
 
         # Only the configured owner can trigger AI replies or analyses.
-        if user.id != settings.owner_id:
-            return
+        if not settings.is_owner(user.id):
+            # Special configured users may chat with XYRON in private DMs,
+            # but only owners can trigger group analysis and owner controls.
+            if chat.type != "private" or user.id not in {8797066795, 8803598351, 8860754092}:
+                return
 
         if chat.type == "private":
             kind = (
@@ -869,7 +872,7 @@ class AIEventRouter:
         else:
             # Keep private-DM and group-chat voice separate.
             system = (
-                DM_CONVERSATION_SYSTEM_PROMPT
+                get_dm_system_prompt(user.id)
                 if chat.type == "private"
                 else CONVERSATION_SYSTEM_PROMPT
             )
