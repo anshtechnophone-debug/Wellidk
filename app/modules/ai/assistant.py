@@ -258,10 +258,19 @@ def detect_event(
 
 
 class OpenAICompatibleProvider:
-    """Provider adapter for OpenAI-compatible chat completion APIs."""
+    """Provider adapter with connection reuse and request timing."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        # Reuse HTTPS connections instead of performing a new TLS handshake
+        # for every message. This client is closed by the application shutdown hook.
+        self.client = httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0, connect=4.0),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+
+    async def close(self) -> None:
+        await self.client.aclose()
 
     async def complete(self, system: str, prompt: str) -> AIResult:
         headers = {
@@ -275,23 +284,42 @@ class OpenAICompatibleProvider:
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.3,
+            # XYRON's chat style is intentionally concise; cap generation time.
+            "max_tokens": 300,
         }
 
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            response = await client.post(
+        started = time.perf_counter()
+        try:
+            response = await self.client.post(
                 f"{self.settings.ai_base_url}/chat/completions",
                 headers=headers,
                 json=payload,
             )
             response.raise_for_status()
             data = response.json()
+        except Exception:
+            logger.warning(
+                "AI provider request failed after %.2fs (model=%s)",
+                time.perf_counter() - started,
+                self.settings.ai_model,
+                exc_info=True,
+            )
+            raise
+
+        elapsed = time.perf_counter() - started
+        usage = data.get("usage") or {}
+        logger.info(
+            "AI provider request completed in %.2fs (model=%s, input_tokens=%s, output_tokens=%s)",
+            elapsed,
+            self.settings.ai_model,
+            usage.get("prompt_tokens", "?"),
+            usage.get("completion_tokens", "?"),
+        )
 
         content = data["choices"][0]["message"]["content"]
 
         if not isinstance(content, str) or not content.strip():
             raise ValueError("AI provider returned an empty response")
-
-        usage = data.get("usage") or {}
 
         return AIResult(
             text=content.strip(),
