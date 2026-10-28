@@ -27,7 +27,7 @@ COMMANDS = (
     CommandInfo("id", "Show Telegram IDs", "/id [reply]", "User Tools"),
     CommandInfo("admin", "Add a XYRON bot admin (owner only)", "/admin <numeric_user_id>", "Owner Tools", owner_only=True),
     CommandInfo("unadmin", "Remove a XYRON bot admin (owner only)", "/unadmin <numeric_user_id>", "Owner Tools", owner_only=True),
-    CommandInfo("botadminlist", "List XYRON bot admins (owner only)", "/botadminlist", "Owner Tools", owner_only=True),
+    CommandInfo("botadminlist", "List all bot admins in DM or only those present in the current group", "/botadminlist", "Owner Tools", owner_only=True),
     CommandInfo("pin", "Pin a replied-to message", "/pin (reply)", "Message Management", True),
     CommandInfo(
         "settings",
