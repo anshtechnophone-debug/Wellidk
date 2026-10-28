@@ -43,7 +43,7 @@ from app.modules.appeals.handlers import (
     reviewappeal_command,
 )
 from app.modules.community.handlers import (
-    antiflood_command,
+    antiflood_command,\n    spamprotector_command,\n    plain_spamprotector_command,
     approve_command,
     filter_command,
     filters_command,
@@ -418,7 +418,7 @@ def _register_general(application: Application) -> None:
         ("lock", lock_command),
         ("unlock", unlock_command),
         ("locks", locks_command),
-        ("antiflood", antiflood_command),
+        ("antiflood", antiflood_command),\n        ("spamprotector", spamprotector_command),
         ("approve", approve_command),
         ("unapprove", unapprove_command),
         ("setwelcome", setwelcome_command),
@@ -477,6 +477,18 @@ def _register_general(application: Application) -> None:
         "skick",
     ):
         application.add_handler(CommandHandler(command, moderation_command))
+
+    # Owner-only natural-language switch for the group spam protector.
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS
+            & filters.TEXT
+            & ~filters.COMMAND
+            & filters.Regex(r"(?i)^\s*xyron\s+spam\s+protector\s+(?:onn?|off)\s*$"),
+            plain_spamprotector_command,
+        ),
+        group=0,
+    )
 
     # Owner can demote a replied-to user from XYRON's independent bot-admin list.
     application.add_handler(
