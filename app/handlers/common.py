@@ -191,9 +191,9 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message, user = update.effective_message, update.effective_user
     settings = context.application.bot_data["settings"]
-    if not message or not user or user.id != settings.owner_id:
+    if not message or not user or not settings.is_owner(user.id):
         if message:
-            await message.reply_text("This command is restricted to the configured owner.")
+            await message.reply_text("This command is restricted to the configured owner or secondary owner.")
         return
     async with context.application.bot_data["sessions"]() as session:
         from sqlalchemy import select
