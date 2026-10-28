@@ -315,7 +315,7 @@ async def _dispatch_registered_command(
 async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message, chat, actor = update.effective_message, update.effective_chat, update.effective_user
     settings = context.application.bot_data.get("settings")
-    if not message or not chat or not actor or not settings or actor.id != settings.owner_id:
+    if not message or not chat or not actor or not settings or not settings.is_owner(actor.id):
         return
     if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         return
@@ -660,7 +660,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             raise OwnerIntentError("Please specify only one target.")
 
         if action == "admin":
-            if target_id == settings.owner_id:
+            if settings.is_owner(target_id):
                 await message.reply_text("Malik, you're already the owner.")
                 context.chat_data["xyron_owner_control_message_id"] = message.message_id
                 return
