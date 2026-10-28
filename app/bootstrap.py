@@ -139,6 +139,7 @@ from app.modules.reminders.handlers import (
     reminders_command,
 )
 from app.services.group_history import GroupHistoryRepository, GroupMessage
+from app.services.activity_log import ActivityEvent, ActivityLogRepository, activity_retention_worker
 from app.services.reminder_worker import reminder_worker
 from app.services.scheduling import expiration_worker
 
@@ -166,7 +167,33 @@ async def collect_group_message(
 
     text = (message.text or message.caption or "").strip()
     if not text:
-        return
+        attachment = getattr(message, "effective_attachment", None)
+        if attachment is None:
+            return
+        if getattr(message, "photo", None):
+            text = "[photo]"
+        elif getattr(message, "video", None):
+            text = "[video]"
+        elif getattr(message, "animation", None):
+            text = "[animation]"
+        elif getattr(message, "document", None):
+            text = "[document]"
+        elif getattr(message, "audio", None):
+            text = "[audio]"
+        elif getattr(message, "voice", None):
+            text = "[voice]"
+        elif getattr(message, "video_note", None):
+            text = "[video note]"
+        elif getattr(message, "sticker", None):
+            text = "[sticker]"
+        elif getattr(message, "location", None):
+            text = "[location]"
+        elif getattr(message, "contact", None):
+            text = "[contact]"
+        elif getattr(message, "poll", None):
+            text = "[poll]"
+        else:
+            text = "[media]"
 
     sessions = context.application.bot_data.get("sessions")
     if sessions is None:
@@ -190,6 +217,134 @@ async def collect_group_message(
             chat.id,
             message.message_id,
         )
+
+
+async def collect_group_activity(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Record group messages and issued commands in the rolling 24-hour audit log."""
+    message = update.effective_message
+    chat = update.effective_chat
+    if not message or not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        return
+    sessions = context.application.bot_data.get("sessions")
+    if sessions is None:
+        return
+    user = message.from_user
+    raw = (message.text or message.caption or "").strip()
+    if message.text and message.text.lstrip().startswith("/"):
+        command = message.text.split(maxsplit=1)[0].split("@")[0].lstrip("/").lower()
+        args = message.text.split(maxsplit=1)[1] if len(message.text.split(maxsplit=1)) > 1 else ""
+        status = "received"
+        await ActivityLogRepository(sessions).record(
+            chat_id=chat.id,
+            event_type="command",
+            actor_id=user.id if user else None,
+            message_id=message.message_id,
+            action=command,
+            status=status,
+            details={"command_text": message.text[:2000], "arguments": args[:1000],
+                     "reply_to_message_id": message.reply_to_message.message_id
+                     if message.reply_to_message else None},
+            created_at=message.date,
+        )
+        return
+    attachment = getattr(message, "effective_attachment", None)
+    if message.photo:
+        media_type = "photo"
+    elif message.video:
+        media_type = "video"
+    elif message.animation:
+        media_type = "animation"
+    elif message.document:
+        media_type = "document"
+    elif message.audio:
+        media_type = "audio"
+    elif message.voice:
+        media_type = "voice"
+    elif message.video_note:
+        media_type = "video_note"
+    elif message.sticker:
+        media_type = "sticker"
+    elif message.location:
+        media_type = "location"
+    elif message.contact:
+        media_type = "contact"
+    elif message.poll:
+        media_type = "poll"
+    elif message.new_chat_members or message.left_chat_member or message.pinned_message:
+        media_type = "service"
+    else:
+        media_type = "text"
+    try:
+        await ActivityLogRepository(sessions).record(
+            chat_id=chat.id,
+            event_type="message_edit" if update.edited_message else "message",
+            actor_id=user.id if user else None,
+            message_id=message.message_id,
+            status="observed",
+            details={
+                "text_or_caption": raw[:10000],
+                "media_type": media_type,
+                "has_attachment": attachment is not None,
+                "reply_to_message_id": message.reply_to_message.message_id
+                if message.reply_to_message else None,
+                "date": message.date.isoformat() if message.date else None,
+            },
+            created_at=message.edit_date or message.date,
+        )
+    except Exception:
+        logger.exception("Failed to log group activity: chat_id=%s", chat.id)
+
+
+async def collect_chat_member_activity(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Record member status/restriction/admin-role changes Telegram delivers."""
+    change = update.chat_member
+    if not change or not update.effective_chat:
+        return
+    sessions = context.application.bot_data.get("sessions")
+    if sessions is None:
+        return
+    old = change.old_chat_member
+    new = change.new_chat_member
+    old_status = getattr(old, "status", "unknown")
+    new_status = getattr(new, "status", "unknown")
+    old_permissions = {
+        name: bool(getattr(old, name, False))
+        for name in getattr(old, "__slots__", ())
+        if name.startswith("can_")
+    }
+    new_permissions = {
+        name: bool(getattr(new, name, False))
+        for name in getattr(new, "__slots__", ())
+        if name.startswith("can_")
+    }
+    action = "member_status_change"
+    if old_status != new_status:
+        action = f"{old_status}_to_{new_status}"
+    elif old_permissions != new_permissions:
+        action = "permissions_changed"
+    try:
+        await ActivityLogRepository(sessions).record(
+            chat_id=update.effective_chat.id,
+            event_type="admin_or_member_change",
+            actor_id=change.from_user.id if change.from_user else None,
+            target_id=new.user.id if getattr(new, "user", None) else None,
+            action=action,
+            status="observed",
+            details={
+                "old_status": old_status,
+                "new_status": new_status,
+                "old_permissions": old_permissions,
+                "new_permissions": new_permissions,
+            },
+        )
+    except Exception:
+        logger.exception("Failed to log chat member update")
 
 
 def _register_general(application: Application) -> None:
@@ -316,11 +471,22 @@ def _register_general(application: Application) -> None:
     )
 
     application.add_handler(
+        MessageHandler(filters.ALL, collect_group_activity),
+        group=7,
+    )
+    application.add_handler(
         MessageHandler(
             filters.ALL & ~filters.COMMAND,
             collect_group_message,
         ),
         group=8,
+    )
+    application.add_handler(
+        ChatMemberHandler(
+            collect_chat_member_activity,
+            ChatMemberHandler.CHAT_MEMBER,
+        ),
+        group=11,
     )
 
     application.add_handler(
@@ -400,6 +566,10 @@ async def _post_init(application: Application) -> None:
         "reminders": application.create_task(
             reminder_worker(application, stop_event),
             name="xyron-reminder-worker",
+        ),
+        "activity_retention": application.create_task(
+            activity_retention_worker(application, stop_event),
+            name="xyron-activity-retention-worker",
         ),
     }
 
