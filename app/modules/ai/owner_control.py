@@ -372,9 +372,9 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     # every group member. Send at most 20 mentions per message, with a hard cap
     # of 100 recorded users per request and a cooldown to prevent repeated pings.
     mention_request = re.search(
-        r"\\b(?:mention|tag|ping)\\s*(?:karna|karna\\s+hai|karo|kro|kar\\s*do|kr\\s*do|do)?\\s*(?:sabko|sabhi|everyone|everybody|all)\\b|"
-        r"\\b(?:sabko|sabhi|everyone|everybody|all)\\s+(?:mention|tag|ping)(?:\\s+(?:karo|kro|kar\\s*do|kr\\s*do|do))?\\b|"
-        r"\\b(?:sabko|sabhi)\\s+(?:uthao|uthaoo)\\b",
+        r"\b(?:mention|tag|ping)\s*(?:karna|karna\s+hai|karo|kro|kar\s*do|kr\s*do|do)?\s*(?:sabko|sabhi|everyone|everybody|all)\b|"
+        r"\b(?:sabko|sabhi|everyone|everybody|all)\s+(?:mention|tag|ping)(?:\s+(?:karo|kro|kar\s*do|kr\s*do|do))?\b|"
+        r"\b(?:sabko|sabhi)\s+(?:uthao|uthaoo)\b",
         request,
         re.I,
     )
@@ -386,8 +386,8 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             context.chat_data["xyron_owner_control_message_id"] = message.message_id
             return
 
-        announcement = (request[:mention_request.start()] + " " + request[mention_request.end():]).strip(" \\t,:;.!-—")
-        announcement = re.sub(r"\\s+", " ", announcement).strip()
+        announcement = (request[:mention_request.start()] + " " + request[mention_request.end():]).strip(" \t,:;.!-—")
+        announcement = re.sub(r"\s+", " ", announcement).strip()
         if not announcement:
             announcement = "Everyone, please check this message!"
 
@@ -423,7 +423,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             for batch_index, start_index in enumerate(range(0, len(rows), batch_size)):
                 batch = rows[start_index:start_index + batch_size]
                 prefix_text = announcement if batch_index == 0 else "More members:"
-                prefix = prefix_text + "\\n\\n"
+                prefix = prefix_text + "\n\n"
                 body = prefix + " ".join("•" for _ in batch)
                 entities = []
                 offset = len(prefix.encode("utf-16-le")) // 2
