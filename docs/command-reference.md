@@ -21,6 +21,14 @@ Access labels describe XYRON's command-level gate. Administrative operations add
 | `/approve <reply\|user_id>` | Exempt a member from configured protections | `/approve 123456789` | group admin |
 | `/unapprove <reply\|user_id>` | Remove a member exemption | `/unapprove 123456789` | group admin |
 
+## XYRON Bot Admin Management
+
+| Action | Description | Example | Access |
+| --- | --- | --- | --- |
+| `/botadminlist` in a private chat | List all XYRON bot admins | `/botadminlist` | configured owner |
+| `/botadminlist` in a group | List only XYRON bot admins Telegram confirms are members of that group | `/botadminlist` | configured owner |
+| Reply to a user's message with `demote` | Remove that user from XYRON's bot-admin list | Reply to their message, then send `demote` | configured owner |
+
 ## Anti-Spam
 
 | Command | Description | Example | Access |
