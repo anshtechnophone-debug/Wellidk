@@ -31,6 +31,7 @@ Access labels describe XYRON's command-level gate. Administrative operations add
 
 ## Anti-Spam
 
+| Command | Description | Example | Access |\n| --- | --- | --- | --- |\n| `/spamprotector <on|off>` | Owner-only automatic mute after 15 messages within 30 seconds; mute lasts 10 minutes | `/spamprotector on` | configured owner |\n\nThe configured owner can also send `Xyron Spam protector onn` or `Xyron Spam protector off` in the group. This setting is stored per group.\n\n
 | Command | Description | Example | Access |
 | --- | --- | --- | --- |
 | `/antiflood <on\|off> [threshold] [seconds] [repeat threshold]` | Configure message flood deletion | `/antiflood on 5 10 3` | group admin |
