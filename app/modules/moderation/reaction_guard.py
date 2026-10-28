@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
 
 from telegram import Chat, ChatMember, ChatPermissions, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
+
+def _permission_names() -> tuple[str, ...]:
+    return tuple(
+        name for name in ChatPermissions.__slots__ if name.startswith("can_")
+    )
 
 # A user is restricted only when their current reaction set contains multiple
 # reactions on the same message. Changing a single reaction is not punished.
