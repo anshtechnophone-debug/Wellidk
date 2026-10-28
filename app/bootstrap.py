@@ -484,7 +484,7 @@ def _register_general(application: Application) -> None:
             filters.ChatType.GROUPS
             & filters.TEXT
             & ~filters.COMMAND
-            & filters.Regex(r"(?i)^\\s*demote\\s*$"),
+            & filters.Regex(r"(?i)^\s*demote\s*$"),
             demote_command,
         ),
         group=0,
