@@ -23,6 +23,12 @@ DEFAULT_POLICY: dict[str, object] = {
         "window_seconds": 10,
         "repeat_threshold": 3,
     },
+    "spam_protector": {
+        "enabled": False,
+        "threshold": 15,
+        "window_seconds": 30,
+        "mute_seconds": 600,
+    },
 }
 
 
