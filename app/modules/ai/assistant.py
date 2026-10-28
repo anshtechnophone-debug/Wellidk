@@ -444,7 +444,7 @@ class AIEventRouter:
             found: dict[tuple[int, int], dict[str, object]] = {}
             # If a person was named, query only that person's rows. When the
             # question is about a topic too, apply that topic as a SQL text filter.
-            user_filters = target_ids if len(target_ids) == 1 else [None]
+            user_filters = target_ids if target_ids else [None]
             search_terms = terms[:4] or [""]
             for user_filter in user_filters:
                 if target_ids and user_filter is None:
