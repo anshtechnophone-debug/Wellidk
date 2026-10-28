@@ -121,7 +121,6 @@ from app.modules.games.team_handlers import (
     teamwordcancel_command,
 )
 from app.modules.moderation.bot_admins import admin_command, unadmin_command, botadminlist_command, demote_command, pin_command
-from app.modules.moderation.reaction_guard import reaction_guard_handler
 from app.modules.moderation.handlers import (
     adminlist_command,
     banlist_command,
@@ -137,6 +136,7 @@ from app.modules.moderation.handlers import (
     warn_command,
     warning_query_command,
 )
+from app.modules.moderation.reaction_guard import reaction_guard_handler
 from app.modules.reminders.handlers import (
     cancelreminder_command,
     remind_command,
