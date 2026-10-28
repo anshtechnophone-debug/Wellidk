@@ -162,7 +162,7 @@ async def collect_group_message(
         return
 
     user = message.from_user
-    if not user or user.is_bot:
+    if not user:
         return
 
     text = (message.text or message.caption or "").strip()
@@ -236,7 +236,7 @@ async def collect_group_activity(
     if message.text and message.text.lstrip().startswith("/"):
         command = message.text.split(maxsplit=1)[0].split("@")[0].lstrip("/").lower()
         args = message.text.split(maxsplit=1)[1] if len(message.text.split(maxsplit=1)) > 1 else ""
-        status = "received"
+        status = "processed"
         await ActivityLogRepository(sessions).record(
             chat_id=chat.id,
             event_type="command",
