@@ -51,12 +51,12 @@ async def _user_label(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> str:
 async def admin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user, chat = update.effective_user, update.effective_chat
     settings: Settings = context.application.bot_data["settings"]
-    if not user or user.id != settings.owner_id or not chat or chat.type != Chat.PRIVATE:
+    if not user or not settings.is_owner(user.id) or not chat or chat.type != Chat.PRIVATE:
         await _reply(update, "Only the owner can manage bot admins, in DM."); return
     if len(context.args) != 1 or not context.args[0].isdecimal() or int(context.args[0]) <= 0:
         await _reply(update, "Usage: /admin <numeric_user_id>"); return
     target_id = int(context.args[0])
-    if target_id == settings.owner_id:
+    if settings.is_owner(target_id):
         await _reply(update, "You are already the owner."); return
     async with context.application.bot_data["sessions"].begin() as session:
         if await session.get(BotAdmin, target_id):
