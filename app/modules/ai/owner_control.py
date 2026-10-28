@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 import re
 from datetime import UTC, datetime
 
@@ -391,56 +393,117 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         if not announcement:
             announcement = "Everyone, please check this message!"
 
-        sessions = context.application.bot_data.get("sessions")
-        if sessions is None:
-            await message.reply_text("I can't access the saved group-member history right now.")
-            context.chat_data["xyron_owner_control_message_id"] = message.message_id
-            return
-
         try:
-            async with sessions() as session:
-                rows = (await session.execute(
-                    select(
-                        GroupMessage.user_id,
-                        func.max(GroupMessage.sent_at).label("last_seen"),
-                        func.max(GroupMessage.display_name).label("display_name"),
-                    )
-                    .where(GroupMessage.chat_id == chat.id)
-                    .group_by(GroupMessage.user_id)
-                    .order_by(func.max(GroupMessage.sent_at).desc())
-                    .limit(100)
-                )).all()
-            if not rows:
-                await message.reply_text("I haven't recorded any members in this group's message history yet.")
+            # MTProto is needed to discover members who have never spoken in the
+            # group. It must be authorized as a Telegram user account; a bot token
+            # alone cannot enumerate every participant through the Bot API.
+            api_id_raw = os.getenv("TELEGRAM_API_ID", "").strip()
+            api_hash = os.getenv("TELEGRAM_API_HASH", "").strip()
+            session_string = os.getenv("TELETHON_SESSION", "").strip()
+            targets: list[User] = []
+            discovery_source = "MTProto"
+
+            if api_id_raw and api_hash and session_string:
+                try:
+                    from telethon import TelegramClient
+                    from telethon.sessions import StringSession
+                except ImportError as exc:
+                    raise RuntimeError(
+                        "Telethon is not installed. Install project dependencies and restart XYRON."
+                    ) from exc
+
+                try:
+                    api_id = int(api_id_raw)
+                except ValueError as exc:
+                    raise RuntimeError("TELEGRAM_API_ID must be a numeric API ID.") from exc
+
+                client = TelegramClient(StringSession(session_string), api_id, api_hash)
+                try:
+                    await client.connect()
+                    if not await client.is_user_authorized():
+                        raise RuntimeError(
+                            "TELETHON_SESSION is invalid or expired; generate a fresh authorized session."
+                        )
+                    # StringSession stores auth state, not the full entity cache.
+                    # Load dialogs first so Telethon can resolve the group's access hash.
+                    dialogs = await client.get_dialogs()
+                    dialog = next((item for item in dialogs if item.id == chat.id), None)
+                    entity = dialog.entity if dialog else await client.get_entity(chat.id)
+                    seen_ids: set[int] = set()
+                    async for participant in client.iter_participants(entity):
+                        user_id = int(getattr(participant, "id", 0) or 0)
+                        if (
+                            not user_id
+                            or user_id in seen_ids
+                            or getattr(participant, "bot", False)
+                            or getattr(participant, "deleted", False)
+                        ):
+                            continue
+                        seen_ids.add(user_id)
+                        first_name = (getattr(participant, "first_name", None) or "Member").strip()
+                        targets.append(User(id=user_id, first_name=first_name[:64], is_bot=False))
+                finally:
+                    await client.disconnect()
+            else:
+                # Safe fallback preserves the existing feature when MTProto
+                # credentials have not yet been configured on the VPS.
+                discovery_source = "saved history (MTProto not configured)"
+                sessions = context.application.bot_data.get("sessions")
+                if sessions is not None:
+                    async with sessions() as session:
+                        rows = (await session.execute(
+                            select(
+                                GroupMessage.user_id,
+                                func.max(GroupMessage.sent_at).label("last_seen"),
+                            )
+                            .where(GroupMessage.chat_id == chat.id)
+                            .group_by(GroupMessage.user_id)
+                            .order_by(func.max(GroupMessage.sent_at).desc())
+                            .limit(100)
+                        )).all()
+                    targets = [
+                        User(id=int(row.user_id), first_name="Member", is_bot=False)
+                        for row in rows
+                    ]
+
+            if not targets:
+                await message.reply_text(
+                    "I couldn't retrieve any mentionable members. Check that the MTProto account "
+                    "is a member of this group and that TELEGRAM_API_ID, TELEGRAM_API_HASH, "
+                    "and TELETHON_SESSION are configured on the VPS."
+                )
                 context.chat_data["xyron_owner_control_message_id"] = message.message_id
                 return
 
-            # Set the cooldown before sending any batch so a partial Telegram/API
-            # failure cannot be retried immediately and duplicate already-sent pings.
+            # Avoid mass duplicate pings after a partial Telegram/API failure.
             context.chat_data["xyron_mention_all_last_sent"] = now
             batch_size = 20
             sent = 0
-            for batch_index, start_index in enumerate(range(0, len(rows), batch_size)):
-                batch = rows[start_index:start_index + batch_size]
-                prefix_text = announcement if batch_index == 0 else "More members:"
+            batch_count = (len(targets) + batch_size - 1) // batch_size
+            for batch_index, start_index in enumerate(range(0, len(targets), batch_size)):
+                batch = targets[start_index:start_index + batch_size]
+                prefix_text = announcement if batch_index == 0 else f"More members ({batch_index + 1}/{batch_count}):"
                 prefix = prefix_text + "\n\n"
                 body = prefix + " ".join("•" for _ in batch)
                 entities = []
                 offset = len(prefix.encode("utf-16-le")) // 2
-                for row in batch:
+                for target in batch:
                     entities.append(MessageEntity(
                         type=MessageEntity.TEXT_MENTION,
                         offset=offset,
                         length=1,
-                        user=User(id=int(row.user_id), first_name="Member", is_bot=False),
+                        user=target,
                     ))
-                    offset += 2  # marker plus the following space, in UTF-16 units
+                    offset += 2  # marker plus following space, in UTF-16 units
                 await message.reply_text(body, entities=entities)
                 sent += len(batch)
+                if batch_index + 1 < batch_count:
+                    await asyncio.sleep(0.6)
 
             await message.reply_text(
-                f"Done, Malik — mentioned {sent} recorded members in "
-                f"{(sent + batch_size - 1) // batch_size} message(s), with up to 20 users per message."
+                f"Done, Malik — mentioned {sent} retrievable members in {batch_count} message(s), "
+                f"up to 20 users per message. Source: {discovery_source}. "
+                "Telegram may still limit which participants can be retrieved or notified."
             )
         except Exception:
             logger.exception("Mention-all failed in chat_id=%s", chat.id)
