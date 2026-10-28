@@ -15,8 +15,10 @@ def _permission_names() -> tuple[str, ...]:
         name for name in ChatPermissions.__slots__ if name.startswith("can_")
     )
 
+
 # A user is restricted only when their current reaction set contains multiple
 # reactions on the same message. Changing a single reaction is not punished.
+
 
 async def reaction_guard_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE
