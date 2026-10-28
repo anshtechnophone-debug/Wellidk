@@ -746,11 +746,14 @@ class AIEventRouter:
                 )
             ]
 
+        # Keep ordinary conversation prompts small. Large histories increase
+        # provider latency, while moderation keeps a wider evidence window.
+        context_limit = 8 if kind == "moderation" else 5
         prompt_rows = [
             f"{row.timestamp.isoformat()} "
             f"user_id={row.user_id} message_id={row.message_id} "
-            f"name={row.display_name!r}: {row.text!r}"
-            for row in rows
+            f"name={row.display_name[:80]!r}: {row.text[:600]!r}"
+            for row in rows[-context_limit:]
         ]
 
         prompt = (
@@ -830,11 +833,13 @@ class AIEventRouter:
                     )
                 )
 
+        # Group rules are relevant to incident analysis, not casual chat.
+        # Avoid an unnecessary database read and extra prompt tokens otherwise.
         sessions = context.application.bot_data.get("sessions")
-        if sessions:
+        if sessions and kind == "moderation":
             try:
                 policy = await GroupPolicyRepository(sessions).get(chat.id)
-                rules = str(policy.get("rules", ""))[:4000]
+                rules = str(policy.get("rules", ""))[:1200]
 
                 if rules:
                     prompt += (
