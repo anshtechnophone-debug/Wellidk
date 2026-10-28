@@ -84,7 +84,7 @@ async def daily_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Telegram messages are limited to 4096 characters; send the heading and
     # entries in safe chunks while keeping HTML tags balanced per message.
     heading = "\n".join(lines[:3])
-    entries = lines[4:]
+    entries = lines[3:]
     chunks: list[str] = []
     current = heading
     for entry in entries:
