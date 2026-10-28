@@ -7,6 +7,7 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from app.core.permissions import AuthorizationError, require_admin_access
+from app.services.activity_log import ActivityLogRepository
 
 
 async def _reply(update: Update, text: str) -> None:
@@ -24,6 +25,15 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             update, context, context.application.bot_data["settings"], "can_delete_messages"
         )
         await context.bot.delete_message(chat.id, message.reply_to_message.message_id)
+        await ActivityLogRepository(context.application.bot_data["sessions"]).record(
+            chat_id=chat.id,
+            event_type="message_deletion",
+            actor_id=update.effective_user.id if update.effective_user else None,
+            message_id=message.reply_to_message.message_id,
+            action="delete",
+            status="success",
+            details={"command": "/del"},
+        )
         await _reply(update, "Message deleted.")
     except AuthorizationError as exc:
         await _reply(update, str(exc))
@@ -67,6 +77,19 @@ async def purge_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await message.delete()
     except TelegramError:
         failures += 1
+    try:
+        await ActivityLogRepository(context.application.bot_data["sessions"]).record(
+            chat_id=chat.id,
+            event_type="message_deletion",
+            actor_id=update.effective_user.id if update.effective_user else None,
+            action="purge",
+            status="success" if failures == 0 else "partial",
+            details={"first_message_id": first_id, "last_message_id": last_id,
+                     "deleted": deleted, "failed": failures},
+        )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Could not audit purge action")
     await context.bot.send_message(
         chat.id, f"Purge complete: deleted {deleted} message(s); {failures} could not be deleted."
     )
