@@ -424,7 +424,11 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
                         raise RuntimeError(
                             "TELETHON_SESSION is invalid or expired; generate a fresh authorized session."
                         )
-                    entity = await client.get_entity(chat.id)
+                    # StringSession stores auth state, not the full entity cache.
+                    # Load dialogs first so Telethon can resolve the group's access hash.
+                    dialogs = await client.get_dialogs()
+                    dialog = next((item for item in dialogs if item.id == chat.id), None)
+                    entity = dialog.entity if dialog else await client.get_entity(chat.id)
                     seen_ids: set[int] = set()
                     async for participant in client.iter_participants(entity):
                         user_id = int(getattr(participant, "id", 0) or 0)
