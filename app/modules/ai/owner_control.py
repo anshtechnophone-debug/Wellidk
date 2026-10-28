@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
+import random
 import re
 from datetime import UTC, datetime
 
@@ -472,6 +474,26 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
                 )
                 context.chat_data["xyron_owner_control_message_id"] = message.message_id
                 return
+
+            # Aim for 75% of the group's total member count, choosing a fresh
+            # sample each time. Telegram may expose fewer participants than the
+            # actual group size, so never claim to have reached the target unless
+            # enough distinct participants were retrievable.
+            try:
+                total_members = int(await context.bot.get_chat_member_count(chat.id))
+            except TelegramError:
+                logger.warning("Could not fetch group member count; using retrievable participant count")
+                total_members = len(targets)
+
+            desired_count = max(1, math.ceil(total_members * 0.75))
+            mention_count = min(desired_count, len(targets))
+            if mention_count < desired_count:
+                await message.reply_text(
+                    f"I can retrieve only {len(targets)} members, but 75% of this group is "
+                    f"about {desired_count}. I'll mention the {mention_count} retrievable members; "
+                    "the MTProto account may need to be added to the group or refreshed."
+                )
+            targets = random.sample(targets, mention_count)
 
             # Avoid mass duplicate pings after a partial Telegram/API failure.
             context.chat_data["xyron_mention_all_last_sent"] = now
