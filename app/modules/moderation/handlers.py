@@ -23,7 +23,7 @@ from app.core.permissions import (
     ensure_target_is_moderatable,
     require_admin_access,
 )
-from app.database.models import Group, KnownUser
+from app.database.models import Group, KnownUser, ModerationEvent
 from app.services.group_history import GroupMessage
 from app.services.activity_log import ActivityLogRepository
 from app.services.moderation import ModerationRepository
@@ -319,6 +319,41 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
     is_temporary = normalized in {"tban", "tmute"}
     if delete_target_message and message.reply_to_message is None:
         raise TargetError("Reply to the message to delete before using this command.")
+
+    # XYRON bot admins are mute-only. The configured owner keeps full moderation
+    # access, while each non-owner bot admin may mute at most one member per
+    # group every ten minutes. Check durable moderation history so restarts do
+    # not reset the cooldown.
+    settings: Settings = context.application.bot_data["settings"]
+    if not settings.is_owner(actor_user.id):
+        if normalized in {"ban", "tban", "kick"}:
+            raise AuthorizationError(
+                "XYRON bot admins can mute members only. Ban and kick are owner-only."
+            )
+        if normalized in {"mute", "tmute"}:
+            cutoff = datetime.now(UTC) - timedelta(minutes=10)
+            async with context.application.bot_data["sessions"]() as session:
+                recent_mute = await session.scalar(
+                    select(ModerationEvent)
+                    .where(
+                        ModerationEvent.chat_id == chat.id,
+                        ModerationEvent.actor_id == actor_user.id,
+                        ModerationEvent.action.in_(("mute", "tmute")),
+                        ModerationEvent.created_at >= cutoff,
+                    )
+                    .order_by(ModerationEvent.created_at.desc())
+                    .limit(1)
+                )
+            if recent_mute is not None:
+                retry_at = recent_mute.created_at + timedelta(minutes=10)
+                seconds_left = max(
+                    1, int((retry_at - datetime.now(UTC)).total_seconds())
+                )
+                minutes_left = max(1, (seconds_left + 59) // 60)
+                raise AuthorizationError(
+                    "Cooldown active: XYRON bot admins may mute only one member "
+                    f"every 10 minutes. Try again in about {minutes_left} minute(s)."
+                )
     if silent or delete_target_message:
         access = await require_admin_access(
             update, context, context.application.bot_data["settings"], "can_restrict_members"
