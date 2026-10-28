@@ -176,6 +176,34 @@ class GroupHistoryRepository:
             for row in reversed(rows)
         ]
 
+    async def find_user_ids_by_name(
+        self,
+        *,
+        chat_id: int,
+        name: str,
+        limit: int = 5,
+    ) -> list[int]:
+        """Resolve a group display name or username to IDs using recent saved rows."""
+        needle = name.strip().lstrip("@")
+        if len(needle) < 2:
+            return []
+        statement = (
+            select(GroupMessage.user_id)
+            .where(
+                GroupMessage.chat_id == chat_id,
+                GroupMessage.sent_at >= datetime.now(UTC) - timedelta(hours=24),
+                (
+                    GroupMessage.username.ilike(f"%{needle}%")
+                    | GroupMessage.display_name.ilike(f"%{needle}%")
+                ),
+            )
+            .group_by(GroupMessage.user_id)
+            .order_by(func.max(GroupMessage.sent_at).desc())
+            .limit(max(1, min(limit, 10)))
+        )
+        async with self.sessions() as session:
+            return [int(user_id) for user_id in (await session.scalars(statement)).all()]
+
     async def recent(
         self,
         *,
