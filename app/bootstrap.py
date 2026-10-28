@@ -15,6 +15,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    MessageReactionHandler,
     filters,
 )
 
@@ -120,6 +121,7 @@ from app.modules.games.team_handlers import (
     teamwordcancel_command,
 )
 from app.modules.moderation.bot_admins import admin_command, unadmin_command, botadminlist_command, demote_command, pin_command
+from app.modules.moderation.reaction_guard import reaction_guard_handler
 from app.modules.moderation.handlers import (
     adminlist_command,
     banlist_command,
@@ -548,6 +550,9 @@ def _register_general(application: Application) -> None:
         ),
         group=11,
     )
+
+    # Enforce the two-reactions-per-message rule for identifiable reactions.
+    application.add_handler(MessageReactionHandler(reaction_guard_handler), group=0)
 
     application.add_handler(
         MessageHandler(
