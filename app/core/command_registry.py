@@ -265,6 +265,11 @@ COMMANDS = (
 
 
 def bot_commands() -> list[BotCommand]:
+    # Telegram permits at most 100 commands in each command list/scope.
+    # Keep every command available through /help and its handler; the menu
+    # shows the first 100 enabled commands to avoid crashing startup.
     return [
-        BotCommand(command.name, command.description) for command in COMMANDS if command.enabled
-    ]
+        BotCommand(command.name, command.description)
+        for command in COMMANDS
+        if command.enabled
+    ][:100]
