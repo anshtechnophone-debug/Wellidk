@@ -230,7 +230,7 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
     # Giveaway buttons are posted in groups, so allow these specific callbacks
     # through BEFORE the group callback gate below. The giveaway handler performs
     # its own active-giveaway and group-membership checks.
-    if query and query.data and re.fullmatch(r"giveaway:(?:join|rules):-?\\d+", query.data):
+    if query and query.data and re.fullmatch(r"giveaway:(?:join|rules):-?\d+", query.data):
         return
 
     # This gate controls private-chat/community access, not group command
