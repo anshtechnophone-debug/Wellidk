@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from html import escape
 
 from telegram import (
     Chat,
@@ -84,6 +85,62 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     payload = context.args[0] if context.args else ""
+    giveaway_match = re.fullmatch(r"gw_(-?\d{1,15})", payload)
+    if giveaway_match:
+        group_id = int(giveaway_match.group(1))
+        from app.modules.community.giveaway import _now, _parse_time, _repo, _rules_text
+
+        try:
+            policy = await _repo(context).get(group_id)
+            state = policy.get("giveaway", {})
+            if not isinstance(state, dict) or not state.get("active"):
+                await message.reply_text("🏁 This giveaway is no longer active. Check the group for the next one.")
+                return
+            ends_at = _parse_time(state.get("ends_at"))
+            if not ends_at or _now() >= ends_at:
+                state["active"] = False
+                state["ended_at"] = ends_at.isoformat() if ends_at else _now().isoformat()
+                await _repo(context).set_value(group_id, "giveaway", state)
+                await message.reply_text("🏁 This giveaway has ended.")
+                return
+            member = await context.bot.get_chat_member(group_id, user.id)
+            if member.status not in {ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER} and not bool(getattr(member, "is_member", False)):
+                await message.reply_text("Please join the group first, then tap Join Giveaway again.")
+                return
+            members = state.setdefault("members", {})
+            key = str(user.id)
+            if key not in members:
+                members[key] = {
+                    "name": user.full_name,
+                    "username": user.username,
+                    "score": 0.0,
+                    "joined_at": _now().isoformat(),
+                }
+                await _repo(context).set_value(group_id, "giveaway", state)
+            group = await context.bot.get_chat(group_id)
+            started = _parse_time(state.get("started_at"))
+            await message.reply_text(
+                f"✅ <b>You're registered for {escape(group.title or 'the giveaway')}!</b>\n\n"
+                "Your credits start counting from now. Only text messages sent in the group after joining count.\n"
+                "• Reply: +1 credit\n"
+                "• Standalone text: +0.5 credit\n\n"
+                "Use /prize in the group to check your rank.",
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+            await message.reply_text(
+                _rules_text(group.title or "Giveaway", started, ends_at),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        except TelegramError:
+            await message.reply_text(
+                "I couldn't verify that you're in the giveaway's group. Join the group first, then tap Join Giveaway again."
+            )
+        except (TypeError, ValueError):
+            await message.reply_text("This giveaway link is invalid or has expired.")
+        return
+
     rules_match = _RULES_PAYLOAD.fullmatch(payload)
     if rules_match:
         group_id = int(rules_match.group(1))
@@ -196,6 +253,8 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
             if admin_guide_match and user.id == int(admin_guide_match.group(1)):
                 return
             if _RULES_PAYLOAD.fullmatch(start_payload):
+                return
+            if re.fullmatch(r"gw_-?\d{1,15}", start_payload):
                 return
 
     if query:
