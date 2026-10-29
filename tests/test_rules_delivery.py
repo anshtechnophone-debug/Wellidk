@@ -39,7 +39,8 @@ Always ask for permission before messaging someone privately."""
 
 @pytest.mark.asyncio
 async def test_send_rules_dm_uses_default_rules_and_group_title(monkeypatch):
-    repository = SimpleNamespace(get=AsyncMock(return_value={"rules": ""}))
+    # Old saved rules must not override the exact canonical rules.
+    repository = SimpleNamespace(get=AsyncMock(return_value={"rules": "OLD RULES"}))
     monkeypatch.setattr(handlers, "_repository", lambda context: repository)
     bot = SimpleNamespace(
         get_chat=AsyncMock(return_value=SimpleNamespace(title="Random GC")),
@@ -49,12 +50,12 @@ async def test_send_rules_dm_uses_default_rules_and_group_title(monkeypatch):
 
     await handlers._send_rules_dm(context, 123, -100456)
 
-    repository.get.assert_awaited_once_with(-100456)
     bot.send_message.assert_awaited_once()
     sent = bot.send_message.await_args.kwargs
     assert sent["chat_id"] == 123
     assert "<b>📜 RULES OF Random GC</b>" in sent["text"]
     assert handlers.DEFAULT_GROUP_RULES in sent["text"]
+    assert "OLD RULES" not in sent["text"]
 
 
 @pytest.mark.asyncio
