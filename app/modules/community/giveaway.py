@@ -75,12 +75,12 @@ def _rules_text(group_title: str, started: datetime | None = None, ends: datetim
     )
 
 async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Register giveaway participants and provide private rules or a start link."""
     query = update.callback_query
     user = update.effective_user
     if not query or not user:
         return
-    payload = query.data or ""
-    action = payload.split(":")
+    action = (query.data or "").split(":")
     if len(action) != 3 or action[0] != "giveaway" or action[1] not in {"join", "rules"}:
         return
     try:
@@ -88,85 +88,94 @@ async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAUL
     except ValueError:
         await query.answer("This giveaway button is invalid.", show_alert=True)
         return
+
     repo = _repo(context)
     policy = await repo.get(group_id)
     state = policy.get("giveaway", {})
+    if not isinstance(state, dict):
+        await query.answer("This giveaway is unavailable.", show_alert=True)
+        return
+
+    end = _parse_time(state.get("ends_at"))
+    if not state.get("active") or not end or _now() >= end:
+        if state.get("active"):
+            state["active"] = False
+            state["ended_at"] = end.isoformat() if end else _now().isoformat()
+            await repo.set_value(group_id, "giveaway", state)
+        await query.answer("This giveaway has ended.", show_alert=True)
+        return
+
+    try:
+        member = await context.bot.get_chat_member(group_id, user.id)
+        if member.status not in {"member", "administrator", "creator"} and not bool(getattr(member, "is_member", False)):
+            await query.answer("Join the group first, then tap Join Giveaway.", show_alert=True)
+            return
+        group = await context.bot.get_chat(group_id)
+    except TelegramError:
+        await query.answer("I couldn't verify your group membership. Please try again.", show_alert=True)
+        return
+
     if action[1] == "rules":
         try:
-            group = await context.bot.get_chat(group_id)
             await context.bot.send_message(
                 chat_id=user.id,
-                text=_rules_text(group.title or "Group"),
+                text=_rules_text(group.title or "Group", _parse_time(state.get("started_at")), end),
                 parse_mode="HTML",
                 disable_web_page_preview=True,
             )
-            await query.answer("I've sent the rules to your DM.")
+            await query.answer("Giveaway rules sent to your DM.")
         except TelegramError:
-            await query.answer("Open XYRON privately and press Start first.", show_alert=True)
+            await query.answer("Open the rules link and press Start in XYRON.", show_alert=True)
         return
-    if action[1] != "join":
-        return
-    if not isinstance(state, dict) or not state.get("active"):
-        await query.answer("There is no active giveaway right now.", show_alert=True)
-        return
-    end = _parse_time(state.get("ends_at"))
-    if not end or _now() >= end:
-        state["active"] = False
-        state["ended_at"] = end.isoformat() if end else _now().isoformat()
-        await repo.set_value(group_id, "giveaway", state)
-        await query.answer("This giveaway has ended.", show_alert=True)
-        return
-    try:
-        await context.bot.get_chat_member(group_id, user.id)
-    except TelegramError:
-        await query.answer("Join the group first, then tap the button again.", show_alert=True)
-        return
+
     members = state.setdefault("members", {})
     key = str(user.id)
-    if key in members:
-        await query.answer("You're already in the giveaway!", show_alert=True)
-        return
-    members[key] = {
-        "name": user.full_name,
-        "username": user.username,
-        "score": 0.0,
-        "joined_at": _now().isoformat(),
-    }
-    await repo.set_value(group_id, "giveaway", state)
+    if key not in members:
+        members[key] = {
+            "name": user.full_name,
+            "username": user.username,
+            "score": 0.0,
+            "joined_at": _now().isoformat(),
+        }
+        await repo.set_value(group_id, "giveaway", state)
+
     name = escape(user.full_name)
     mention = f'<a href="tg://user?id={user.id}">{name}</a>'
-    try:
-        await query.edit_message_text(
-            f"✅ {mention} has joined the giveaway!\n\n📩 The rules have been sent to your DM. You can request them again below.",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("📜 View Giveaway Rules", callback_data=f"giveaway:rules:{group_id}")
-            ]]),
-            disable_web_page_preview=True,
-        )
-    except TelegramError:
-        await query.answer("You're in! Please check your DM for the rules.")
-    try:
-        group = await context.bot.get_chat(group_id)
-        group_title = group.title or "Group"
-    except TelegramError:
-        group_title = "Group"
+    started = _parse_time(state.get("started_at"))
     try:
         await context.bot.send_message(
             chat_id=user.id,
-            text=_rules_text(group_title),
+            text=_rules_text(group.title or "Group", started, end),
             parse_mode="HTML",
             disable_web_page_preview=True,
         )
+        result_text = (
+            f"✅ {mention} has joined the giveaway!\n"
+            "📩 Giveaway rules have been sent to your DM."
+        )
+        await query.edit_message_text(
+            result_text,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+        await query.answer("You're in! Check your private chat for the rules.")
     except TelegramError:
-        # Joining is kept even when the user has not opened the bot in DM yet.
-        await context.bot.send_message(
-            chat_id=group_id,
-            text=f"{mention}, you're registered! Please open XYRON's private chat and press Start so I can send you the rules.",
-            parse_mode="HTML",
-            disable_web_page_preview=True,
+        me = await context.bot.get_me()
+        rules_url = f"https://t.me/{me.username}?start=gw_{group_id}"
+        result_text = (
+            f"✅ {mention} has joined the giveaway!\n"
+            f'📜 <a href="{rules_url}">Please click here to see the giveaway rules.</a>\n'
+            "<i>Open XYRON and press Start to receive them privately.</i>"
         )
-    await query.answer("You're in! Check your DM for the rules.")
+        try:
+            await query.edit_message_text(
+                result_text,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        except TelegramError:
+            pass
+        await query.answer("You're registered! Tap the rules link and press Start in XYRON.")
 
 
 async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -199,9 +208,8 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             await message.reply_text("✅ You're already registered for this giveaway. Send /prize to check the leaderboard.")
             return
         me = await context.bot.get_me()
-        start_url = f"https://t.me/{me.username}?start=gw_{chat.id}"
         button = InlineKeyboardMarkup([[
-            InlineKeyboardButton("Join Giveaway", url=start_url)
+            InlineKeyboardButton("Join Giveaway", callback_data=f"giveaway:join:{chat.id}")
         ]])
         mention = f'<a href="tg://user?id={user.id}">{escape(user.full_name)}</a>'
         await message.reply_text(
