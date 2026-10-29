@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from html import escape
 
 from telegram import (
     Chat,
@@ -84,7 +85,7 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     payload = context.args[0] if context.args else ""
-    giveaway_match = re.fullmatch(r"gw_(-?\\d{1,15})", payload)
+    giveaway_match = re.fullmatch(r"gw_(-?\d{1,15})", payload)
     if giveaway_match:
         group_id = int(giveaway_match.group(1))
         from app.modules.community.giveaway import _now, _parse_time, _repo, _rules_text
@@ -102,7 +103,10 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await _repo(context).set_value(group_id, "giveaway", state)
                 await message.reply_text("🏁 This giveaway has ended.")
                 return
-            await context.bot.get_chat_member(group_id, user.id)
+            member = await context.bot.get_chat_member(group_id, user.id)
+            if member.status not in {ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER} and not bool(getattr(member, "is_member", False)):
+                await message.reply_text("Please join the group first, then tap Join Giveaway again.")
+                return
             members = state.setdefault("members", {})
             key = str(user.id)
             if key not in members:
@@ -116,10 +120,10 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
             group = await context.bot.get_chat(group_id)
             started = _parse_time(state.get("started_at"))
             await message.reply_text(
-                f"✅ <b>You're registered for {__import__('html').escape(group.title or 'the giveaway')}!</b>\\n\\n"
-                "Your credits start counting from now. Only text messages sent in the group after joining count.\\n"
-                "• Reply: +1 credit\\n"
-                "• Standalone text: +0.5 credit\\n\\n"
+                f"✅ <b>You're registered for {escape(group.title or 'the giveaway')}!</b>\n\n"
+                "Your credits start counting from now. Only text messages sent in the group after joining count.\n"
+                "• Reply: +1 credit\n"
+                "• Standalone text: +0.5 credit\n\n"
                 "Use /prize in the group to check your rank.",
                 parse_mode="HTML",
                 disable_web_page_preview=True,
@@ -250,7 +254,7 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
                 return
             if _RULES_PAYLOAD.fullmatch(start_payload):
                 return
-            if re.fullmatch(r"gw_-?\\d{1,15}", start_payload):
+            if re.fullmatch(r"gw_-?\d{1,15}", start_payload):
                 return
 
     if query:
