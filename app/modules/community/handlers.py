@@ -84,7 +84,7 @@ async def _apply_saved_filter(message, text: str, filters: object) -> None:
 def _formatted_rules(rules: str, group_title: str = "Group") -> str:
     """Render the exact rules under a heading naming the originating group."""
     body = escape(rules.strip()) if rules.strip() else escape(DEFAULT_GROUP_RULES)
-    return f"<b>📜 RULES OF {escape(group_title)}</b>\\n\\n{body}"
+    return f"<b>📜 RULES OF {escape(group_title)}</b>\n\n{body}"
 
 
 async def _send_rules_dm(
