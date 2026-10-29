@@ -58,26 +58,21 @@ def _leaderboard(state: dict) -> list[tuple[int, dict]]:
     return sorted(entries, key=lambda item: (-_score(item[1]), str(item[1].get("name", "")).casefold(), item[0]))
 
 
-def _rules_text(group_title: str) -> str:
+def _rules_text(group_title: str, started: datetime | None = None, ends: datetime | None = None) -> str:
+    start_label = started.strftime("%d %b %Y, %H:%M UTC") if started else "At launch"
+    end_label = ends.strftime("%d %b %Y, %H:%M UTC") if ends else "7 days after launch"
     return (
-        f"🎁 <b>GIVEAWAY RULES — {escape(group_title)}</b>\n\n"
-        "⏳ <b>Duration:</b> 7 days from the group owner's /gw start command.\n"
-        "🎯 <b>Common qualification target:</b> 9,800 credited text messages.\n\n"
-        "💬 <b>Message credits</b>\n"
-        "• Text reply to another message: <b>1 credit</b>\n"
-        "• Standalone text message: <b>0.5 credit</b>\n"
-        "• Stickers, voice notes, photos, videos, captions, and slash commands: <b>0 credits</b>\n"
-        "• Only messages sent after you join and before the giveaway ends count.\n\n"
-        "🏆 <b>Prizes</b>\n"
-        "🥇 1st place: ₹350\n🥈 2nd place: ₹200\n🥉 3rd place: ₹150\n"
-        "4th and 5th place: ₹0\n\n"
-        "📊 <b>How ranking works</b>\n"
-        "All participants share the same 9,800-credit target. Final positions are ranked by credited messages. "
-        "The full prize is unlocked at the target; below the target, the prize is proportional to progress. "
-        "More messages can change your position, but never increase that position's prize cap.\n\n"
-        "Use <b>/prize</b> in the group to view the top five. The giveaway closes automatically after seven days."
+        f"🎁 <b>{escape(group_title)} — GIVEAWAY RULES</b>\\n\\n"
+        f"🗓 <b>Starts:</b> {start_label}\\n"
+        f"🏁 <b>Ends:</b> {end_label}\\n\\n"
+        "💬 <b>Earn credits</b>\\n"
+        "• Text reply: <b>+1 credit</b>\\n"
+        "• Standalone text: <b>+0.5 credit</b>\\n"
+        "• Media, stickers, captions and commands: <b>0 credits</b>\\n\\n"
+        "✅ Join first. Only messages sent after joining count.\\n"
+        "🏆 Your rank depends on your credits. Use <b>/prize</b> in the group.\\n"
+        "⏳ The giveaway ends after 7 days."
     )
-
 
 async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -203,14 +198,17 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         if str(user.id) in members:
             await message.reply_text("✅ You're already registered for this giveaway. Send /prize to check the leaderboard.")
             return
+        me = await context.bot.get_me()
+        start_url = f"https://t.me/{me.username}?start=gw_{chat.id}"
         button = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔵 Click here to join the giveaway", callback_data=f"giveaway:join:{chat.id}")
+            InlineKeyboardButton("Join Giveaway", url=start_url)
         ]])
         mention = f'<a href="tg://user?id={user.id}">{escape(user.full_name)}</a>'
         await message.reply_text(
-            f"🎁 {mention}, you're invited!\n\n"
-            "Tap the blue button below to join the weekly giveaway.\n"
-            "📩 I'll send the rules to your DM after you join.",
+            f"🎁 <b>WEEKLY GIVEAWAY</b>\\n\\n"
+            f"{mention}, join here to register and receive the rules privately.\\n"
+            "💬 Earn credits by chatting after you join.\\n"
+            "🏆 Use /prize in the group to check your progress.",
             parse_mode="HTML",
             reply_markup=button,
             disable_web_page_preview=True,
@@ -228,36 +226,14 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 try:
                     actor = await context.bot.get_chat_member(chat.id, user.id)
                 except TelegramError:
-                    await message.reply_text("I couldn't verify the group owner's identity. Please try again.")
-                    return
-                if actor.status != "creator":
-                    await message.reply_text("🔒 Only the group owner can start the giveaway.")
-                    return
-            else:
-                try:
-                    await require_admin_access(update, context, context.application.bot_data["settings"], None)
-                except AuthorizationError as exc:
-                    await message.reply_text(str(exc))
-                    return
-            if is_start:
-                if state.get("active") and (_parse_time(state.get("ends_at")) or _now()) > _now():
-                    await message.reply_text("🎁 A giveaway is already running. Use /prize to view the leaderboard.")
-                    return
-                started = _now()
-                state = {
-                    "active": True,
-                    "started_at": started.isoformat(),
-                    "ends_at": (started + DURATION).isoformat(),
-                    "members": {},
-                }
-                await repo.set_value(chat.id, "giveaway", state)
-                await message.reply_text(
-                    "🎉 <b>WEEKLY GIVEAWAY IS LIVE!</b>\n\n"
-                    "⏳ Duration: <b>7 days</b> — countdown and scoring start now.\n"
-                    "📝 Send <b>/gw</b> to get your personal join button. Only joined participants earn credits.\n"
-                    "🎯 Shared target: <b>9,800 credited messages</b>.\n\n"
-                    "🥇 ₹350  •  🥈 ₹200  •  🥉 ₹150\n"
-                    "📊 Send <b>/prize</b> for the top five. Good luck!",
+                    await message.reply_text(
+                    "🎉 <b>WEEKLY GIVEAWAY IS LIVE!</b>\\n"
+                    f"🗓 <b>From:</b> {started.strftime('%d %b %Y, %H:%M UTC')}\\n"
+                    f"🏁 <b>Until:</b> {(started + DURATION).strftime('%d %b %Y, %H:%M UTC')}\\n"
+                    "⏳ Duration: <b>7 days</b>\\n\\n"
+                    "💬 Reply = 1 credit · Standalone text = 0.5 credit\\n"
+                    "✅ Join with <b>/gw</b> before chatting to earn credits.\\n"
+                    "📊 Use <b>/prize</b> to see the leaderboard.",
                     parse_mode="HTML",
                 )
             else:
@@ -281,29 +257,27 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         entries = _leaderboard(state)
         active = bool(state.get("active"))
         lines = [
-            "🎁 <b>WEEKLY GIVEAWAY LEADERBOARD</b>",
-            f"⏳ Time left: <b>{_remaining(ends_at)}</b>" if active else "🏁 <b>FINAL RESULTS</b>",
+            "🏆 <b>WEEKLY GIVEAWAY</b>",
+            f"🟢 <b>LIVE</b> · {_remaining(ends_at)} left" if active else "🏁 <b>GIVEAWAY ENDED · FINAL RANKING</b>",
             "━━━━━━━━━━━━━━━━━━",
         ]
         medals = ("🥇", "🥈", "🥉", "4️⃣", "5️⃣")
         for index in range(5):
             if index >= len(entries):
-                lines.append(f"{medals[index]} <i>Open spot</i> · Prize ₹{PRIZES[index]}")
+                lines.append(f"{medals[index]} <i>Open spot</i>")
                 continue
             user_id, data = entries[index]
             score = _score(data)
             name = escape(str(data.get("name") or "Member")[:80])
             mention = f'<a href="tg://user?id={user_id}">{name}</a>'
-            prize_cap = PRIZES[index]
-            prize = round(prize_cap * min(1.0, score / TARGET_CREDITS), 2) if index < 3 else 0
-            lines.append(f"{medals[index]} <b>{index + 1}. {mention}</b>\n   💬 {score:,.1f} credits · 💰 ₹{prize:g}")
+            lines.append(f"{medals[index]} <b>{index + 1}. {mention}</b>\\n   💬 <b>{score:,.1f}</b> credits")
         lines.extend([
             "━━━━━━━━━━━━━━━━━━",
-            f"🎯 Shared full-prize target: <b>{TARGET_CREDITS:,} credits</b>",
-            "💡 Replies = 1 credit · standalone text = 0.5 credit",
-            "🏆 Only the top 3 win. More messages change rank, not prize caps.",
+            "💬 Reply = 1 credit · Standalone text = 0.5 credit",
+            "✅ Only messages sent after joining count.",
+            "🔄 Keep chatting to improve your rank.",
         ])
-        await message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
+        await message.reply_text("\\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
         return
 
     # Count only normal text messages by registered participants during the live window.
