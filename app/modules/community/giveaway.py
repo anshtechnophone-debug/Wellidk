@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import UTC, datetime, timedelta
 from html import escape
 from io import BytesIO
-import logging
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
@@ -419,6 +419,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             state["active"] = False
             state["ended_at"] = ends_at.isoformat()
             await repo.set_value(chat.id, "giveaway", state)
+        active = bool(state.get("active"))
         entries = _leaderboard(state)[:3]
         avatars: dict[int, bytes | None] = {}
         for user_id, _data in entries:
