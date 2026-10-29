@@ -32,6 +32,7 @@ class Settings:
     ai_enabled: bool = False
     ai_provider: str = "openai_compatible"
     ai_model: str = ""
+    ai_fallback_model: str = "inclusionai/ling-3.1-flash"
     ai_api_key: str = ""
     ai_base_url: str = "https://api.openai.com/v1"
     ai_context_messages: int = 10
@@ -88,6 +89,9 @@ class Settings:
         ai_emergency_stop = _parse_bool("AI_GLOBAL_EMERGENCY_STOP", True)
         ai_provider = os.getenv("AI_PROVIDER", "openai_compatible").strip().lower()
         ai_model = os.getenv("AI_MODEL", "").strip()
+        ai_fallback_model = os.getenv(
+            "AI_FALLBACK_MODEL", "inclusionai/ling-3.1-flash"
+        ).strip()
         ai_api_key = os.getenv("AI_API_KEY", "").strip()
         ai_base_url = os.getenv("AI_BASE_URL", "https://api.openai.com/v1").strip().rstrip("/")
         if ai_enabled and ai_emergency_stop:
@@ -160,6 +164,7 @@ class Settings:
             ai_enabled=ai_enabled,
             ai_provider=ai_provider,
             ai_model=ai_model,
+            ai_fallback_model=ai_fallback_model,
             ai_api_key=ai_api_key,
             ai_base_url=ai_base_url,
             ai_context_messages=ai_limits["AI_CONTEXT_MESSAGES"],
