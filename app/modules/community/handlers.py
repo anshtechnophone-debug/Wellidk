@@ -30,6 +30,24 @@ _SPAM_PROTECTOR_THRESHOLD = 15
 _SPAM_PROTECTOR_WINDOW_SECONDS = 30
 _SPAM_PROTECTOR_MUTE_SECONDS = 600
 
+DEFAULT_GROUP_RULES = """🚫 1. No Advertising
+Do not advertise or promote anything.
+
+🔞 2. No NSFW Content
+Keep the group safe and appropriate.
+
+🔒 3. Respect Privacy
+Never share personal or sensitive information.
+
+🛑 4. No Spam
+Avoid spamming messages or reactions.
+
+📢 5. No Group Promotion
+Do not promote other groups or channels.
+
+💬 6. No Unsolicited DMs
+Always ask for permission before messaging someone privately."""
+
 
 def _repository(context: ContextTypes.DEFAULT_TYPE) -> GroupPolicyRepository:
     return GroupPolicyRepository(context.application.bot_data["sessions"])
@@ -63,15 +81,10 @@ async def _apply_saved_filter(message, text: str, filters: object) -> None:
             break
 
 
-def _formatted_rules(rules: str) -> str:
-    """Render readable Telegram HTML while preserving the admin's line breaks."""
-    body = escape(rules.strip()) if rules.strip() else "No group rules have been set for this chat yet."
-    return (
-        "<b>📜 GROUP RULES</b>\n"
-        "<i>Please read and respect the community rules.</i>\n\n"
-        f"{body}\n\n"
-        "<i>Thank you for keeping the community respectful. ❤️</i>"
-    )
+def _formatted_rules(rules: str, group_title: str = "Group") -> str:
+    """Render the exact rules under a heading naming the originating group."""
+    body = escape(rules.strip()) if rules.strip() else escape(DEFAULT_GROUP_RULES)
+    return f"<b>📜 RULES OF {escape(group_title)}</b>\n\n{body}"
 
 
 async def _send_rules_dm(
@@ -79,11 +92,19 @@ async def _send_rules_dm(
     user_id: int,
     group_id: int,
 ) -> bool:
-    """Send the selected group's rules to a user's private chat."""
-    rules = (await _repository(context).get(group_id)).get("rules", "")
+    """Send the originating group's rules and name to a user's private chat."""
+    policy = await _repository(context).get(group_id)
+    rules = str(policy.get("rules") or DEFAULT_GROUP_RULES)
+    group_title = "Group"
+    try:
+        group = await context.bot.get_chat(group_id)
+        group_title = getattr(group, "title", None) or group_title
+    except TelegramError:
+        logger.warning("Could not fetch title for rules chat %s; using generic title", group_id)
+
     await context.bot.send_message(
         chat_id=user_id,
-        text=_formatted_rules(str(rules or "")),
+        text=_formatted_rules(rules, group_title),
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
