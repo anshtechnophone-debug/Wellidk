@@ -57,3 +57,7 @@ def install_inline_button_styles() -> None:
 
     button_class.__init__ = colorful_init
     button_class._xyron_color_styles_installed = True
+
+
+# Install on import so every module using python-telegram-bot gets the defaults.
+install_inline_button_styles()
