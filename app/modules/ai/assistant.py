@@ -600,12 +600,7 @@ class AIEventRouter:
         try:
             result = await self.provider.complete(system, prompt)
 
-        except (
-            httpx.HTTPError,
-            KeyError,
-            ValueError,
-            TypeError,
-        ):
+        except Exception:
             if usage_id is not None:
                 await AIUsageRepository(sessions).finish(
                     usage_id,
