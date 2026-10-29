@@ -14,6 +14,7 @@ from app.modules.ai.assistant import (
     ContextMessage,
     detect_event,
     parse_analysis,
+    OpenAICompatibleProvider,
 )
 
 
@@ -280,3 +281,104 @@ def test_structured_analysis_rejects_unapproved_recommendations():
     assert parse_analysis(json.dumps(valid)) is None
     valid["recommendation"] = "delete_all"
     assert parse_analysis(json.dumps(valid)) is None
+
+
+
+@pytest.mark.asyncio
+async def test_provider_uses_ling_fallback_only_when_glm_fails():
+    seen_models = []
+
+    async def handler(request):
+        payload = json.loads(request.content)
+        model = payload["model"]
+        seen_models.append(model)
+        if model == "z-ai/glm-5.3-flash":
+            return httpx.Response(503, json={"error": {"message": "temporary outage"}})
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "Ling fallback response"}}],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 5},
+            },
+        )
+
+    settings = _enabled_settings(
+        ai_model="z-ai/glm-5.3-flash",
+        ai_fallback_model="inclusionai/ling-3.1-flash",
+        ai_base_url="https://example.test/v1",
+    )
+    provider = OpenAICompatibleProvider(settings)
+    await provider.close()
+    provider.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    try:
+        result = await provider.complete("system", "hello")
+    finally:
+        await provider.close()
+
+    assert result.text == "Ling fallback response"
+    assert seen_models == ["z-ai/glm-5.3-flash", "inclusionai/ling-3.1-flash"]
+
+
+@pytest.mark.asyncio
+async def test_provider_does_not_call_fallback_when_glm_succeeds():
+    seen_models = []
+
+    async def handler(request):
+        payload = json.loads(request.content)
+        seen_models.append(payload["model"])
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "GLM response"}}],
+                "usage": {"prompt_tokens": 8, "completion_tokens": 3},
+            },
+        )
+
+    settings = _enabled_settings(
+        ai_model="z-ai/glm-5.3-flash",
+        ai_fallback_model="inclusionai/ling-3.1-flash",
+        ai_base_url="https://example.test/v1",
+    )
+    provider = OpenAICompatibleProvider(settings)
+    await provider.close()
+    provider.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    try:
+        result = await provider.complete("system", "hello")
+    finally:
+        await provider.close()
+
+    assert result.text == "GLM response"
+    assert seen_models == ["z-ai/glm-5.3-flash"]
+
+
+@pytest.mark.asyncio
+async def test_provider_uses_fallback_for_empty_primary_response():
+    seen_models = []
+
+    async def handler(request):
+        model = json.loads(request.content)["model"]
+        seen_models.append(model)
+        content = "" if model == "z-ai/glm-5.3-flash" else "Ling response"
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": content}}]},
+        )
+
+    settings = _enabled_settings(
+        ai_model="z-ai/glm-5.3-flash",
+        ai_fallback_model="inclusionai/ling-3.1-flash",
+        ai_base_url="https://example.test/v1",
+    )
+    provider = OpenAICompatibleProvider(settings)
+    await provider.close()
+    provider.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    try:
+        result = await provider.complete("system", "hello")
+    finally:
+        await provider.close()
+
+    assert result.text == "Ling response"
+    assert seen_models == ["z-ai/glm-5.3-flash", "inclusionai/ling-3.1-flash"]
