@@ -541,7 +541,7 @@ def _register_general(application: Application) -> None:
             filters.ChatType.GROUPS
             & filters.TEXT
             & ~filters.COMMAND
-            & filters.Regex(r"(?i)^\\s*(?:#rules|hash\\s+rules|rules)\\s*$"),
+            & filters.Regex(r"(?i)^\s*(?:#rules|hash\s+rules|rules)\s*$"),
             plain_rules_request,
         ),
         group=0,
