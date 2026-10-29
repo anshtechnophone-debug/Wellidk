@@ -44,6 +44,7 @@ from app.modules.appeals.handlers import (
     reviewappeal_command,
 )
 from app.modules.community.daily import daily_command
+from app.modules.community.giveaway import giveaway_callback_handler, giveaway_text_handler
 from app.modules.community.handlers import (
     antiflood_command,
     spamprotector_command,
@@ -533,6 +534,20 @@ def _register_general(application: Application) -> None:
             moderation_command,
         ),
         group=0,
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(giveaway_callback_handler, pattern=r"^giveaway:(?:join|rules):-?\d+$"),
+        group=0,
+    )
+
+    # Weekly giveaway controls and text-message scoring run independently of other handlers.
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS & filters.TEXT,
+            giveaway_text_handler,
+        ),
+        group=-2,
     )
 
     # Rules keywords are exact matches so normal conversation is never intercepted.
