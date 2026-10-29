@@ -240,8 +240,12 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
 
     # Keep human-verification and the community membership-check callbacks working.
     if query and query.data and (
-        _PAYLOAD.fullmatch(query.data) or query.data == _COMMUNITY_CHECK
+        _PAYLOAD.fullmatch(query.data)
+        or query.data == _COMMUNITY_CHECK
+        or re.fullmatch(r"giveaway:(?:join|rules):-?\d+", query.data)
     ):
+        # Giveaway callbacks must reach their own handler; it performs the
+        # active-giveaway and group-membership checks itself.
         return
     if message and message.text:
         parts = message.text.strip().split(maxsplit=1)
