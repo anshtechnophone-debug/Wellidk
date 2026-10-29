@@ -19,7 +19,7 @@ LOCAL_TZ = ZoneInfo("Asia/Kolkata")
 
 
 async def daily_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show the top 50 members by messages sent today in the current group."""
+    """Show the top 10 members by messages sent today in the current group."""
     message = update.effective_message
     chat = update.effective_chat
     if not message or not chat:
@@ -53,7 +53,7 @@ async def daily_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         .group_by(GroupMessage.user_id)
         .order_by(func.count(GroupMessage.id).desc(), GroupMessage.user_id.asc())
-        .limit(50)
+        .limit(10)
     )
 
     try:
@@ -68,34 +68,23 @@ async def daily_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await message.reply_text("📊 No messages have been recorded in this group today yet.")
         return
 
-    lines = [
-        f"📊 <b>DAILY TOP CHATTERS</b> — {html.escape(now_local.strftime('%d %b %Y'))}",
-        "<i>Top 50 members by messages sent today (IST)</i>",
+    heading = [
+        "╭━━━ ✦ <b>DAILY TOP 10</b> ✦ ━━━╮",
+        f"┃  📅 <b>{html.escape(now_local.strftime('%d %b %Y'))}</b> · IST",
+        "╰━━━━━━━━━━━━━━━━━━━━╯",
+        "<i>🏆 Most active members today</i>",
         "",
     ]
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    entries: list[str] = []
     for rank, row in enumerate(rows, start=1):
         user_id, display_name, username, count = row
         label = (display_name or (f"@{username}" if username else f"User {user_id}")).strip()
         safe_label = html.escape(label)
         linked_name = f'<a href="tg://user?id={int(user_id)}">{safe_label}</a>'
-        lines.append(f"{medals.get(rank, f'{rank}.')} {linked_name} — <b>{int(count):,}</b>")
+        rank_label = medals.get(rank, f"<b>{rank:02d}</b>")
+        entries.append(f"{rank_label}   {linked_name}\n      💬 <b>{int(count):,}</b> messages")
 
-    # Telegram messages are limited to 4096 characters; send the heading and
-    # entries in safe chunks while keeping HTML tags balanced per message.
-    heading = "\n".join(lines[:3])
-    entries = lines[3:]
-    chunks: list[str] = []
-    current = heading
-    for entry in entries:
-        candidate = f"{current}\n{entry}"
-        if len(candidate) > 3800 and current != heading:
-            chunks.append(current)
-            current = f"📊 <b>DAILY TOP CHATTERS (continued)</b>\n{entry}"
-        else:
-            current = candidate
-    if current:
-        chunks.append(current)
-
-    for chunk in chunks:
-        await message.reply_text(chunk, parse_mode="HTML", disable_web_page_preview=True)
+    # Keep the layout readable on mobile: each member gets their own spaced block.
+    output = "\n".join(heading) + "\n" + "\n\n".join(entries)
+    await message.reply_text(output, parse_mode="HTML", disable_web_page_preview=True)
