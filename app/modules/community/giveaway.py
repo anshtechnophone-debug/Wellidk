@@ -62,15 +62,15 @@ def _rules_text(group_title: str, started: datetime | None = None, ends: datetim
     start_label = started.strftime("%d %b %Y, %H:%M UTC") if started else "At launch"
     end_label = ends.strftime("%d %b %Y, %H:%M UTC") if ends else "7 days after launch"
     return (
-        f"🎁 <b>{escape(group_title)} — GIVEAWAY RULES</b>\\n\\n"
-        f"🗓 <b>Starts:</b> {start_label}\\n"
-        f"🏁 <b>Ends:</b> {end_label}\\n\\n"
-        "💬 <b>Earn credits</b>\\n"
-        "• Text reply: <b>+1 credit</b>\\n"
-        "• Standalone text: <b>+0.5 credit</b>\\n"
-        "• Media, stickers, captions and commands: <b>0 credits</b>\\n\\n"
-        "✅ Join first. Only messages sent after joining count.\\n"
-        "🏆 Your rank depends on your credits. Use <b>/prize</b> in the group.\\n"
+        f"🎁 <b>{escape(group_title)} — GIVEAWAY RULES</b>\n\n"
+        f"🗓 <b>Starts:</b> {start_label}\n"
+        f"🏁 <b>Ends:</b> {end_label}\n\n"
+        "💬 <b>Earn credits</b>\n"
+        "• Text reply: <b>+1 credit</b>\n"
+        "• Standalone text: <b>+0.5 credit</b>\n"
+        "• Media, stickers, captions and commands: <b>0 credits</b>\n\n"
+        "✅ Join first. Only messages sent after joining count.\n"
+        "🏆 Your rank depends on your credits. Use <b>/prize</b> in the group.\n"
         "⏳ The giveaway ends after 7 days."
     )
 
@@ -205,9 +205,9 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         ]])
         mention = f'<a href="tg://user?id={user.id}">{escape(user.full_name)}</a>'
         await message.reply_text(
-            f"🎁 <b>WEEKLY GIVEAWAY</b>\\n\\n"
-            f"{mention}, join here to register and receive the rules privately.\\n"
-            "💬 Earn credits by chatting after you join.\\n"
+            f"🎁 <b>WEEKLY GIVEAWAY</b>\n\n"
+            f"{mention}, join here to register and receive the rules privately.\n"
+            "💬 Earn credits by chatting after you join.\n"
             "🏆 Use /prize in the group to check your progress.",
             parse_mode="HTML",
             reply_markup=button,
@@ -243,12 +243,12 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 }
                 await repo.set_value(chat.id, "giveaway", state)
                 await message.reply_text(
-                    "🎉 <b>WEEKLY GIVEAWAY IS LIVE!</b>\\n"
-                    f"🗓 <b>From:</b> {started.strftime('%d %b %Y, %H:%M UTC')}\\n"
-                    f"🏁 <b>Until:</b> {(started + DURATION).strftime('%d %b %Y, %H:%M UTC')}\\n"
-                    "⏳ Duration: <b>7 days</b>\\n\\n"
-                    "💬 Reply = 1 credit · Standalone text = 0.5 credit\\n"
-                    "✅ Join with <b>/gw</b> before chatting to earn credits.\\n"
+                    "🎉 <b>WEEKLY GIVEAWAY IS LIVE!</b>\n"
+                    f"🗓 <b>From:</b> {started.strftime('%d %b %Y, %H:%M UTC')}\n"
+                    f"🏁 <b>Until:</b> {(started + DURATION).strftime('%d %b %Y, %H:%M UTC')}\n"
+                    "⏳ Duration: <b>7 days</b>\n\n"
+                    "💬 Reply = 1 credit · Standalone text = 0.5 credit\n"
+                    "✅ Join with <b>/gw</b> before chatting to earn credits.\n"
                     "📊 Use <b>/prize</b> to see the leaderboard.",
                     parse_mode="HTML",
                 )
@@ -286,14 +286,14 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             score = _score(data)
             name = escape(str(data.get("name") or "Member")[:80])
             mention = f'<a href="tg://user?id={user_id}">{name}</a>'
-            lines.append(f"{medals[index]} <b>{index + 1}. {mention}</b>\\n   💬 <b>{score:,.1f}</b> credits")
+            lines.append(f"{medals[index]} <b>{index + 1}. {mention}</b>\n   💬 <b>{score:,.1f}</b> credits")
         lines.extend([
             "━━━━━━━━━━━━━━━━━━",
             "💬 Reply = 1 credit · Standalone text = 0.5 credit",
             "✅ Only messages sent after joining count.",
             "🔄 Keep chatting to improve your rank.",
         ])
-        await message.reply_text("\\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
+        await message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
         return
 
     # Count only normal text messages by registered participants during the live window.
