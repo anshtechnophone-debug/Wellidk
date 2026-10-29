@@ -291,25 +291,28 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         lines = [
             "🏆 <b>WEEKLY GIVEAWAY</b>",
             f"🟢 <b>LIVE</b> · {_remaining(ends_at)} left" if active else "🏁 <b>GIVEAWAY ENDED · FINAL RANKING</b>",
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            "<b>   NAMES             SCORE              PRIZE</b>",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "<pre>RANK  NAME                 SCORE       EARNED</pre>",
         ]
         medals = ("🥇", "🥈", "🥉", "4️⃣", "5️⃣")
         for index in range(5):
-            prize = f"₹{PRIZES[index]:,}" if PRIZES[index] > 0 else "—"
             if index >= len(entries):
-                lines.append(f"{medals[index]} <i>{index + 1}. Open spot</i>  ·  — credits  ·  {prize}")
+                rank = f"{index + 1}."
+                lines.append(f"<pre>{medals[index]} {rank:<4} {'Open spot':<20} {'—':>8}   ₹0</pre>")
                 continue
             user_id, data = entries[index]
             score = _score(data)
-            name = escape(str(data.get("name") or "Member")[:24])
+            earned = min(100.0, score * 0.05)
+            name = escape(str(data.get("name") or "Member")[:20])
+            rank = f"{index + 1}."
+            # Keep columns aligned with a monospace layout; preserve clickable member names.
             mention = f'<a href="tg://user?id={user_id}">{name}</a>'
             lines.append(
-                f"{medals[index]} <b>{index + 1}. {mention}</b>  💬 <b>{score:,.1f}</b> credits  ·  <b>{prize}</b>"
+                f"<pre>{medals[index]} {rank:<4} </pre>{mention}<pre>{' ' * max(1, 20 - len(str(data.get('name') or 'Member')[:20]))}{score:>8.1f}   ₹{earned:.2f}</pre>"
             )
         lines.extend([
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            "💬 Reply = 1 credit · Standalone text = 0.5 credit",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "Reply = 1 score · Standalone text = 0.5 score",
             "✅ Only messages sent after joining count.",
             "🔄 Keep chatting to improve your rank.",
         ])
