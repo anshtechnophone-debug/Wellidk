@@ -19,6 +19,8 @@ from telegram.ext import (
     filters,
 )
 
+import app.core.keyboard_styles  # noqa: F401 — installs native inline-button colors
+
 from app.config import Settings
 from app.core.command_registry import bot_commands
 from app.core.module_loader import Module, load_modules
