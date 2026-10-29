@@ -537,7 +537,7 @@ def _register_general(application: Application) -> None:
     )
 
     application.add_handler(
-        CallbackQueryHandler(giveaway_callback_handler, pattern=r"^giveaway:join:-?\\d+$"),
+        CallbackQueryHandler(giveaway_callback_handler, pattern=r"^giveaway:join:-?\d+$"),
         group=0,
     )
 
