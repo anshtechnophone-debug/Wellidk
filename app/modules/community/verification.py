@@ -20,6 +20,7 @@ from telegram.ext import ApplicationHandlerStop, ContextTypes
 logger = logging.getLogger(__name__)
 _PAYLOAD = re.compile(r"^verify_(-?\d{1,15})_(\d{1,15})$")
 _ADMIN_GUIDE_PAYLOAD = re.compile(r"^botadmin_guide_(\d{1,15})$")
+_RULES_PAYLOAD = re.compile(r"^rules_(-?\d{1,15})$")
 COMMUNITY_URL = "https://t.me/+krgZfOwfpZxhODYx"
 _COMMUNITY_CHECK = "community_join_check"
 
@@ -83,6 +84,20 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     payload = context.args[0] if context.args else ""
+    rules_match = _RULES_PAYLOAD.fullmatch(payload)
+    if rules_match:
+        group_id = int(rules_match.group(1))
+        try:
+            from app.modules.community.handlers import _send_rules_dm
+
+            await _send_rules_dm(context, user.id, group_id)
+        except TelegramError:
+            logger.exception("Could not deliver group rules to user %s for chat %s", user.id, group_id)
+            await message.reply_text(
+                "I couldn't load those group rules right now. Please request them again from the group."
+            )
+        return
+
     admin_guide_match = _ADMIN_GUIDE_PAYLOAD.fullmatch(payload)
     if admin_guide_match:
         expected_user_id = int(admin_guide_match.group(1))
@@ -179,6 +194,8 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
                 return
             admin_guide_match = _ADMIN_GUIDE_PAYLOAD.fullmatch(start_payload)
             if admin_guide_match and user.id == int(admin_guide_match.group(1)):
+                return
+            if _RULES_PAYLOAD.fullmatch(start_payload):
                 return
 
     if query:

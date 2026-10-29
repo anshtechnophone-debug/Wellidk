@@ -57,6 +57,7 @@ from app.modules.community.handlers import (
     locks_command,
     notes_command,
     process_group_message,
+    plain_rules_request,
     reports_command,
     review_report_command,
     rules_command,
@@ -530,6 +531,18 @@ def _register_general(application: Application) -> None:
             & ~filters.COMMAND
             & filters.Regex(r"(?i)^kick\s+.+$"),
             moderation_command,
+        ),
+        group=0,
+    )
+
+    # Rules keywords are exact matches so normal conversation is never intercepted.
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS
+            & filters.TEXT
+            & ~filters.COMMAND
+            & filters.Regex(r"(?i)^\s*(?:#rules|hash\s+rules|rules)\s*$"),
+            plain_rules_request,
         ),
         group=0,
     )
