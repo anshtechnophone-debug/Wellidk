@@ -186,8 +186,9 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         button = InlineKeyboardMarkup([[
             InlineKeyboardButton("🔵 Click here to join the giveaway", callback_data=f"giveaway:join:{chat.id}")
         ]])
+        mention = f'<a href="tg://user?id={user.id}">{escape(user.full_name)}</a>'
         await message.reply_text(
-            f"🎁 {f'<a href="tg://user?id={user.id}">{escape(user.full_name)}</a>'}, you're invited!\n\n"
+            f"🎁 {mention}, you're invited!\n\n"
             "Tap the blue button below to join the weekly giveaway.\n"
             "📩 I'll send the rules to your DM after you join.",
             parse_mode="HTML",
