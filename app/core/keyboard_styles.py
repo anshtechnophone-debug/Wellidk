@@ -29,9 +29,8 @@ def _choose_style(label: str) -> str:
     if words.intersection(_SUCCESS_WORDS):
         return "success"
 
-    # Stable across restarts; distributes neutral buttons across all three colors.
-    styles = ("primary", "success", "danger")
-    return styles[sum(ord(char) for char in normalized) % len(styles)]
+    # Neutral/navigation actions use Telegram blue; every button still gets a style.
+    return "primary"
 
 
 def install_inline_button_styles() -> None:
