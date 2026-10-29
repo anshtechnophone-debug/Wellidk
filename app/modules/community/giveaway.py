@@ -290,9 +290,10 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         active = bool(state.get("active"))
         lines = [
             "🏆 <b>WEEKLY GIVEAWAY</b>",
-            f"🟢 <b>LIVE</b> · {_remaining(ends_at)} left" if active else "🏁 <b>GIVEAWAY ENDED</b> · Final results",
+            f"🟢 LIVE · {_remaining(ends_at)} left" if active else "🏁 <b>GIVEAWAY ENDED</b> · Final results",
             "",
-            "<pre>RANK  NAME               SCORE     PRIZE (EARNED/TOTAL)",
+            "👤 <b>NAME</b>  ·  <b>SCORE</b>  ·  <b>PRIZE</b>",
+            "━━━━━━━━━━━━━━━━━━━━",
         ]
         medals = ("🥇", "🥈", "🥉", "4️⃣", "5️⃣")
         for index in range(5):
@@ -305,20 +306,16 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 user_id, data = entries[index]
                 score = _score(data)
                 raw_name = str(data.get("name") or "Member")
-                name = escape(raw_name[:16])
+                name = escape(raw_name[:32])
                 score_text = f"{score:g}"
                 earned = min(float(prize_total), score * 0.05)
                 earned_text = f"₹{earned:.2f}"
-            row = (
-                f"{medals[index]} {index + 1:<2} "
-                f"{name:<16} "
-                f"{score_text:>5}   "
-                f"{earned_text:>7}/{f'₹{prize_total}':<5}"
-            )
-            lines.append(row)
+            lines.extend([
+                f"{medals[index]} <b>{index + 1}. {name}</b>",
+                f"   Score: <b>{score_text}</b>  ·  Prize: <b>{earned_text} / ₹{prize_total}</b>",
+            ])
         lines.extend([
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            "</pre>",
+            "━━━━━━━━━━━━━━━━━━━━",
         ])
         await message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
         return
