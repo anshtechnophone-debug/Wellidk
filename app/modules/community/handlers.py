@@ -63,12 +63,103 @@ async def _apply_saved_filter(message, text: str, filters: object) -> None:
             break
 
 
-async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat = update.effective_chat
-    if not chat:
+def _formatted_rules(rules: str) -> str:
+    """Render readable Telegram HTML while preserving the admin's line breaks."""
+    body = escape(rules.strip()) if rules.strip() else "No group rules have been set for this chat yet."
+    return (
+        "<b>📜 GROUP RULES</b>\\n"
+        "<i>Please read and respect the community rules.</i>\\n\\n"
+        f"{body}\\n\\n"
+        "<i>Thank you for keeping the community respectful. ❤️</i>"
+    )
+
+
+async def _send_rules_dm(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    group_id: int,
+) -> bool:
+    """Send the selected group's rules to a user's private chat."""
+    rules = (await _repository(context).get(group_id)).get("rules", "")
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=_formatted_rules(str(rules or "")),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+    return True
+
+
+async def _rules_deep_link(context: ContextTypes.DEFAULT_TYPE, group_id: int) -> str | None:
+    try:
+        me = await context.bot.get_me()
+    except TelegramError:
+        logger.exception("Could not resolve XYRON username for rules deep link")
+        return None
+    if not me.username:
+        return None
+    return f"https://t.me/{me.username}?start=rules_{group_id}"
+
+
+async def _deliver_or_link_rules(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    group_id: int | None = None,
+) -> None:
+    message, user, chat = update.effective_message, update.effective_user, update.effective_chat
+    if not message or not user:
         return
-    rules = (await _repository(context).get(chat.id)).get("rules", "")
-    await _respond(update, str(rules) if rules else "No group rules have been set.")
+    target_group_id = group_id if group_id is not None else (chat.id if chat else None)
+    if target_group_id is None:
+        await message.reply_text("Please request the rules from the group where you need them.")
+        return
+
+    try:
+        await _send_rules_dm(context, user.id, target_group_id)
+    except TelegramError:
+        logger.info("Could not DM rules to user %s; offering a start link", user.id)
+        link = await _rules_deep_link(context, target_group_id)
+        if link:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("📩 Click here to view the rules", url=link)]]
+            )
+            await message.reply_text(
+                "📜 <b>Group Rules</b>\\n\\n"
+                "I couldn't send you a private message yet. Tap below, then press "
+                "<b>Start</b> and I'll send the rules to your DM.",
+                parse_mode="HTML",
+                reply_markup=keyboard,
+                disable_web_page_preview=True,
+            )
+        else:
+            await message.reply_text(
+                "I couldn't send you the rules privately. Please open XYRON and press /start, "
+                "then request the rules again."
+            )
+        return
+
+    if chat and chat.type in {Chat.GROUP, Chat.SUPERGROUP}:
+        await message.reply_text(
+            f"📜 {escape(user.first_name or 'Member')}, I've sent the group rules to your DM. 💌",
+            parse_mode="HTML",
+        )
+
+
+async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _deliver_or_link_rules(update, context)
+
+
+async def plain_rules_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Respond only to exact rules keywords in a group, not ordinary conversation."""
+    message, chat = update.effective_message, update.effective_chat
+    if not message or not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        return
+    phrase = re.sub(r"\\s+", " ", (message.text or "").strip().casefold())
+    if phrase not in {"rules", "#rules", "hash rules"}:
+        return
+    await _deliver_or_link_rules(update, context)
 
 
 async def reports_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -115,7 +206,9 @@ async def review_report_command(update: Update, context: ContextTypes.DEFAULT_TY
 async def setrules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         await _admin(update, context)
-        text = " ".join(context.args).strip()
+        raw = update.effective_message.text if update.effective_message else ""
+        parts = re.split(r"\\s+", raw.strip(), maxsplit=1)
+        text = parts[1].strip() if len(parts) > 1 else ""
         if not text or len(text) > 4000:
             raise ValueError("Usage: /setrules <rules text, up to 4000 characters>")
         await _repository(context).set_value(update.effective_chat.id, "rules", text)
