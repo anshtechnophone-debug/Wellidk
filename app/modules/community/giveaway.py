@@ -253,13 +253,21 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
                     parse_mode="HTML",
                 )
             else:
+                try:
+                    await require_admin_access(update, context, context.application.bot_data["settings"], None)
+                except AuthorizationError as exc:
+                    await message.reply_text(str(exc))
+                    return
                 if not state.get("active"):
                     await message.reply_text("There is no active giveaway to end.")
                     return
                 state["active"] = False
                 state["ended_at"] = _now().isoformat()
                 await repo.set_value(chat.id, "giveaway", state)
-                await message.reply_text("🏁 <b>GIVEAWAY ENDED!</b>\nUse <b>/prize</b> to view the final top five.", parse_mode="HTML")
+                await message.reply_text(
+                    "🏁 <b>GIVEAWAY ENDED!</b>\nUse <b>/prize</b> to view the final top five.",
+                    parse_mode="HTML",
+                )
             return
 
         if not state or not state.get("started_at"):
