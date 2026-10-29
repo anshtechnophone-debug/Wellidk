@@ -292,25 +292,34 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             "🏆 <b>WEEKLY GIVEAWAY</b>",
             f"🟢 <b>LIVE</b> · {_remaining(ends_at)} left" if active else "🏁 <b>GIVEAWAY ENDED</b> · Final results",
             "",
-            "<pre>RANK  NAME                     SCORE  PRIZE</pre>",
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "<pre>RANK  NAME               SCORE     PRIZE (EARNED/TOTAL)",
         ]
         medals = ("🥇", "🥈", "🥉", "4️⃣", "5️⃣")
         for index in range(5):
+            prize_total = PRIZES[index] if index < len(PRIZES) else 0
             if index >= len(entries):
-                lines.append(f"{medals[index]} <b>{index + 1}.</b> Open spot  ·  —")
-                continue
-            user_id, data = entries[index]
-            score = _score(data)
-            raw_name = str(data.get("name") or "Member")
-            name = escape(raw_name[:24])
-            mention = f'<a href="tg://user?id={user_id}">{name}</a>'
-            prize = PRIZES[index] if index < len(PRIZES) else 0
-            lines.append(
-                f"{medals[index]} <b>{index + 1}.</b> {mention}\n"
-                f"   Score: <b>{score:g}</b>  ·  Prize: <b>₹{prize}</b>"
+                name = "Open spot"
+                score_text = "—"
+                earned_text = "₹0.00"
+            else:
+                user_id, data = entries[index]
+                score = _score(data)
+                raw_name = str(data.get("name") or "Member")
+                name = escape(raw_name[:16])
+                score_text = f"{score:g}"
+                earned = min(float(prize_total), score * 0.05)
+                earned_text = f"₹{earned:.2f}"
+            row = (
+                f"{medals[index]} {index + 1:<2} "
+                f"{name:<16} "
+                f"{score_text:>5}   "
+                f"{earned_text:>7}/{f'₹{prize_total}':<5}"
             )
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            lines.append(row)
+        lines.extend([
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "</pre>",
+        ])
         await message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
         return
 
