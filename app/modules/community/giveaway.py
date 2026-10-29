@@ -291,36 +291,26 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         lines = [
             "🏆 <b>WEEKLY GIVEAWAY</b>",
             f"🟢 <b>LIVE</b> · {_remaining(ends_at)} left" if active else "🏁 <b>GIVEAWAY ENDED</b> · Final results",
-            "━━━━━━━━━━━━━━━━━━━━",
-            "🎖 <b>TOP 5 LEADERBOARD</b>",
-            "<i>Estimated earnings · ₹0.05 per score · max ₹100</i>",
             "",
+            "<pre>RANK  NAME                     SCORE  PRIZE</pre>",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         ]
         medals = ("🥇", "🥈", "🥉", "4️⃣", "5️⃣")
         for index in range(5):
             if index >= len(entries):
-                lines.append(f"{medals[index]} <b>Open spot</b>\n   Score: —  ·  Earnings: ₹0.00")
+                lines.append(f"{medals[index]} <b>{index + 1}.</b> Open spot  ·  —")
                 continue
             user_id, data = entries[index]
             score = _score(data)
-            earned = min(100.0, score * 0.05)
             raw_name = str(data.get("name") or "Member")
-            name = escape(raw_name[:40])
+            name = escape(raw_name[:24])
             mention = f'<a href="tg://user?id={user_id}">{name}</a>'
+            prize = PRIZES[index] if index < len(PRIZES) else 0
             lines.append(
                 f"{medals[index]} <b>{index + 1}.</b> {mention}\n"
-                f"   Score: <b>{score:g}</b>  ·  Earnings: <b>₹{earned:.2f}</b>"
+                f"   Score: <b>{score:g}</b>  ·  Prize: <b>₹{prize}</b>"
             )
-        lines.extend([
-            "",
-            "━━━━━━━━━━━━━━━━━━━━",
-            "💬 <b>HOW TO EARN SCORE</b>",
-            "↩️ Reply to a message: <b>+1 score</b>",
-            "✍️ Send a normal text message: <b>+0.5 score</b>",
-            "",
-            "✅ Join before chatting; only messages after joining count.",
-            "📈 Keep participating to climb the leaderboard!",
-        ])
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         await message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
         return
 
