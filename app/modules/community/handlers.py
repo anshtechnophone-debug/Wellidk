@@ -67,9 +67,9 @@ def _formatted_rules(rules: str) -> str:
     """Render readable Telegram HTML while preserving the admin's line breaks."""
     body = escape(rules.strip()) if rules.strip() else "No group rules have been set for this chat yet."
     return (
-        "<b>📜 GROUP RULES</b>\\n"
-        "<i>Please read and respect the community rules.</i>\\n\\n"
-        f"{body}\\n\\n"
+        "<b>📜 GROUP RULES</b>\n"
+        "<i>Please read and respect the community rules.</i>\n\n"
+        f"{body}\n\n"
         "<i>Thank you for keeping the community respectful. ❤️</i>"
     )
 
@@ -126,7 +126,7 @@ async def _deliver_or_link_rules(
                 [[InlineKeyboardButton("📩 Click here to view the rules", url=link)]]
             )
             await message.reply_text(
-                "📜 <b>Group Rules</b>\\n\\n"
+                "📜 <b>Group Rules</b>\n\n"
                 "I couldn't send you a private message yet. Tap below, then press "
                 "<b>Start</b> and I'll send the rules to your DM.",
                 parse_mode="HTML",
@@ -156,7 +156,7 @@ async def plain_rules_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     message, chat = update.effective_message, update.effective_chat
     if not message or not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         return
-    phrase = re.sub(r"\\s+", " ", (message.text or "").strip().casefold())
+    phrase = re.sub(r"\s+", " ", (message.text or "").strip().casefold())
     if phrase not in {"rules", "#rules", "hash rules"}:
         return
     await _deliver_or_link_rules(update, context)
@@ -207,7 +207,7 @@ async def setrules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     try:
         await _admin(update, context)
         raw = update.effective_message.text if update.effective_message else ""
-        parts = re.split(r"\\s+", raw.strip(), maxsplit=1)
+        parts = re.split(r"\s+", raw.strip(), maxsplit=1)
         text = parts[1].strip() if len(parts) > 1 else ""
         if not text or len(text) > 4000:
             raise ValueError("Usage: /setrules <rules text, up to 4000 characters>")
