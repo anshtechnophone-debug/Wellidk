@@ -291,20 +291,24 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         lines = [
             "🏆 <b>WEEKLY GIVEAWAY</b>",
             f"🟢 <b>LIVE</b> · {_remaining(ends_at)} left" if active else "🏁 <b>GIVEAWAY ENDED · FINAL RANKING</b>",
-            "━━━━━━━━━━━━━━━━━━",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "<b>   NAMES             SCORE              PRIZE</b>",
         ]
         medals = ("🥇", "🥈", "🥉", "4️⃣", "5️⃣")
         for index in range(5):
+            prize = f"₹{PRIZES[index]:,}" if PRIZES[index] > 0 else "—"
             if index >= len(entries):
-                lines.append(f"{medals[index]} <i>Open spot</i>")
+                lines.append(f"{medals[index]} <i>{index + 1}. Open spot</i>  ·  — credits  ·  {prize}")
                 continue
             user_id, data = entries[index]
             score = _score(data)
-            name = escape(str(data.get("name") or "Member")[:80])
+            name = escape(str(data.get("name") or "Member")[:24])
             mention = f'<a href="tg://user?id={user_id}">{name}</a>'
-            lines.append(f"{medals[index]} <b>{index + 1}. {mention}</b>\n   💬 <b>{score:,.1f}</b> credits")
+            lines.append(
+                f"{medals[index]} <b>{index + 1}. {mention}</b>  💬 <b>{score:,.1f}</b> credits  ·  <b>{prize}</b>"
+            )
         lines.extend([
-            "━━━━━━━━━━━━━━━━━━",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
             "💬 Reply = 1 credit · Standalone text = 0.5 credit",
             "✅ Only messages sent after joining count.",
             "🔄 Keep chatting to improve your rank.",
