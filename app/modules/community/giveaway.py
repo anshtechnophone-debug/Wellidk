@@ -160,6 +160,7 @@ async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAUL
         )
         await query.answer("You're in! Check your private chat for the rules.")
     except TelegramError:
+        me = await context.bot.get_me()
         rules_url = f"https://t.me/{me.username}?start=gw_{group_id}"
         result_text = (
             f"✅ {mention} has joined the giveaway!\n"
