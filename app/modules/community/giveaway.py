@@ -61,7 +61,7 @@ def _leaderboard(state: dict) -> list[tuple[int, dict]]:
 def _rules_text(group_title: str) -> str:
     return (
         f"🎁 <b>GIVEAWAY RULES — {escape(group_title)}</b>\n\n"
-        "⏳ <b>Duration:</b> 7 days from the admin's /gw start command.\n"
+        "⏳ <b>Duration:</b> 7 days from the group owner's /gw start command.\n"
         "🎯 <b>Common qualification target:</b> 9,800 credited text messages.\n\n"
         "💬 <b>Message credits</b>\n"
         "• Text reply to another message: <b>1 credit</b>\n"
@@ -187,7 +187,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
     command_text = re.sub(r"\s+", " ", command_text).strip()
     repo = _repo(context)
 
-    if command_text in {"/gw", "/gw"}:
+    if command_text == "/gw":
         state = (await repo.get(chat.id)).get("giveaway", {})
         if not isinstance(state, dict) or not state.get("active"):
             await message.reply_text("🎁 There isn't an active giveaway right now. Watch for the next one!")
@@ -217,12 +217,12 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
 
-    if command_text in {"/gw start", "/gw end", "/prize", "/gw start", "/gw end", "/prize"}:
+    if command_text in {"/gw start", "/gw end", "/prize"}:
         state = (await repo.get(chat.id)).get("giveaway", {})
         if not isinstance(state, dict):
             state = {}
-        is_start = command_text in {"/gw start", "/gw start"}
-        is_end = command_text in {"/gw end", "/gw end"}
+        is_start = command_text == "/gw start"
+        is_end = command_text == "/gw end"
         if is_start or is_end:
             if is_start:
                 try:
@@ -271,7 +271,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         if not state or not state.get("started_at"):
-            await message.reply_text("🎁 No giveaway has started yet. An admin can start one with <b>/gw start</b>.", parse_mode="HTML")
+            await message.reply_text("🎁 No giveaway has started yet. Only the group owner can start one with <b>/gw start</b>.", parse_mode="HTML")
             return
         ends_at = _parse_time(state.get("ends_at")) or _now()
         if state.get("active") and _now() >= ends_at:
