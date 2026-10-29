@@ -215,56 +215,99 @@ class OpenAICompatibleProvider:
             "Authorization": f"Bearer {self.settings.ai_api_key}",
         }
 
+        # Primary model first; use the configured fallback only if the primary
+        # errors, times out, returns malformed data, or returns empty content.
+        # A successful primary response always wins and is returned exactly once.
+        primary_model = self.settings.ai_model.strip()
+        fallback_model = str(
+            getattr(self.settings, "ai_fallback_model", "") or ""
+        ).strip()
+        models = list(dict.fromkeys(
+            model for model in (primary_model, fallback_model) if model
+        ))
+        if not models:
+            raise ValueError("No AI model is configured")
+
         # Private DMs can be a little more expressive; group replies stay concise.
         is_private_dm = system == DM_CONVERSATION_SYSTEM_PROMPT
-        payload = {
-            "model": self.settings.ai_model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.75 if is_private_dm else 0.3,
-            "max_tokens": 400 if is_private_dm else 300,
-        }
+        last_error: Exception | None = None
 
-        started = time.perf_counter()
-        try:
-            response = await self.client.post(
-                f"{self.settings.ai_base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-        except Exception:
-            logger.warning(
-                "AI provider request failed after %.2fs (model=%s)",
-                time.perf_counter() - started,
-                self.settings.ai_model,
-                exc_info=True,
-            )
-            raise
+        for attempt, model in enumerate(models, start=1):
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.75 if is_private_dm else 0.3,
+                "max_tokens": 400 if is_private_dm else 300,
+            }
+            started = time.perf_counter()
 
-        elapsed = time.perf_counter() - started
-        usage = data.get("usage") or {}
-        logger.info(
-            "AI provider request completed in %.2fs (model=%s, input_tokens=%s, output_tokens=%s)",
-            elapsed,
-            self.settings.ai_model,
-            usage.get("prompt_tokens", "?"),
-            usage.get("completion_tokens", "?"),
-        )
+            try:
+                response = await self.client.post(
+                    f"{self.settings.ai_base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
 
-        content = data["choices"][0]["message"]["content"]
+                if not isinstance(data, dict):
+                    raise ValueError("AI provider returned an invalid response object")
+                choices = data.get("choices")
+                if not isinstance(choices, list) or not choices:
+                    raise ValueError("AI provider returned no choices")
+                first_choice = choices[0]
+                if not isinstance(first_choice, dict):
+                    raise ValueError("AI provider returned an invalid choice")
+                message = first_choice.get("message")
+                if not isinstance(message, dict):
+                    raise ValueError("AI provider returned no message")
+                content = message.get("content")
+                if not isinstance(content, str) or not content.strip():
+                    raise ValueError("AI provider returned an empty response")
 
-        if not isinstance(content, str) or not content.strip():
-            raise ValueError("AI provider returned an empty response")
+                usage = data.get("usage") or {}
+                if not isinstance(usage, dict):
+                    usage = {}
+                input_tokens = int(usage.get("prompt_tokens", 0) or 0)
+                output_tokens = int(usage.get("completion_tokens", 0) or 0)
+                elapsed = time.perf_counter() - started
+                logger.info(
+                    "AI provider request completed in %.2fs (model=%s, input_tokens=%s, output_tokens=%s)",
+                    elapsed,
+                    model,
+                    input_tokens,
+                    output_tokens,
+                )
+                if attempt > 1:
+                    logger.warning(
+                        "AI fallback succeeded (model=%s, attempt=%s/%s)",
+                        model,
+                        attempt,
+                        len(models),
+                    )
+                return AIResult(
+                    text=content.strip(),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "AI provider attempt failed after %.2fs (model=%s, attempt=%s/%s, error_type=%s)",
+                    time.perf_counter() - started,
+                    model,
+                    attempt,
+                    len(models),
+                    type(exc).__name__,
+                )
 
-        return AIResult(
-            text=content.strip(),
-            input_tokens=int(usage.get("prompt_tokens", 0)),
-            output_tokens=int(usage.get("completion_tokens", 0)),
-        )
+        # Re-raise the final provider error so the existing caller can produce
+        # one user-facing failure message after every configured model has failed.
+        assert last_error is not None
+        raise last_error
 
 
 class AIEventRouter:
@@ -557,12 +600,7 @@ class AIEventRouter:
         try:
             result = await self.provider.complete(system, prompt)
 
-        except (
-            httpx.HTTPError,
-            KeyError,
-            ValueError,
-            TypeError,
-        ):
+        except Exception:
             if usage_id is not None:
                 await AIUsageRepository(sessions).finish(
                     usage_id,
