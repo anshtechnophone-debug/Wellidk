@@ -226,7 +226,23 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 try:
                     actor = await context.bot.get_chat_member(chat.id, user.id)
                 except TelegramError:
-                    await message.reply_text(
+                    await message.reply_text("I couldn't verify the group owner's identity. Please try again.")
+                    return
+                if actor.status != "creator":
+                    await message.reply_text("🔒 Only the group owner can start the giveaway.")
+                    return
+                if state.get("active") and (_parse_time(state.get("ends_at")) or _now()) > _now():
+                    await message.reply_text("🎁 A giveaway is already running. Use /prize to view the leaderboard.")
+                    return
+                started = _now()
+                state = {
+                    "active": True,
+                    "started_at": started.isoformat(),
+                    "ends_at": (started + DURATION).isoformat(),
+                    "members": {},
+                }
+                await repo.set_value(chat.id, "giveaway", state)
+                await message.reply_text(
                     "🎉 <b>WEEKLY GIVEAWAY IS LIVE!</b>\\n"
                     f"🗓 <b>From:</b> {started.strftime('%d %b %Y, %H:%M UTC')}\\n"
                     f"🏁 <b>Until:</b> {(started + DURATION).strftime('%d %b %Y, %H:%M UTC')}\\n"
