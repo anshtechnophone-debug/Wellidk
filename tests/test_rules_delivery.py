@@ -30,7 +30,8 @@ async def test_plain_rules_request_accepts_supported_phrases(monkeypatch, phrase
 
     await handlers.plain_rules_request(update, SimpleNamespace())
 
-    delivery.assert_awaited_once_with(update, delivery.call_args.args[1] if False else pytest.ANY)
+    delivery.assert_awaited_once()
+    assert delivery.await_args.args[0] is update
 
 
 @pytest.mark.asyncio
