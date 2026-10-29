@@ -5,6 +5,10 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime, timedelta
 from html import escape
+from io import BytesIO
+import logging
+
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from telegram import Chat, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
@@ -73,6 +77,135 @@ def _rules_text(group_title: str, started: datetime | None = None, ends: datetim
         "🏆 Your rank depends on your credits. Use <b>/prize</b> in the group.\n"
         "⏳ The giveaway ends after 7 days."
     )
+
+logger = logging.getLogger(__name__)
+
+
+def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Load a widely available system font, with a safe Pillow fallback."""
+    paths = (
+        ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf")
+        if bold else
+        ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf")
+    )
+    for path in paths:
+        try:
+            return ImageFont.truetype(path, size=size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+async def _profile_photo_bytes(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bytes | None:
+    """Fetch the user's small Telegram avatar, if the Bot API exposes one."""
+    try:
+        photos = await context.bot.get_user_profile_photos(user_id=user_id, limit=1)
+        if not photos.photos:
+            return None
+        photo = photos.photos[0][-1]
+        telegram_file = await context.bot.get_file(photo.file_id)
+        return bytes(await telegram_file.download_as_bytearray())
+    except (TelegramError, OSError, ValueError):
+        logger.debug("Could not fetch giveaway avatar for user_id=%s", user_id, exc_info=True)
+        return None
+
+
+def _draw_avatar(canvas: Image.Image, box: tuple[int, int, int, int], name: str, photo_bytes: bytes | None, rank: int) -> None:
+    """Draw a circular profile picture or a matching initials fallback."""
+    x1, y1, x2, y2 = box
+    size = x2 - x1
+    avatar = None
+    if photo_bytes:
+        try:
+            source = Image.open(BytesIO(photo_bytes)).convert("RGB")
+            avatar = ImageOps.fit(source, (size, size), method=Image.Resampling.LANCZOS)
+        except (OSError, ValueError):
+            avatar = None
+    if avatar is None:
+        colors = ((236, 190, 82), (171, 185, 205), (190, 130, 87))
+        avatar = Image.new("RGB", (size, size), colors[rank - 1])
+        draw = ImageDraw.Draw(avatar)
+        initials = "".join(part[0] for part in name.split()[:2] if part)[:2].upper() or "?"
+        font = _load_font(30, True)
+        bounds = draw.textbbox((0, 0), initials, font=font)
+        draw.text(((size - (bounds[2] - bounds[0])) / 2, (size - (bounds[3] - bounds[1])) / 2 - bounds[1]), initials, fill=(20, 25, 42), font=font)
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
+    canvas.paste(avatar, (x1, y1), mask)
+    border = ImageDraw.Draw(canvas)
+    ring = ((255, 208, 91), (205, 216, 235), (205, 143, 94))[rank - 1]
+    border.ellipse(box, outline=ring, width=5)
+
+
+def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: datetime, active: bool, avatars: dict[int, bytes | None]) -> BytesIO:
+    """Render a mobile-friendly, top-three-only weekly giveaway image."""
+    width, height = 1080, 1350
+    image = Image.new("RGB", (width, height))
+    pixels = image.load()
+    top = (12, 18, 39)
+    bottom = (31, 25, 58)
+    for y in range(height):
+        ratio = y / max(1, height - 1)
+        color = tuple(int(top[i] * (1 - ratio) + bottom[i] * ratio) for i in range(3))
+        ImageDraw.Draw(image).line((0, y, width, y), fill=color)
+    draw = ImageDraw.Draw(image)
+    title_font = _load_font(53, True)
+    subtitle_font = _load_font(25, False)
+    section_font = _load_font(23, True)
+    name_font = _load_font(34, True)
+    small_font = _load_font(23, False)
+    prize_font = _load_font(32, True)
+    progress_font = _load_font(19, True)
+    white = (247, 248, 255)
+    muted = (177, 187, 210)
+    gold = (255, 207, 87)
+    draw.rounded_rectangle((44, 38, width - 44, 224), radius=34, fill=(22, 29, 55), outline=(77, 74, 111), width=2)
+    draw.text((width // 2, 68), "WEEKLY GIVEAWAY", font=title_font, fill=white, anchor="mt")
+    draw.text((width // 2, 143), "LIVE  •  " + (_remaining(ends_at) + " LEFT" if active else "FINAL RESULTS"), font=subtitle_font, fill=(126, 235, 177) if active else gold, anchor="mt")
+    draw.text((width // 2, 190), "THE PRIZE LEAGUE", font=section_font, fill=gold, anchor="mt")
+
+    medals = ("1ST PLACE", "2ND PLACE", "3RD PLACE")
+    accents = ((255, 207, 87), (198, 211, 232), (205, 143, 94))
+    for index in range(3):
+        rank = index + 1
+        y1 = 254 + index * 328
+        y2 = y1 + 294
+        accent = accents[index]
+        draw.rounded_rectangle((44, y1, width - 44, y2), radius=30, fill=(25, 32, 59), outline=accent, width=3)
+        draw.rounded_rectangle((68, y1 + 22, 254, y1 + 64), radius=18, fill=accent)
+        draw.text((161, y1 + 43), medals[index], font=section_font, fill=(24, 27, 42), anchor="mm")
+        if index < len(entries):
+            user_id, data = entries[index]
+            name = str(data.get("name") or "Member").strip() or "Member"
+            score = _score(data)
+            earned = min(float(PRIZES[index]), score * 0.05)
+            photo_bytes = avatars.get(user_id)
+        else:
+            user_id, name, score, earned, photo_bytes = None, "OPEN SPOT", 0.0, 0.0, None
+        _draw_avatar(image, (78, y1 + 88, 174, y1 + 184), name, photo_bytes, rank)
+        draw = ImageDraw.Draw(image)
+        max_name_width = 520
+        while name and draw.textbbox((0, 0), name, font=name_font)[2] > max_name_width:
+            name = name[:-2].rstrip() + "…"
+        draw.text((198, y1 + 94), name, font=name_font, fill=white)
+        draw.text((198, y1 + 145), f"SCORE: {score:g}" if user_id is not None else "SCORE: —", font=small_font, fill=muted)
+        draw.text((78, y1 + 211), f"₹{earned:.2f}  /  ₹{PRIZES[index]}", font=prize_font, fill=accent)
+        bar_x1, bar_y, bar_x2, bar_h = 78, y1 + 260, width - 78, y1 + 278
+        draw.rounded_rectangle((bar_x1, bar_y, bar_x2, bar_h), radius=9, fill=(55, 62, 87))
+        ratio = min(1.0, earned / PRIZES[index]) if PRIZES[index] else 0.0
+        if ratio > 0:
+            fill_x = bar_x1 + max(18, int((bar_x2 - bar_x1) * ratio))
+            draw.rounded_rectangle((bar_x1, bar_y, min(bar_x2, fill_x), bar_h), radius=9, fill=accent)
+        draw.text((bar_x2, y1 + 230), f"{ratio * 100:.2f}% OF PRIZE", font=progress_font, fill=muted, anchor="ra")
+
+    draw.text((width // 2, 1272), "CHAT MORE. WIN MORE.", font=section_font, fill=white, anchor="mm")
+    draw.text((width // 2, 1310), "POWERED BY XYRON", font=small_font, fill=muted, anchor="mm")
+    output = BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    output.seek(0)
+    output.name = "weekly-giveaway.png"
+    return output
+
 
 async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Register giveaway participants and provide private rules or a start link."""
@@ -286,38 +419,16 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             state["active"] = False
             state["ended_at"] = ends_at.isoformat()
             await repo.set_value(chat.id, "giveaway", state)
-        entries = _leaderboard(state)
-        active = bool(state.get("active"))
-        lines = [
-            "🏆 <b>WEEKLY GIVEAWAY</b>",
-            f"🟢 LIVE · {_remaining(ends_at)} left" if active else "🏁 <b>GIVEAWAY ENDED</b> · Final results",
-            "",
-            "👤 <b>NAME</b>  ·  <b>SCORE</b>  ·  <b>PRIZE</b>",
-            "━━━━━━━━━━━━━━━━━━━━",
-        ]
-        medals = ("🥇", "🥈", "🥉", "4️⃣", "5️⃣")
-        for index in range(5):
-            prize_total = PRIZES[index] if index < len(PRIZES) else 0
-            if index >= len(entries):
-                name = "Open spot"
-                score_text = "—"
-                earned_text = "₹0.00"
-            else:
-                user_id, data = entries[index]
-                score = _score(data)
-                raw_name = str(data.get("name") or "Member")
-                name = escape(raw_name[:32])
-                score_text = f"{score:g}"
-                earned = min(float(prize_total), score * 0.05)
-                earned_text = f"₹{earned:.2f}"
-            lines.extend([
-                f"{medals[index]} <b>{index + 1}. {name}</b>",
-                f"   Score: <b>{score_text}</b>  ·  Prize: <b>{earned_text} / ₹{prize_total}</b>",
-            ])
-        lines.extend([
-            "━━━━━━━━━━━━━━━━━━━━",
-        ])
-        await message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
+        entries = _leaderboard(state)[:3]
+        avatars: dict[int, bytes | None] = {}
+        for user_id, _data in entries:
+            avatars[user_id] = await _profile_photo_bytes(context, user_id)
+        photo = _render_leaderboard(state, entries, ends_at, active, avatars)
+        try:
+            await message.reply_photo(photo=photo)
+        except TelegramError:
+            logger.exception("Could not send giveaway leaderboard image for chat_id=%s", chat.id)
+            await message.reply_text("Couldn't send the leaderboard image. Please try /prize again.")
         return
 
     # Count only normal text messages by registered participants during the live window.
