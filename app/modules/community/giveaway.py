@@ -290,31 +290,36 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         active = bool(state.get("active"))
         lines = [
             "🏆 <b>WEEKLY GIVEAWAY</b>",
-            f"🟢 <b>LIVE</b> · {_remaining(ends_at)} left" if active else "🏁 <b>GIVEAWAY ENDED · FINAL RANKING</b>",
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            "<pre>RANK  NAME                 SCORE       EARNED</pre>",
+            f"🟢 <b>LIVE</b> · {_remaining(ends_at)} left" if active else "🏁 <b>GIVEAWAY ENDED</b> · Final results",
+            "━━━━━━━━━━━━━━━━━━━━",
+            "🎖 <b>TOP 5 LEADERBOARD</b>",
+            "<i>Estimated earnings · ₹0.05 per score · max ₹100</i>",
+            "",
         ]
         medals = ("🥇", "🥈", "🥉", "4️⃣", "5️⃣")
         for index in range(5):
             if index >= len(entries):
-                rank = f"{index + 1}."
-                lines.append(f"<pre>{medals[index]} {rank:<4} {'Open spot':<20} {'—':>8}   ₹0</pre>")
+                lines.append(f"{medals[index]} <b>Open spot</b>\n   Score: —  ·  Earnings: ₹0.00")
                 continue
             user_id, data = entries[index]
             score = _score(data)
             earned = min(100.0, score * 0.05)
-            name = escape(str(data.get("name") or "Member")[:20])
-            rank = f"{index + 1}."
-            # Keep columns aligned with a monospace layout; preserve clickable member names.
+            raw_name = str(data.get("name") or "Member")
+            name = escape(raw_name[:40])
             mention = f'<a href="tg://user?id={user_id}">{name}</a>'
             lines.append(
-                f"<pre>{medals[index]} {rank:<4} </pre>{mention}<pre>{' ' * max(1, 20 - len(str(data.get('name') or 'Member')[:20]))}{score:>8.1f}   ₹{earned:.2f}</pre>"
+                f"{medals[index]} <b>{index + 1}.</b> {mention}\n"
+                f"   Score: <b>{score:g}</b>  ·  Earnings: <b>₹{earned:.2f}</b>"
             )
         lines.extend([
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            "Reply = 1 score · Standalone text = 0.5 score",
-            "✅ Only messages sent after joining count.",
-            "🔄 Keep chatting to improve your rank.",
+            "",
+            "━━━━━━━━━━━━━━━━━━━━",
+            "💬 <b>HOW TO EARN SCORE</b>",
+            "↩️ Reply to a message: <b>+1 score</b>",
+            "✍️ Send a normal text message: <b>+0.5 score</b>",
+            "",
+            "✅ Join before chatting; only messages after joining count.",
+            "📈 Keep participating to climb the leaderboard!",
         ])
         await message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
         return
