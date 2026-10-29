@@ -12,6 +12,7 @@ def test_settings_load_required_credentials_and_defaults(monkeypatch, tmp_path):
     assert settings.owner_id == 123456789
     assert settings.owner_admin_required is True
     assert settings.database_url == DEFAULT_DATABASE_URL
+    assert settings.ai_fallback_model == "inclusionai/ling-3.1-flash"
 
 
 @pytest.mark.parametrize("owner_id", ["", "abc", "-10", "0"])
@@ -72,3 +73,15 @@ def test_ai_activity_window_and_threshold_defaults_are_configurable(monkeypatch,
     settings = Settings.from_env()
     assert settings.ai_activity_threshold == 8
     assert settings.ai_activity_window_seconds == 90
+
+
+
+def test_ai_fallback_model_can_be_overridden_or_disabled(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BOT_TOKEN", "123:fake-token")
+    monkeypatch.setenv("OWNER_ID", "123456789")
+    monkeypatch.setenv("AI_FALLBACK_MODEL", "custom/fallback")
+    assert Settings.from_env().ai_fallback_model == "custom/fallback"
+
+    monkeypatch.setenv("AI_FALLBACK_MODEL", "")
+    assert Settings.from_env().ai_fallback_model == ""
