@@ -61,7 +61,7 @@ def _leaderboard(state: dict) -> list[tuple[int, dict]]:
 def _rules_text(group_title: str) -> str:
     return (
         f"🎁 <b>GIVEAWAY RULES — {escape(group_title)}</b>\n\n"
-        "⏳ <b>Duration:</b> 7 days from the admin's #giveaway start command.\n"
+        "⏳ <b>Duration:</b> 7 days from the admin's /gw start command.\n"
         "🎯 <b>Common qualification target:</b> 9,800 credited text messages.\n\n"
         "💬 <b>Message credits</b>\n"
         "• Text reply to another message: <b>1 credit</b>\n"
@@ -75,7 +75,7 @@ def _rules_text(group_title: str) -> str:
         "All participants share the same 9,800-credit target. Final positions are ranked by credited messages. "
         "The full prize is unlocked at the target; below the target, the prize is proportional to progress. "
         "More messages can change your position, but never increase that position's prize cap.\n\n"
-        "Use <b>#price</b> in the group to view the top five. The giveaway closes automatically after seven days."
+        "Use <b>/prize</b> in the group to view the top five. The giveaway closes automatically after seven days."
     )
 
 
@@ -85,16 +85,32 @@ async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAUL
     if not query or not user:
         return
     payload = query.data or ""
-    if not payload.startswith("giveaway:join:"):
+    action = payload.split(":")
+    if len(action) != 3 or action[0] != "giveaway" or action[1] not in {"join", "rules"}:
         return
     try:
-        group_id = int(payload.rsplit(":", 1)[1])
+        group_id = int(action[2])
     except ValueError:
-        await query.answer("This join link is invalid.", show_alert=True)
+        await query.answer("This giveaway button is invalid.", show_alert=True)
         return
     repo = _repo(context)
     policy = await repo.get(group_id)
     state = policy.get("giveaway", {})
+    if action[1] == "rules":
+        try:
+            group = await context.bot.get_chat(group_id)
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=_rules_text(group.title or "Group"),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+            await query.answer("I've sent the rules to your DM.")
+        except TelegramError:
+            await query.answer("Open XYRON privately and press Start first.", show_alert=True)
+        return
+    if action[1] != "join":
+        return
     if not isinstance(state, dict) or not state.get("active"):
         await query.answer("There is no active giveaway right now.", show_alert=True)
         return
@@ -126,9 +142,11 @@ async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAUL
     mention = f'<a href="tg://user?id={user.id}">{name}</a>'
     try:
         await query.edit_message_text(
-            f"✅ {mention} has joined the giveaway!\n\n📩 Please check your DM for the giveaway rules.",
+            f"✅ {mention} has joined the giveaway!\n\n📩 The rules have been sent to your DM. You can request them again below.",
             parse_mode="HTML",
-            reply_markup=None,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("📜 View Giveaway Rules", callback_data=f"giveaway:rules:{group_id}")
+            ]]),
             disable_web_page_preview=True,
         )
     except TelegramError:
@@ -165,9 +183,11 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
     if not text:
         return
     folded = re.sub(r"\s+", " ", text).casefold()
+    command_text = re.sub(r"^/(gw|prize)(?:@\w+)?", lambda match: "/" + match.group(1), folded)
+    command_text = re.sub(r"\s+", " ", command_text).strip()
     repo = _repo(context)
 
-    if folded == "#gw":
+    if command_text in {"/gw", "/gw"}:
         state = (await repo.get(chat.id)).get("giveaway", {})
         if not isinstance(state, dict) or not state.get("active"):
             await message.reply_text("🎁 There isn't an active giveaway right now. Watch for the next one!")
@@ -181,7 +201,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             return
         members = state.get("members", {})
         if str(user.id) in members:
-            await message.reply_text("✅ You're already registered for this giveaway. Send #price to check the leaderboard.")
+            await message.reply_text("✅ You're already registered for this giveaway. Send /prize to check the leaderboard.")
             return
         button = InlineKeyboardMarkup([[
             InlineKeyboardButton("🔵 Click here to join the giveaway", callback_data=f"giveaway:join:{chat.id}")
@@ -197,19 +217,31 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
 
-    if folded in {"#giveaway start", "#giveaway end", "#price"}:
+    if command_text in {"/gw start", "/gw end", "/prize", "/gw start", "/gw end", "/prize"}:
         state = (await repo.get(chat.id)).get("giveaway", {})
         if not isinstance(state, dict):
             state = {}
-        if folded in {"#giveaway start", "#giveaway end"}:
-            try:
-                await require_admin_access(update, context, context.application.bot_data["settings"], None)
-            except AuthorizationError as exc:
-                await message.reply_text(str(exc))
-                return
-            if folded == "#giveaway start":
+        is_start = command_text in {"/gw start", "/gw start"}
+        is_end = command_text in {"/gw end", "/gw end"}
+        if is_start or is_end:
+            if is_start:
+                try:
+                    actor = await context.bot.get_chat_member(chat.id, user.id)
+                except TelegramError:
+                    await message.reply_text("I couldn't verify the group owner's identity. Please try again.")
+                    return
+                if actor.status != "creator":
+                    await message.reply_text("🔒 Only the group owner can start the giveaway.")
+                    return
+            else:
+                try:
+                    await require_admin_access(update, context, context.application.bot_data["settings"], None)
+                except AuthorizationError as exc:
+                    await message.reply_text(str(exc))
+                    return
+            if is_start:
                 if state.get("active") and (_parse_time(state.get("ends_at")) or _now()) > _now():
-                    await message.reply_text("🎁 A giveaway is already running. Use #price to view the leaderboard.")
+                    await message.reply_text("🎁 A giveaway is already running. Use /prize to view the leaderboard.")
                     return
                 started = _now()
                 state = {
@@ -222,10 +254,10 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 await message.reply_text(
                     "🎉 <b>WEEKLY GIVEAWAY IS LIVE!</b>\n\n"
                     "⏳ Duration: <b>7 days</b> — countdown and scoring start now.\n"
-                    "📝 Send <b>#GW</b> to get your personal join button. Only joined participants earn credits.\n"
+                    "📝 Send <b>/gw</b> to get your personal join button. Only joined participants earn credits.\n"
                     "🎯 Shared target: <b>9,800 credited messages</b>.\n\n"
                     "🥇 ₹350  •  🥈 ₹200  •  🥉 ₹150\n"
-                    "📊 Send <b>#price</b> for the top five. Good luck!",
+                    "📊 Send <b>/prize</b> for the top five. Good luck!",
                     parse_mode="HTML",
                 )
             else:
@@ -235,11 +267,11 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 state["active"] = False
                 state["ended_at"] = _now().isoformat()
                 await repo.set_value(chat.id, "giveaway", state)
-                await message.reply_text("🏁 <b>GIVEAWAY ENDED!</b>\nUse <b>#price</b> to view the final top five.", parse_mode="HTML")
+                await message.reply_text("🏁 <b>GIVEAWAY ENDED!</b>\nUse <b>/prize</b> to view the final top five.", parse_mode="HTML")
             return
 
         if not state or not state.get("started_at"):
-            await message.reply_text("🎁 No giveaway has started yet. An admin can start one with <b>#giveaway start</b>.", parse_mode="HTML")
+            await message.reply_text("🎁 No giveaway has started yet. An admin can start one with <b>/gw start</b>.", parse_mode="HTML")
             return
         ends_at = _parse_time(state.get("ends_at")) or _now()
         if state.get("active") and _now() >= ends_at:
@@ -275,7 +307,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     # Count only normal text messages by registered participants during the live window.
-    if folded.startswith("#giveaway") or folded in {"#price", "#gw"}:
+    if command_text.startswith(("/gw", "/prize", "#giveaway")) or command_text in {"/prize", "/gw"}:
         return
     state = (await repo.get(chat.id)).get("giveaway", {})
     if not isinstance(state, dict) or not state.get("active"):
