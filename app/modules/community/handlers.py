@@ -93,8 +93,9 @@ async def _send_rules_dm(
     group_id: int,
 ) -> bool:
     """Send the originating group's rules and name to a user's private chat."""
-    policy = await _repository(context).get(group_id)
-    rules = str(policy.get("rules") or DEFAULT_GROUP_RULES)
+    # These are the canonical rules requested for every group. Do not let
+    # stale per-group rules saved before this update override this exact text.
+    rules = DEFAULT_GROUP_RULES
     group_title = "Group"
     try:
         group = await context.bot.get_chat(group_id)
