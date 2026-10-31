@@ -142,6 +142,7 @@ from app.modules.moderation.handlers import (
     warning_query_command,
 )
 from app.modules.moderation.reaction_guard import reaction_guard_handler
+from app.modules.moderation.smart_gc import smartgc_abuse_guard, smartgc_command
 from app.modules.reminders.handlers import (
     cancelreminder_command,
     remind_command,
@@ -382,6 +383,7 @@ async def plain_moderation_command(update: Update, context: ContextTypes.DEFAULT
 def _register_general(application: Application) -> None:
     for command, callback in (
         ("admin", admin_command),
+        ("smartgc", smartgc_command),
         ("unadmin", unadmin_command),
         ("botadminlist", botadminlist_command),
         ("pin", pin_command),
@@ -562,6 +564,16 @@ def _register_general(application: Application) -> None:
             plain_rules_request,
         ),
         group=0,
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS
+            & (filters.TEXT | filters.CAPTION)
+            & ~filters.COMMAND,
+            smartgc_abuse_guard,
+        ),
+        group=5,
     )
 
     application.add_handler(
