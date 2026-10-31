@@ -9,7 +9,7 @@ import logging
 import re
 import unicodedata
 
-from telegram import Chat, ChatMember, Update
+from telegram import Chat, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
@@ -99,7 +99,7 @@ async def smartgc_abuse_guard(
     except TelegramError:
         logger.debug("Could not inspect member %s in %s for Smart GC", user.id, chat.id)
         return
-    if member.status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
+    if member.status in {"administrator", "creator"}:
         return
 
     # Delete the uncensored message when the bot has the required permission.
