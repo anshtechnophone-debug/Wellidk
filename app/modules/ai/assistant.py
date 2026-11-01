@@ -397,6 +397,7 @@ class AIEventRouter:
             r"\b(?:what did|messages from|msg from|chat by|what was said by|did|about)\s+@?([\w.-]{2,})",
             r"\b([\w.-]{2,})\s+(?:ne|ki|ka|ke)\s+(?:kya|kis|kisko|kab|kuch|kaha|bola|gaali|ladai)",
             r"\b([\w.-]{2,})\s+ne\s+([\w.-]{2,})\s+ko\b",
+            r"\b([\w.-]{2,})\s+(?:aur|and|vs|versus)\s+([\w.-]{2,})\b",
         )
         for pattern in name_patterns:
             for match in re.finditer(pattern, question_lower):
@@ -730,6 +731,17 @@ class AIEventRouter:
                 raw_text,
                 re.IGNORECASE,
             )
+            or re.search(r"\b[\w.-]{2,}\s+(?:aur|and|vs|versus)\s+[\w.-]{2,}\b", raw_text, re.IGNORECASE)
+        )
+        if person_specific_history:
+            rows = []
+        elif False:
+            rows = []
+        elif re.search(
+                r"\b[\w.-]{2,}\s+(?:ne|ki|ka|ke)\s+(?:kya|kis|kisko|kab|kuch|kaha|bola|gaali|ladai)",
+                raw_text,
+                re.IGNORECASE,
+            )
         )
         if person_specific_history:
             rows = []
@@ -811,7 +823,7 @@ class AIEventRouter:
                     "chat history", "messages search", "message search", "pehle kya",
                     "pehle kisne", "kab bola", "what did", "what was said",
                     "who said", "who wrote", "who muted", "who was muted",
-                    "kya bola", "ne kya", "ki ladai", "gaali di", "gali di", "said to",
+                    "kya bola", "ne kya", "ki ladai", "ladai", "gaali di", "gali di", "said to",
                     "who got banned", "who banned", "who kicked", "last ban",
                     "last kick", "last unmute", "last unban", "modlog",
                 )
