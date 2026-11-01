@@ -396,12 +396,14 @@ class AIEventRouter:
         name_patterns = (
             r"\b(?:what did|messages from|msg from|chat by|what was said by|did|about)\s+@?([\w.-]{2,})",
             r"\b([\w.-]{2,})\s+(?:ne|ki|ka|ke)\s+(?:kya|kis|kisko|kab|kuch|kaha|bola|gaali|ladai)",
+            r"\b([\w.-]{2,})\s+ne\s+([\w.-]{2,})\s+ko\b",
         )
         for pattern in name_patterns:
             for match in re.finditer(pattern, question_lower):
-                candidate = match.group(1).strip("._-@")
-                if candidate and candidate not in ignored:
-                    name_candidates.add(candidate)
+                for raw_candidate in match.groups():
+                    candidate = raw_candidate.strip("._-@")
+                    if candidate and candidate not in ignored:
+                        name_candidates.add(candidate)
 
         repository = GroupHistoryRepository(sessions)
         cutoff = datetime.now(UTC) - timedelta(days=30)
@@ -716,7 +718,22 @@ class AIEventRouter:
         ):
             return
 
-        if message.reply_to_message and message.reply_to_message.from_user:
+        person_specific_history = bool(
+            re.search(r"@[\w.-]{2,}", raw_text, re.IGNORECASE)
+            or re.search(
+                r"\b(?:what did|messages from|msg from|chat by|what was said by|did)\s+@?[\w.-]{2,}",
+                raw_text,
+                re.IGNORECASE,
+            )
+            or re.search(
+                r"\b[\w.-]{2,}\s+(?:ne|ki|ka|ke)\s+(?:kya|kis|kisko|kab|kuch|kaha|bola|gaali|ladai)",
+                raw_text,
+                re.IGNORECASE,
+            )
+        )
+        if person_specific_history:
+            rows = []
+        elif message.reply_to_message and message.reply_to_message.from_user:
             rows = self.recent_context(
                 chat.id,
                 {user.id, message.reply_to_message.from_user.id},
