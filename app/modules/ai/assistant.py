@@ -49,12 +49,6 @@ _ALLOWED_RECOMMENDATIONS = {
     "deescalate",
     "notify_admins",
     "human_review",
-    "mute",
-    "tmute",
-    "ban",
-    "tban",
-    "kick",
-    "warn",
 }
 
 _INCIDENT_CATEGORIES = {
@@ -92,7 +86,7 @@ participant_ids (integer list), evidence (string), confidence (0 to 1),
 recommendation (stay_silent|deescalate|notify_admins|human_review|mute|tmute|
 ban|tban|kick|warn), rationale (string).
 
-The recommendation is advisory only. Do not claim that any action was taken.
+The recommendation is advisory only. Never issue or execute a moderation command. Use only stay_silent, deescalate, notify_admins, or human_review as the suggested next step. Do not claim that any action was taken.
 Only use IDs present in the supplied context. An accusation or report alone
 does not prove misconduct. Explain when the available context is insufficient.
 """
@@ -110,7 +104,7 @@ participant_ids (integer list), evidence (string), confidence (0 to 1),
 recommendation (stay_silent|deescalate|notify_admins|human_review|mute|tmute|
 ban|tban|kick|warn), rationale (string).
 
-This analysis is advisory only. Do not claim any moderation action was taken.
+This analysis is advisory only. Never issue or execute a moderation command. Use only stay_silent, deescalate, notify_admins, or human_review as the suggested next step. Do not claim any moderation action was taken.
 """
 
 
@@ -382,7 +376,7 @@ class AIEventRouter:
         context: ContextTypes.DEFAULT_TYPE,
         question: str,
     ) -> list[str]:
-        """Retrieve a small, SQL-filtered slice of the last 24 hours."""
+        """Retrieve only relevant messages from the group's last 30 days."""
         sessions = context.application.bot_data.get("sessions")
         if not sessions or not question.strip():
             return []
@@ -395,62 +389,71 @@ class AIEventRouter:
             "kisne", "kaha", "bola", "happened", "conversation", "search",
             "mein", "mere", "ke", "ki", "ka", "ko", "se", "par", "tha",
             "thi", "did", "say", "said", "write", "wrote", "everyone",
-            "anyone", "last", "yesterday", "today", "yesterday's",
+            "anyone", "last", "yesterday", "today", "yesterday's", "ne",
+            "ladai", "gaali", "gali", "kisko", "kab", "bata",
         }
-        question_lower = question.lower()
-        name_match = re.search(
-            r"\\b(?:what did|messages from|msg from|chat by|what was said by|"
-            r"did)\\s+@?([\\w.-]{2,})",
-            question_lower,
+        question_lower = question.casefold()
+        name_candidates = set(re.findall(r"@([\w.-]{2,})", question_lower))
+        name_patterns = (
+            r"\b(?:what did|messages from|msg from|chat by|what was said by|did|about)\s+@?([\w.-]{2,})",
+            r"\b([\w.-]{2,})\s+(?:ne|ki|ka|ke)\s+(?:kya|kis|kisko|kab|kuch|kaha|bola|gaali|ladai)",
         )
-        target_ids: list[int] = []
-        name_token = None
-        repository = GroupHistoryRepository(sessions)
-        try:
-            if name_match:
-                name_token = name_match.group(1)
-                target_ids = await repository.find_user_ids_by_name(
-                    chat_id=chat_id, name=name_token
-                )
+        for pattern in name_patterns:
+            for match in re.finditer(pattern, question_lower):
+                candidate = match.group(1).strip("._-@")
+                if candidate and candidate not in ignored:
+                    name_candidates.add(candidate)
 
-            terms = []
-            for word in re.findall(r"[\\w@.-]+", question_lower):
-                word = word.strip("._-@")
-                if (
-                    len(word) >= 3 and word not in ignored
-                    and word != name_token and word not in terms
-                ):
-                    terms.append(word)
+        repository = GroupHistoryRepository(sessions)
+        cutoff = datetime.now(UTC) - timedelta(days=30)
+        try:
+            target_ids: set[int] = set()
+            for candidate in name_candidates:
+                matches = await repository.find_user_ids_by_name(
+                    chat_id=chat_id, name=candidate
+                )
+                target_ids.update(matches)
 
             found: dict[tuple[int, int], dict[str, object]] = {}
-            # If a person was named, query only that person's rows. When the
-            # question is about a topic too, apply that topic as a SQL text filter.
-            user_filters = target_ids if target_ids else [None]
-            search_terms = terms[:4] or [""]
-            for user_filter in user_filters:
-                if target_ids and user_filter is None:
-                    continue
-                for term in search_terms:
+            if name_candidates:
+                # Person-specific questions never fall back to scanning the
+                # whole group. Only messages authored by the resolved person(s)
+                # are sent to the AI provider.
+                if not target_ids:
+                    return []
+                for target_id in target_ids:
+                    rows = await repository.search(
+                        chat_id=chat_id,
+                        user_id=target_id,
+                        since=cutoff,
+                        limit=30,
+                    )
+                    for row in rows:
+                        message_id = row.get("message_id")
+                        if isinstance(message_id, int) and row.get("chat_id") == chat_id:
+                            found[(chat_id, message_id)] = row
+            else:
+                # Group-wide questions are allowed only when no person was named.
+                terms = []
+                for word in re.findall(r"[\w@.-]+", question_lower):
+                    word = word.strip("._-@")
+                    if len(word) >= 3 and word not in ignored and word not in terms:
+                        terms.append(word)
+                for term in terms[:4] or [""]:
                     rows = await repository.search(
                         chat_id=chat_id,
                         query=term,
-                        user_id=user_filter,
-                        since=datetime.now(UTC) - timedelta(hours=24),
-                        limit=8,
+                        since=cutoff,
+                        limit=10,
                     )
                     for row in rows:
                         message_id = row.get("message_id")
                         if isinstance(message_id, int) and row.get("chat_id") == chat_id:
                             found[(chat_id, message_id)] = row
 
-            # If a named person couldn't be resolved, don't silently return
-            # unrelated messages as if they were that person's statements.
-            if name_match and not target_ids:
-                return []
-
             rows_sorted = sorted(
                 found.values(), key=lambda row: str(row.get("sent_at", "")), reverse=True
-            )[:20]
+            )[:30]
             return [
                 f"sent_at={row.get('sent_at', 'unknown')} "
                 f"message_id={row.get('message_id', 'unknown')} "
