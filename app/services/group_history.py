@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import BigInteger, Index, String, Text, delete, func, select
@@ -10,6 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.models import Base, UTCDateTime
+
+logger = logging.getLogger(__name__)
+HISTORY_RETENTION_DAYS = 30
 
 
 class GroupMessage(Base):
@@ -191,7 +197,7 @@ class GroupHistoryRepository:
             select(GroupMessage.user_id)
             .where(
                 GroupMessage.chat_id == chat_id,
-                GroupMessage.sent_at >= datetime.now(UTC) - timedelta(hours=24),
+                GroupMessage.sent_at >= datetime.now(UTC) - timedelta(days=HISTORY_RETENTION_DAYS),
                 (
                     GroupMessage.username.ilike(f"%{needle}%")
                     | GroupMessage.display_name.ilike(f"%{needle}%")
@@ -223,7 +229,7 @@ class GroupHistoryRepository:
     async def prune(
         self,
         *,
-        older_than_days: int = 90,
+        older_than_days: int = HISTORY_RETENTION_DAYS,
     ) -> int:
         """Delete archived messages older than the chosen retention period."""
 
@@ -237,3 +243,20 @@ class GroupHistoryRepository:
                 )
             )
             return max(0, result.rowcount or 0)
+
+
+async def group_history_retention_worker(application, stop_event: asyncio.Event) -> None:
+    """Prune group message history to the most recent 30 days."""
+    sessions = application.bot_data["sessions"]
+    repository = GroupHistoryRepository(sessions)
+    while not stop_event.is_set():
+        try:
+            deleted = await repository.prune(older_than_days=HISTORY_RETENTION_DAYS)
+            if deleted:
+                logger.info("Pruned %s group-history messages older than %s days", deleted, HISTORY_RETENTION_DAYS)
+        except Exception:
+            logger.exception("Group-history retention worker failed")
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=3600)
+        except TimeoutError:
+            continue
