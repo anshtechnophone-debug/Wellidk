@@ -85,14 +85,11 @@ class ActivityLogRepository:
             moderation_result = await session.execute(
                 delete(ModerationEvent).where(ModerationEvent.created_at < cutoff)
             )
-            from app.services.group_history import GroupMessage
-            message_result = await session.execute(
-                delete(GroupMessage).where(GroupMessage.sent_at < cutoff)
-            )
+            # GroupMessage has its own 30-day retention worker. Never delete it here.
             return {
                 "activity": max(0, activity_result.rowcount or 0),
                 "moderation": max(0, moderation_result.rowcount or 0),
-                "messages": max(0, message_result.rowcount or 0),
+                "messages": 0,
             }
 
     async def search(
@@ -151,7 +148,7 @@ class ActivityLogRepository:
 
 
 async def activity_retention_worker(application, stop_event: asyncio.Event) -> None:
-    """Expire temporary activity/message/moderation rows every five minutes."""
+    """Expire 24-hour activity and moderation rows; group messages are retained 30 days."""
     sessions = application.bot_data["sessions"]
     repository = ActivityLogRepository(sessions)
     # Prune immediately at startup so stale records do not linger after downtime.
