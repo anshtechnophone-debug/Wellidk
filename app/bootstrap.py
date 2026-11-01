@@ -382,7 +382,7 @@ async def plain_moderation_command(update: Update, context: ContextTypes.DEFAULT
 
 def _register_general(application: Application) -> None:
     for command, callback in (
-        ("admin", admin_command),\n        ("promote", promote_command),
+        ("admin", admin_command),\n        ("promote", promote_command),\n        ("promote", promote_command),
         ("smartgc", smartgc_command),
         ("unadmin", unadmin_command),
         ("botadminlist", botadminlist_command),
