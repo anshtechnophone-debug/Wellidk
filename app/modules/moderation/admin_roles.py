@@ -44,9 +44,9 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     if not context.args or context.args[0].casefold() not in {"l", "f"}:
         await message.reply_text(
-            "Reply to a member with /promote l or /promote f.\\n"
-            "l = limited admin (no member-removal permission).\\n"
-            "f = full admin (member-removal permission enabled).\\n"
+            "Reply to a member with /promote l or /promote f.\n"
+            "l = limited admin (no member-removal permission).\n"
+            "f = full admin (member-removal permission enabled).\n"
             "Neither mode can promote other admins or act anonymously."
         )
         return
@@ -167,7 +167,6 @@ async def mass_ban_restore_worker(application, stop_event: asyncio.Event) -> Non
                 suspensions = policy.get("xyron_ban_permission_suspensions", {})
                 if not isinstance(suspensions, dict) or not suspensions:
                     continue
-                promoted = policy.get("xyron_promoted_admins", {})
                 for actor_key, suspension in list(suspensions.items()):
                     if float(suspension.get("expires_at", 0)) > now:
                         continue
