@@ -83,8 +83,7 @@ harassment, spam, credible_threat, false_report, unclear.
 Return exactly one JSON object with:
 category, severity (low|medium|high), relevant_message_ids (integer list),
 participant_ids (integer list), evidence (string), confidence (0 to 1),
-recommendation (stay_silent|deescalate|notify_admins|human_review|mute|tmute|
-ban|tban|kick|warn), rationale (string).
+recommendation (stay_silent|deescalate|notify_admins|human_review), rationale (string).
 
 The recommendation is advisory only. Never issue or execute a moderation command. Use only stay_silent, deescalate, notify_admins, or human_review as the suggested next step. Do not claim that any action was taken.
 Only use IDs present in the supplied context. An accusation or report alone
@@ -787,7 +786,7 @@ class AIEventRouter:
                     + live_details
                 )
 
-            asks_past_history = bool(re.search(r"@[\\w.-]{2,}", raw_text)) or any(
+            asks_past_history = bool(re.search(r"@[\w.-]{2,}", raw_text)) or any(
                 term in question_lower
                 for term in (
                     "history", "old messages", "purane messages", "kisne kaha",
