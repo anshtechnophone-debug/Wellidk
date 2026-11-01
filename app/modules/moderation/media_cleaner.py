@@ -42,19 +42,22 @@ async def mediaclean_command(
         await message.reply_text("Use /mediaclean inside the group you want to configure.")
         return
 
-    try:
-        await require_admin_access(
-            update, context, context.application.bot_data["settings"], "can_delete_messages"
-        )
-    except AuthorizationError as exc:
-        await message.reply_text(str(exc))
-        return
-
     if len(context.args) != 1 or context.args[0].casefold() not in {"on", "off"}:
         await message.reply_text("Usage: /mediaclean on or /mediaclean off")
         return
 
     enabled = context.args[0].casefold() == "on"
+    try:
+        await require_admin_access(
+            update,
+            context,
+            context.application.bot_data["settings"],
+            "can_delete_messages" if enabled else None,
+        )
+    except AuthorizationError as exc:
+        await message.reply_text(str(exc))
+        return
+
     await GroupPolicyRepository(
         context.application.bot_data["sessions"]
     ).set_value(chat.id, "media_cleaner", {"enabled": enabled})
