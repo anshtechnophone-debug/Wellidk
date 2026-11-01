@@ -951,7 +951,7 @@ class AIEventRouter:
                 f"Category: {analysis['category']}\n"
                 f"Severity: {analysis['severity']}\n"
                 f"Confidence: {analysis['confidence']:.2f}\n"
-                f"Recommendation: {analysis['recommendation']}\n"
+                f"Suggested next step: {analysis['recommendation']}\n"
                 f"Evidence: {analysis['evidence'][:1200]}\n"
                 f"Reasoning: {analysis['rationale'][:800]}\n\n"
                 "Yeh recommendation hai, automatic action nahi. "
