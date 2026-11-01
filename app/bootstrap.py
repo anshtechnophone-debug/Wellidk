@@ -145,6 +145,7 @@ from app.modules.moderation.handlers import (
 from app.modules.moderation.admin_roles import mass_ban_protector, mass_ban_restore_worker, promote_command
 from app.modules.moderation.reaction_guard import reaction_guard_handler
 from app.modules.moderation.smart_gc import smartgc_abuse_guard, smartgc_command
+from app.modules.moderation.media_cleaner import delayed_media_delete_handler, mediaclean_command
 from app.modules.reminders.handlers import (
     cancelreminder_command,
     remind_command,
@@ -387,6 +388,7 @@ def _register_general(application: Application) -> None:
         ("admin", admin_command),
         ("promote", promote_command),
         ("smartgc", smartgc_command),
+        ("mediaclean", mediaclean_command),
         ("verification", verification_command),
         ("unadmin", unadmin_command),
         ("botadminlist", botadminlist_command),
@@ -578,6 +580,15 @@ def _register_general(application: Application) -> None:
             smartgc_abuse_guard,
         ),
         group=5,
+    )
+
+    # Schedule deletion for supported media types when this group enables it.
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS & filters.ALL,
+            delayed_media_delete_handler,
+        ),
+        group=6,
     )
 
     application.add_handler(
