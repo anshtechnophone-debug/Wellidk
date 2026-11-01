@@ -731,14 +731,8 @@ class AIEventRouter:
                 raw_text,
                 re.IGNORECASE,
             )
-            or re.search(r"\b[\w.-]{2,}\s+(?:aur|and|vs|versus)\s+[\w.-]{2,}\b", raw_text, re.IGNORECASE)
-        )
-        if person_specific_history:
-            rows = []
-        elif False:
-            rows = []
-        elif re.search(
-                r"\b[\w.-]{2,}\s+(?:ne|ki|ka|ke)\s+(?:kya|kis|kisko|kab|kuch|kaha|bola|gaali|ladai)",
+            or re.search(
+                r"\b[\w.-]{2,}\s+(?:aur|and|vs|versus)\s+[\w.-]{2,}\b",
                 raw_text,
                 re.IGNORECASE,
             )
