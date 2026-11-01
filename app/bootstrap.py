@@ -149,7 +149,7 @@ from app.modules.reminders.handlers import (
     remind_command,
     reminders_command,
 )
-from app.services.group_history import GroupHistoryRepository, GroupMessage
+from app.services.group_history import GroupHistoryRepository, GroupMessage, group_history_retention_worker
 from app.services.activity_log import ActivityEvent, ActivityLogRepository, activity_retention_worker
 from app.services.reminder_worker import reminder_worker
 from app.services.scheduling import expiration_worker
@@ -584,7 +584,7 @@ def _register_general(application: Application) -> None:
     )
     application.add_handler(
         MessageHandler(
-            filters.ALL & ~filters.COMMAND,
+            filters.ALL,
             collect_group_message,
         ),
         group=8,
@@ -685,6 +685,10 @@ async def _post_init(application: Application) -> None:
         "reminders": application.create_task(
             reminder_worker(application, stop_event),
             name="xyron-reminder-worker",
+        ),
+        "group_history_retention": application.create_task(
+            group_history_retention_worker(application, stop_event),
+            name="xyron-group-history-retention-worker",
         ),
         "activity_retention": application.create_task(
             activity_retention_worker(application, stop_event),
