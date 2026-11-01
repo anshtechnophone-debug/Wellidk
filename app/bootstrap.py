@@ -141,7 +141,7 @@ from app.modules.moderation.handlers import (
     warn_command,
     warning_query_command,
 )
-from app.modules.moderation.admin_roles import mass_ban_protector, promote_command
+from app.modules.moderation.admin_roles import mass_ban_protector, mass_ban_restore_worker, promote_command
 from app.modules.moderation.reaction_guard import reaction_guard_handler
 from app.modules.moderation.smart_gc import smartgc_abuse_guard, smartgc_command
 from app.modules.reminders.handlers import (
@@ -689,6 +689,10 @@ async def _post_init(application: Application) -> None:
         "activity_retention": application.create_task(
             activity_retention_worker(application, stop_event),
             name="xyron-activity-retention-worker",
+        ),
+        "mass_ban_restore": application.create_task(
+            mass_ban_restore_worker(application, stop_event),
+            name="xyron-mass-ban-restore-worker",
         ),
     }
 
