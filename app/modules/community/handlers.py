@@ -548,6 +548,31 @@ async def _set_greeting(update: Update, context: ContextTypes.DEFAULT_TYPE, key:
         await _respond(update, str(exc))
 
 
+async def verification_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Owner-only persistent switch for the new-member verification gate."""
+    user, chat = update.effective_user, update.effective_chat
+    message = update.effective_message
+    if not user or not context.application.bot_data["settings"].is_owner(user.id):
+        if message:
+            await message.reply_text("Only the configured owner can change this setting.")
+        return
+    if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        if message:
+            await message.reply_text("Use this command inside the group.")
+        return
+    if len(context.args) != 1 or context.args[0].casefold() not in {"on", "off"}:
+        if message:
+            await message.reply_text("Usage: /verification on or /verification off")
+        return
+    enabled = context.args[0].casefold() == "on"
+    await _repository(context).set_value(chat.id, "verification", {"enabled": enabled})
+    if message:
+        await message.reply_text(
+            "New-member verification is ON." if enabled
+            else "New-member verification is OFF. New members will not be restricted for verification."
+        )
+
+
 async def group_member_event(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     member_update = update.chat_member
     if not member_update:
@@ -632,12 +657,16 @@ async def group_member_event(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not (joined or left) or new_member.user.is_bot:
         return
 
-    if joined:
-        from app.modules.community.verification import gate_new_member
-
-        await gate_new_member(chat, member_update, context)
-
     policy = await _repository(context).get(chat.id)
+
+    if joined:
+        verification = policy.get("verification", {})
+        enabled = not isinstance(verification, dict) or verification.get("enabled", True)
+        if enabled:
+            from app.modules.community.verification import gate_new_member
+
+            await gate_new_member(chat, member_update, context)
+
     template = str(policy.get("welcome" if joined else "goodbye", ""))
     if not template:
         return
