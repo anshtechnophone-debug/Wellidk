@@ -179,7 +179,7 @@ async def mass_ban_restore_worker(application, stop_event: asyncio.Event) -> Non
                             rights["can_restrict_members"] = True
                             await application.bot.promote_chat_member(row.chat_id, actor_id, **rights)
                             label = await _user_label(
-                                type("Context", (), {"bot": application.bot})(),
+                                type("Context", (), {"application": application})(),
                                 row.chat_id,
                                 actor_id,
                             )
