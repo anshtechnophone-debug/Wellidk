@@ -141,7 +141,8 @@ from app.modules.moderation.handlers import (
     warn_command,
     warning_query_command,
 )
-from app.modules.moderation.admin_roles import mass_ban_protector, promote_command\nfrom app.modules.moderation.reaction_guard import reaction_guard_handler
+from app.modules.moderation.admin_roles import mass_ban_protector, promote_command
+from app.modules.moderation.reaction_guard import reaction_guard_handler
 from app.modules.moderation.smart_gc import smartgc_abuse_guard, smartgc_command
 from app.modules.reminders.handlers import (
     cancelreminder_command,
@@ -382,7 +383,8 @@ async def plain_moderation_command(update: Update, context: ContextTypes.DEFAULT
 
 def _register_general(application: Application) -> None:
     for command, callback in (
-        ("admin", admin_command),\n        ("promote", promote_command),\n        ("promote", promote_command),
+        ("admin", admin_command),
+        ("promote", promote_command),
         ("smartgc", smartgc_command),
         ("unadmin", unadmin_command),
         ("botadminlist", botadminlist_command),
@@ -608,6 +610,13 @@ def _register_general(application: Application) -> None:
     application.add_handler(
         MessageHandler(filters.ALL, process_group_message),
         group=9,
+    )
+    application.add_handler(
+        ChatMemberHandler(
+            mass_ban_protector,
+            ChatMemberHandler.CHAT_MEMBER,
+        ),
+        group=12,
     )
     application.add_handler(
         ChatMemberHandler(
