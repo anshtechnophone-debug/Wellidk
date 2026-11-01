@@ -14,7 +14,8 @@ from telegram import Chat, Update
 from telegram.ext import ContextTypes
 
 from app.modules.ai.assistant import OpenAICompatibleProvider
-from app.services.group_history import GroupMessage\n
+from app.services.group_history import GroupMessage
+
 
 IST = ZoneInfo("Asia/Kolkata")
 
