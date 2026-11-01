@@ -9,7 +9,6 @@ from telegram import Chat, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
-from app.config import Settings
 from app.core.permissions import AuthorizationError, require_admin_access
 from app.services.group_policy import GroupPolicyRepository
 
@@ -45,7 +44,7 @@ async def mediaclean_command(
 
     try:
         await require_admin_access(
-            update, context, context.application.bot_data["settings"], None
+            update, context, context.application.bot_data["settings"], "can_delete_messages"
         )
     except AuthorizationError as exc:
         await message.reply_text(str(exc))
