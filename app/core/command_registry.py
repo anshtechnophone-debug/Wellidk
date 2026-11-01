@@ -29,6 +29,7 @@ COMMANDS = (
     CommandInfo("admin", "Add a XYRON bot admin (owner only)", "/admin <numeric_user_id>", "Owner Tools", owner_only=True),
     CommandInfo("promote", "Promote a group member as a limited or full admin", "/promote <l|f> (reply to member)", "Admin Tools", owner_only=True),
     CommandInfo("smartgc", "Toggle Smart GC protection for this group", "/smartgc <on|off>", "Anti-Spam", owner_only=True),
+    CommandInfo("mediaclean", "Delete group media after three minutes", "/mediaclean <on|off>", "Message Management", True),
     CommandInfo("unadmin", "Remove a XYRON bot admin (owner only)", "/unadmin <numeric_user_id>", "Owner Tools", owner_only=True),
     CommandInfo("botadminlist", "List all bot admins in DM or only those present in the current group", "/botadminlist", "Owner Tools", owner_only=True),
     CommandInfo("pin", "Pin a replied-to message", "/pin (reply)", "Message Management", True),
