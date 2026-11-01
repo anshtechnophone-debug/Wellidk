@@ -236,6 +236,14 @@ async def handle_owner_memory_request(
         text,
     ))
 
+    asks_named_person = bool(re.search(
+        r"(?:what did|what has|tell me what|show me what).{1,80}(?:say|said|message|tell)|"
+        r"(?:messages?|chat|conversation)\\s+(?:by|from|of)\\s+@?[a-z0-9_]{3,32}|"
+        r"\\babout\\s+@[a-z0-9_]{3,32}\\b",
+        text,
+    ))
+    asks_summary = asks_summary or asks_named_person
+
     if not (asks_abuse or asks_activity or asks_summary):
         return False
 
