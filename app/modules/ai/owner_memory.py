@@ -238,8 +238,8 @@ async def handle_owner_memory_request(
 
     asks_named_person = bool(re.search(
         r"(?:what did|what has|tell me what|show me what).{1,80}(?:say|said|message|tell)|"
-        r"(?:messages?|chat|conversation)\\s+(?:by|from|of)\\s+@?[a-z0-9_]{3,32}|"
-        r"\\babout\\s+@[a-z0-9_]{3,32}\\b",
+        r"(?:messages?|chat|conversation)\s+(?:by|from|of)\s+@?[a-z0-9_]{3,32}|"
+        r"\babout\s+@[a-z0-9_]{3,32}\b",
         text,
     ))
     asks_summary = asks_summary or asks_named_person
@@ -355,7 +355,9 @@ async def handle_owner_memory_request(
         )
         return True
 
-    report_kind = "abuse question" if asks_abuse else "short conversational group summary"\n    if person_ids:\n        report_kind += " focused only on these named members: " + ", ".join(person_labels)
+    report_kind = "abuse question" if asks_abuse else "short conversational group summary"
+    if person_ids:
+        report_kind += " focused only on these named members: " + ", ".join(person_labels)
     report = await _ai_group_report(
         update, context, request, rows, hours, report_kind
     )
