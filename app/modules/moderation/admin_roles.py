@@ -1,12 +1,22 @@
-"""Owner-controlled Telegram group administrator promotion."""
+"""Owner-controlled Telegram group administrator promotion and mass-ban protection."""
 
-from telegram import Chat, ChatMember
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+
+from sqlalchemy import select
+from telegram import Chat, ChatMember, Update
 from telegram.error import TelegramError
+from telegram.ext import ContextTypes
 
 from app.core.permissions import AuthorizationError
+from app.database.models import GroupPolicy
 from app.modules.moderation.handlers import TargetError, _resolve_target, _user_label
 from app.services.group_policy import GroupPolicyRepository
 
+logger = logging.getLogger(__name__)
 
 RIGHTS = (
     "can_manage_chat", "can_delete_messages", "can_manage_video_chats",
@@ -16,8 +26,12 @@ RIGHTS = (
     "can_pin_messages", "can_manage_topics", "can_manage_direct_messages",
 )
 
+REMOVAL_WINDOW_SECONDS = 120
+REMOVAL_ALLOWED = 4
+BAN_PERMISSION_SUSPENSION_SECONDS = 3600
 
-async def promote_command(update, context):
+
+async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message, chat, actor = update.effective_message, update.effective_chat, update.effective_user
     settings = context.application.bot_data["settings"]
     if not message or not chat or not actor:
@@ -30,9 +44,9 @@ async def promote_command(update, context):
         return
     if not context.args or context.args[0].casefold() not in {"l", "f"}:
         await message.reply_text(
-            "Reply to a member with /promote l or /promote f.\n"
-            "l = limited admin (no member-removal permission).\n"
-            "f = full admin (member-removal permission enabled).\n"
+            "Reply to a member with /promote l or /promote f.\\n"
+            "l = limited admin (no member-removal permission).\\n"
+            "f = full admin (member-removal permission enabled).\\n"
             "Neither mode can promote other admins or act anonymously."
         )
         return
@@ -73,47 +87,44 @@ async def promote_command(update, context):
         await message.reply_text(f"Telegram could not promote that member: {exc}")
 
 
-import logging
-import time
-
-from telegram import ChatMember
-from telegram.error import TelegramError
-from telegram.ext import ContextTypes
-from telegram import Update
-
-logger = logging.getLogger(__name__)
-REMOVAL_WINDOW_SECONDS = 30
-REMOVAL_THRESHOLD = 20
-
-
 async def mass_ban_protector(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Watch XYRON-promoted admins for unusually rapid member removals."""
+    """Suspend ban permission after a fifth ban in any rolling two-minute window."""
     event = update.chat_member
     chat = update.effective_chat
-    if not event or not chat:
+    if not event or not chat or not event.from_user:
         return
     if getattr(event.new_chat_member, "status", None) != ChatMember.BANNED:
         return
 
     policies = GroupPolicyRepository(context.application.bot_data["sessions"])
     policy = await policies.get(chat.id)
-    promoted = policy.get("xyron_promoted_admins", {})
     actor_id = event.from_user.id
-    if not isinstance(promoted, dict) or str(actor_id) not in promoted:
+    actor_key = str(actor_id)
+    promoted = policy.get("xyron_promoted_admins", {})
+    if not isinstance(promoted, dict) or actor_key not in promoted:
+        return
+    if promoted[actor_key].get("mode") != "f":
         return
 
     now = time.time()
     histories = policy.get("xyron_removal_events", {})
     histories = dict(histories) if isinstance(histories, dict) else {}
     recent = [
-        float(stamp)
-        for stamp in histories.get(str(actor_id), [])
+        float(stamp) for stamp in histories.get(actor_key, [])
         if now - float(stamp) <= REMOVAL_WINDOW_SECONDS
     ]
     recent.append(now)
-    histories[str(actor_id)] = recent
-    await policies.set_value(chat.id, "xyron_removal_events", histories)
-    if len(recent) < REMOVAL_THRESHOLD:
+    histories[actor_key] = recent
+
+    suspensions = policy.get("xyron_ban_permission_suspensions", {})
+    suspensions = dict(suspensions) if isinstance(suspensions, dict) else {}
+    active = suspensions.get(actor_key)
+    if active and float(active.get("expires_at", 0)) > now:
+        await policies.set_value(chat.id, "xyron_removal_events", histories)
+        return
+
+    if len(recent) <= REMOVAL_ALLOWED:
+        await policies.set_value(chat.id, "xyron_removal_events", histories)
         return
 
     try:
@@ -121,17 +132,75 @@ async def mass_ban_protector(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if current.status != ChatMember.ADMINISTRATOR:
             return
         rights = {name: bool(getattr(current, name, False)) for name in RIGHTS}
+        if not rights["can_restrict_members"]:
+            return
         rights["can_restrict_members"] = False
         await context.bot.promote_chat_member(chat.id, actor_id, **rights)
-        histories[str(actor_id)] = []
+        suspensions[actor_key] = {
+            "expires_at": now + BAN_PERMISSION_SUSPENSION_SECONDS,
+            "restore_can_restrict_members": True,
+        }
+        histories[actor_key] = []
         await policies.set_value(chat.id, "xyron_removal_events", histories)
+        await policies.set_value(chat.id, "xyron_ban_permission_suspensions", suspensions)
         label = await _user_label(context, chat.id, actor_id)
         await context.bot.send_message(
             chat.id,
-            "Hey?? " + label
-            + " my master said dont let anyone do mass banning.. "
-            + "I think you should take a break..",
+            f"⛔ {label} exceeded 4 bans in 2 minutes. "
+            "Ban permission has been paused for 1 hour and will then be restored.",
             parse_mode="HTML",
         )
     except TelegramError:
-        logger.exception("Could not adjust XYRON-promoted administrator rights")
+        logger.exception("Could not suspend ban permission for admin %s in %s", actor_id, chat.id)
+
+
+async def mass_ban_restore_worker(application, stop_event: asyncio.Event) -> None:
+    """Restore timed-out ban permissions, including after a bot restart."""
+    sessions = application.bot_data["sessions"]
+    while not stop_event.is_set():
+        try:
+            async with sessions() as session:
+                rows = (await session.scalars(select(GroupPolicy))).all()
+            now = time.time()
+            for row in rows:
+                policy = row.policy or {}
+                suspensions = policy.get("xyron_ban_permission_suspensions", {})
+                if not isinstance(suspensions, dict) or not suspensions:
+                    continue
+                promoted = policy.get("xyron_promoted_admins", {})
+                for actor_key, suspension in list(suspensions.items()):
+                    if float(suspension.get("expires_at", 0)) > now:
+                        continue
+                    actor_id = int(actor_key)
+                    try:
+                        member = await application.bot.get_chat_member(row.chat_id, actor_id)
+                        if member.status == ChatMember.ADMINISTRATOR:
+                            rights = {name: bool(getattr(member, name, False)) for name in RIGHTS}
+                            rights["can_restrict_members"] = True
+                            await application.bot.promote_chat_member(row.chat_id, actor_id, **rights)
+                            label = await _user_label(
+                                type("Context", (), {"bot": application.bot})(),
+                                row.chat_id,
+                                actor_id,
+                            )
+                            await application.bot.send_message(
+                                row.chat_id,
+                                f"✅ Ban permission restored for {label}.",
+                                parse_mode="HTML",
+                            )
+                    except TelegramError:
+                        logger.exception(
+                            "Could not restore ban permission for admin %s in %s",
+                            actor_id, row.chat_id,
+                        )
+                        continue
+                    suspensions.pop(actor_key, None)
+                    await GroupPolicyRepository(sessions).set_value(
+                        row.chat_id, "xyron_ban_permission_suspensions", suspensions
+                    )
+        except Exception:
+            logger.exception("Mass-ban permission restoration worker failed")
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=10)
+        except TimeoutError:
+            continue
