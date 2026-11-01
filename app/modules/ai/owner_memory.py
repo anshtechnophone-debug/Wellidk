@@ -51,7 +51,7 @@ DEFAULT STYLE:
 
 
 def _normalize_person_name(value: str) -> str:
-    return " ".join(re.sub(r"[^\\w@]+", " ", value.casefold()).split())
+    return " ".join(re.sub(r"[^\w@]+", " ", value.casefold()).split())
 
 
 async def _mentioned_history_user_ids(
@@ -76,33 +76,50 @@ async def _mentioned_history_user_ids(
         )).all()
 
     normalized_request = _normalize_person_name(request)
-    numeric_ids = {int(value) for value in re.findall(r"(?<!\\d)[1-9]\\d{4,19}(?!\\d)", request)}
-    matched: dict[int, str] = {int(user_id): (display_name or ("@" + username if username else str(user_id)))\n                               for user_id, username, display_name in identities\n                               if int(user_id) in numeric_ids}
+    numeric_ids = {
+        int(value)
+        for value in re.findall(r"(?<!\d)[1-9]\d{4,19}(?!\d)", request)
+    }
+    matched: dict[int, str] = {
+        int(user_id): (
+            display_name or ("@" + username if username else str(user_id))
+        )
+        for user_id, username, display_name in identities
+        if int(user_id) in numeric_ids
+    }
     for user_id, username, display_name in identities:
         candidates = []
         if username:
             candidates.append("@" + username.casefold())
         if display_name:
-            normalized_display = _normalize_person_name(display_name)\n            candidates.append(normalized_display)\n            first_name = normalized_display.split(" ", 1)[0]\n            if len(first_name) >= 3:\n                candidates.append(first_name)
+            normalized_display = _normalize_person_name(display_name)
+            candidates.append(normalized_display)
+            first_name = normalized_display.split(" ", 1)[0]
+            if len(first_name) >= 3:
+                candidates.append(first_name)
         for candidate in candidates:
             if not candidate:
                 continue
             if candidate.startswith("@"):
                 found = bool(re.search(
-                    r"(?<![\\w])" + re.escape(candidate) + r"(?![\\w])",
+                    r"(?<![\w])" + re.escape(candidate) + r"(?![\w])",
                     request.casefold(),
                 ))
             else:
                 found = bool(re.search(
-                    r"(?<![\\w])" + re.escape(candidate) + r"(?![\\w])",
+                    r"(?<![\w])" + re.escape(candidate) + r"(?![\w])",
                     normalized_request,
                 ))
             if found:
-                matched[int(user_id)] = display_name or ("@" + username if username else str(user_id))
+                matched[int(user_id)] = (
+                    display_name or ("@" + username if username else str(user_id))
+                )
                 break
     labels = list(dict.fromkeys(matched.values()))
     return list(matched), labels
-\n\ndef _owner(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+
+
+def _owner(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user = update.effective_user
     settings = context.application.bot_data.get("settings")
     return bool(user and settings and settings.is_owner(user.id))
@@ -301,7 +318,16 @@ async def handle_owner_memory_request(
     # If the owner names one or more members, filter in SQL BEFORE any
     # message text is sent to the AI provider. Unnamed group-wide questions
     # continue to use the requested time window across the group.
-    person_ids, person_labels = await _mentioned_history_user_ids(\n        sessions, chat.id, request\n    )\n    if person_ids and not (morning or last_night or yesterday):\n        # Named-member questions default to the full retained 30-day archive.\n        start = now - timedelta(days=30)\n        end = now\n        hours = 24 * 30\n        window_label = "the last 30 days"\n    async with sessions() as session:
+    person_ids, person_labels = await _mentioned_history_user_ids(
+        sessions, chat.id, request
+    )
+    if person_ids and not (morning or last_night or yesterday):
+        # Named-member questions default to the full retained 30-day archive.
+        start = now - timedelta(days=30)
+        end = now
+        hours = 24 * 30
+        window_label = "the last 30 days"
+    async with sessions() as session:
         statement = select(GroupMessage).where(
             GroupMessage.chat_id == chat.id,
             GroupMessage.sent_at >= start,
