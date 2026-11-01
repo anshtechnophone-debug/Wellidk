@@ -122,7 +122,6 @@ async def mass_ban_protector(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         rights = {name: bool(getattr(current, name, False)) for name in RIGHTS}
         rights["can_restrict_members"] = False
-        rights["can_promote_members"] = False
         await context.bot.promote_chat_member(chat.id, actor_id, **rights)
         histories[str(actor_id)] = []
         await policies.set_value(chat.id, "xyron_removal_events", histories)
