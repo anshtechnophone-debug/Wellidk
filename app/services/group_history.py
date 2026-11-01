@@ -199,8 +199,9 @@ class GroupHistoryRepository:
                 GroupMessage.chat_id == chat_id,
                 GroupMessage.sent_at >= datetime.now(UTC) - timedelta(days=HISTORY_RETENTION_DAYS),
                 (
-                    GroupMessage.username.ilike(f"%{needle}%")
-                    | GroupMessage.display_name.ilike(f"%{needle}%")
+                    GroupMessage.username.ilike(needle)
+                    | GroupMessage.display_name.ilike(needle)
+                    | GroupMessage.display_name.ilike(f"{needle}%")
                 ),
             )
             .group_by(GroupMessage.user_id)
