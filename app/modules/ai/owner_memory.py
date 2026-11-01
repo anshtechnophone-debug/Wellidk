@@ -76,13 +76,14 @@ async def _mentioned_history_user_ids(
         )).all()
 
     normalized_request = _normalize_person_name(request)
-    matched: dict[int, str] = {}
+    numeric_ids = {int(value) for value in re.findall(r"(?<!\\d)[1-9]\\d{4,19}(?!\\d)", request)}
+    matched: dict[int, str] = {int(user_id): (display_name or ("@" + username if username else str(user_id)))\n                               for user_id, username, display_name in identities\n                               if int(user_id) in numeric_ids}
     for user_id, username, display_name in identities:
         candidates = []
         if username:
             candidates.append("@" + username.casefold())
         if display_name:
-            candidates.append(_normalize_person_name(display_name))
+            normalized_display = _normalize_person_name(display_name)\n            candidates.append(normalized_display)\n            first_name = normalized_display.split(" ", 1)[0]\n            if len(first_name) >= 3:\n                candidates.append(first_name)
         for candidate in candidates:
             if not candidate:
                 continue
@@ -300,10 +301,7 @@ async def handle_owner_memory_request(
     # If the owner names one or more members, filter in SQL BEFORE any
     # message text is sent to the AI provider. Unnamed group-wide questions
     # continue to use the requested time window across the group.
-    person_ids, person_labels = await _mentioned_history_user_ids(
-        sessions, chat.id, request
-    )
-    async with sessions() as session:
+    person_ids, person_labels = await _mentioned_history_user_ids(\n        sessions, chat.id, request\n    )\n    if person_ids and not (morning or last_night or yesterday):\n        # Named-member questions default to the full retained 30-day archive.\n        start = now - timedelta(days=30)\n        end = now\n        hours = 24 * 30\n        window_label = "the last 30 days"\n    async with sessions() as session:
         statement = select(GroupMessage).where(
             GroupMessage.chat_id == chat.id,
             GroupMessage.sent_at >= start,
@@ -313,7 +311,7 @@ async def handle_owner_memory_request(
             statement = statement.where(GroupMessage.user_id.in_(person_ids))
         rows = (await session.scalars(
             statement.order_by(GroupMessage.sent_at.desc())
-            .limit(80 if asks_abuse else 60)
+            .limit(100 if person_ids else (80 if asks_abuse else 60))
         )).all()
 
     if not rows:
