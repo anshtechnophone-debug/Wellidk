@@ -787,7 +787,7 @@ class AIEventRouter:
                     + live_details
                 )
 
-            asks_past_history = any(
+            asks_past_history = bool(re.search(r"@[\\w.-]{2,}", raw_text)) or any(
                 term in question_lower
                 for term in (
                     "history", "old messages", "purane messages", "kisne kaha",
@@ -795,6 +795,7 @@ class AIEventRouter:
                     "chat history", "messages search", "message search", "pehle kya",
                     "pehle kisne", "kab bola", "what did", "what was said",
                     "who said", "who wrote", "who muted", "who was muted",
+                    "kya bola", "ne kya", "ki ladai", "gaali di", "gali di", "said to",
                     "who got banned", "who banned", "who kicked", "last ban",
                     "last kick", "last unmute", "last unban", "modlog",
                 )
