@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
-import math
+import unicodedata
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from telegram import Update
@@ -18,10 +18,20 @@ MARGIN = 34
 ACCENTS = ((132, 156, 255), (240, 174, 112), (111, 214, 173))
 
 
+def _plain_unicode(value: str) -> str:
+    """Convert decorative mathematical/styled Unicode letters to normal text."""
+    return unicodedata.normalize("NFKC", value).strip()
+
+
 def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    filename = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+    liberation = "LiberationSans-Bold.ttf" if bold else "LiberationSans-Regular.ttf"
+    noto = "NotoSans-Bold.ttf" if bold else "NotoSans-Regular.ttf"
     candidates = (
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        f"/usr/share/fonts/truetype/dejavu/{filename}",
+        f"/usr/share/fonts/truetype/liberation2/{liberation}",
+        f"/usr/share/fonts/truetype/noto/{noto}",
+        f"/usr/share/fonts/opentype/noto/{noto}",
     )
     for path in candidates:
         try:
@@ -75,10 +85,11 @@ def _render_sticker(
     draw = ImageDraw.Draw(image)
     accent = ACCENTS[theme_index % len(ACCENTS)]
 
-    # Keep stickers readable on both light and dark Telegram chat backgrounds.
     shadow = (0, 0, 0, 235)
-    quote = " ".join((quote or "[Empty message]").split())[:520]
+    quote = _plain_unicode(" ".join((quote or "[Empty message]").split()))[:520]
     quote = quote or "[Empty message]"
+    author = _plain_unicode(author) or "Unknown user"
+    username = _plain_unicode(username) if username else None
 
     chosen_font = _font(39, bold=True)
     lines = _wrap(draw, quote, chosen_font, SIZE - 2 * MARGIN - 18)
@@ -100,7 +111,6 @@ def _render_sticker(
     total_height = quote_height + 24 + footer_height
     y = max(24, (SIZE - total_height) // 2)
 
-    # A small opening quote mark gives the sticker a clear quote identity.
     draw.text(
         (MARGIN - 2, y - 20), "“",
         font=_font(82, bold=True), fill=accent + (255,),
@@ -135,7 +145,6 @@ def _render_sticker(
             stroke_width=3, stroke_fill=shadow,
         )
 
-    # Telegram static stickers must have one side exactly 512px or less.
     output = io.BytesIO()
     output.name = "xyron_quote.webp"
     image.save(output, format="WEBP", lossless=True, method=6)
