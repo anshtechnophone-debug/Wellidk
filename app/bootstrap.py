@@ -81,6 +81,7 @@ from app.modules.community.message_tools import (
     userinfo_command,
 )
 from app.modules.games.anagram_handlers import anagram_command, anagramanswer_command
+from app.modules.quote_generator import quote_command
 from app.modules.games.board_handlers import (
     rps_command,
     tictactoe_command,
@@ -394,6 +395,7 @@ def _register_general(application: Application) -> None:
         ("botadminlist", botadminlist_command),
         ("pin", pin_command),
         ("start", start_command),
+        ("q", quote_command),
         ("help", help_command),
         ("about", about_command),
         ("ping", ping_command),
