@@ -106,7 +106,7 @@ from app.modules.games.chain_handlers import (
     wordchain_command,
     wordchaincancel_command,
 )
-from app.modules.games.family_handlers import (
+from app.modules.games.family_handlers import (, familyreset_command, familyreset_callback
     family_relationship_command,
     family_command,
     familytree_command,
@@ -518,6 +518,7 @@ def _register_general(application: Application) -> None:
         ("familyrank", familyrank_command),
         ("familytop", familytop_command),
         ("familyhelp", familyhelp_command),
+        ("familyreset", familyreset_command),
     ):
         application.add_handler(CommandHandler(command, callback))
 
@@ -593,6 +594,7 @@ def _register_general(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(wordrank_callback, pattern=r"^wr:(?:p|s|l):"), group=0)
     application.add_handler(CallbackQueryHandler(family_request_callback, pattern=r"^famreq:[ad]:[0-9]+$"), group=0)
     application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
+    application.add_handler(CallbackQueryHandler(familyreset_callback, pattern=r"^famreset:(?:confirm|cancel):[0-9]+$"), group=0)
     application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
 
     # WordSeek accepts ordinary text guesses only while that user has an active game.
