@@ -59,14 +59,14 @@ class FamilyRepository:
                                 FamilyRelationship.relation == parent_type,
                             ))
                             if existing_parent:
-                                raise FamilyError(f"That user already has a {parent_type}: {existing_parent.related_user_id}. This relationship cannot be changed.")
+                                raise FamilyError(f"That user already has a {parent_type}: <a href=\"tg://user?id={existing_parent.related_user_id}\">view profile</a>. This relationship cannot be changed.")
                         else:
                             existing_parent = await session.scalar(select(FamilyRelationship).where(
                                 FamilyRelationship.user_id == actor_id,
                                 FamilyRelationship.relation == actor_relation,
                             ))
                             if existing_parent:
-                                raise FamilyError(f"You already have a {actor_relation}: {existing_parent.related_user_id}. It cannot be changed.")
+                                raise FamilyError(f"You already have a {actor_relation}: <a href=\"tg://user?id={existing_parent.related_user_id}\">view profile</a>. It cannot be changed.")
                         session.add_all([
                             FamilyRelationship(user_id=actor_id, related_user_id=target_id, relation=actor_relation, created_at=now),
                             FamilyRelationship(user_id=target_id, related_user_id=actor_id, relation=reverse_relation, created_at=now),
