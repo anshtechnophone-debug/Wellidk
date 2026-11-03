@@ -111,6 +111,10 @@ from app.modules.games.handlers import (
     wordcancel_command,
     wordrank_command,
     wordseek_command,
+    new4_command,
+    new5_command,
+    new6_command,
+    wordseek_text_handler,
 )
 from app.modules.games.question_handlers import (
     mathanswer_command,
@@ -425,6 +429,9 @@ def _register_general(application: Application) -> None:
         ("mutelist", mutelist_command),
         ("kickme", kickme_command),
         ("wordseek", wordseek_command),
+        ("new4", new4_command),
+        ("new5", new5_command),
+        ("new6", new6_command),
         ("guess", guess_command),
         ("wordcancel", wordcancel_command),
         ("wordrank", wordrank_command),
@@ -554,6 +561,15 @@ def _register_general(application: Application) -> None:
         group=0,
     )
     application.add_handler(CallbackQueryHandler(quote_vote_callback, pattern=r"^qv:\d+:(?:up|down)$"), group=0)
+
+    # WordSeek accepts ordinary text guesses only while that user has an active game.
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND,
+            wordseek_text_handler,
+        ),
+        group=-3,
+    )
 
     # Match saved group quotes against later conversational messages.
     application.add_handler(

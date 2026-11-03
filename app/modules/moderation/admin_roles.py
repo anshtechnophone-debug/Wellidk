@@ -42,19 +42,23 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not settings.is_owner(actor.id):
         await message.reply_text("Only the configured XYRON owner can promote group admins.")
         return
-    if not context.args or context.args[0].casefold() not in {"l", "f"}:
+    if not context.args:
         await message.reply_text(
-            "Reply to a member with /promote l or /promote f.\n"
-            "l = limited admin (no member-removal permission).\n"
-            "f = full admin (member-removal permission enabled).\n"
-            "Neither mode can promote other admins or act anonymously."
+            "Usage: /promote @username [l|f] (numeric ID or reply also supported). "
+            "Default: l = limited admin; use f for full admin."
         )
         return
-    mode = context.args[0].casefold()
     try:
-        target_id, rest = await _resolve_target(update, context, context.args[1:], allow_name=True)
+        # Accept /promote @username [l|f] and legacy /promote l|f @username.
+        args = list(context.args)
+        mode = "l"
+        if args[0].casefold() in {"l", "f"}:
+            mode = args.pop(0).casefold()
+        elif len(args) > 1 and args[-1].casefold() in {"l", "f"}:
+            mode = args.pop().casefold()
+        target_id, rest = await _resolve_target(update, context, args, allow_name=True)
         if rest:
-            raise TargetError("Usage: /promote l or /promote f")
+            raise TargetError("Usage: /promote @username [l|f]")
         bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
         if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
             raise AuthorizationError("XYRON must be a group administrator.")

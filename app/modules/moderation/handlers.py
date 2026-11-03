@@ -9,7 +9,7 @@ import unicodedata
 from difflib import SequenceMatcher
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from telegram import Chat, ChatMember, ChatPermissions, Update
 from telegram.error import BadRequest, Forbidden, TelegramError
 from telegram.ext import ContextTypes
@@ -163,7 +163,7 @@ async def _resolve_name_target(
         )
     raise TargetError(
         "I couldn't match that name to anyone XYRON has seen in this group. "
-        "Try @username, numeric ID, or reply to their message."
+        "Try @username or reply to their message."
     )
 
 
@@ -196,18 +196,18 @@ async def _resolve_target(
                     KnownUser.username == value[1:].casefold(),
                 )
             )
-            history_user_id = await session.scalar(
-                select(GroupMessage.user_id)
-                .where(
+            history_ids = set((await session.scalars(
+                select(GroupMessage.user_id).where(
                     GroupMessage.chat_id == chat.id,
-                    GroupMessage.username == value[1:],
-                )
-                .limit(1)
-            )
+                    func.lower(GroupMessage.username) == value[1:].casefold(),
+                ).distinct()
+            )).all())
         if known:
             return known.user_id, args[1:]
-        if history_user_id:
-            return history_user_id, args[1:]
+        if len(history_ids) == 1:
+            return history_ids.pop(), args[1:]
+        if len(history_ids) > 1:
+            raise TargetError("That username matches multiple saved users. Reply to the correct member's message.")
         if allow_name:
             return await _resolve_name_target(context, chat.id, value), args[1:]
         raise TargetError(
@@ -216,7 +216,7 @@ async def _resolve_target(
         )
     if allow_name:
         return await _resolve_name_target(context, chat.id, " ".join(args)), []
-    raise TargetError("Use a username or numeric ID, or reply to the user's message.")
+    raise TargetError("Use @username or reply to the user's message. Numeric IDs are also supported.")
 
 
 def _permissions_dict(permissions: ChatPermissions | None) -> dict[str, bool] | None:

@@ -2,7 +2,7 @@
 from __future__ import annotations
 import html
 from datetime import UTC, datetime
-from sqlalchemy import select
+from sqlalchemy import func, select
 from telegram import Chat
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
@@ -49,6 +49,29 @@ async def _user_label(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> str:
     name = html.escape(display_name or "Telegram user")
     return f'<a href="tg://user?id={user_id}">{name}</a>'
 
+
+async def _resolve_bot_admin_target(context, value: str) -> int:
+    """Resolve a username using records XYRON has observed across its groups."""
+    username = value.strip().lstrip("@").casefold()
+    if not username:
+        raise ValueError("Provide @username or a numeric Telegram ID.")
+    async with context.application.bot_data["sessions"]() as session:
+        known_ids = set((await session.scalars(
+            select(KnownUser.user_id).where(func.lower(KnownUser.username) == username).distinct()
+        )).all())
+        history_ids = set((await session.scalars(
+            select(GroupMessage.user_id).where(func.lower(GroupMessage.username) == username).distinct()
+        )).all())
+    matches = known_ids | history_ids
+    if len(matches) == 1:
+        return matches.pop()
+    if len(matches) > 1:
+        raise ValueError("That username matches multiple saved accounts. Use a numeric ID.")
+    raise ValueError(
+        "XYRON has not seen that username yet. Ask the user to send a message in a group with XYRON, "
+        "then retry with @username. Numeric IDs are also supported."
+    )
+
 async def notify_bot_admin(context: ContextTypes.DEFAULT_TYPE, target_id: int) -> tuple[bool, str | None]:
     """DM a newly added bot admin, or return a deep link they can open themselves."""
     try:
@@ -84,9 +107,14 @@ async def admin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings: Settings = context.application.bot_data["settings"]
     if not user or not settings.is_owner(user.id) or not chat or chat.type != Chat.PRIVATE:
         await _reply(update, "Only the owner can manage bot admins, in DM."); return
-    if len(context.args) != 1 or not context.args[0].isdecimal() or int(context.args[0]) <= 0:
-        await _reply(update, "Usage: /admin <numeric_user_id>"); return
-    target_id = int(context.args[0])
+    if len(context.args) != 1:
+        await _reply(update, "Usage: /admin @username (numeric Telegram ID also supported)"); return
+    try:
+        target_id = int(context.args[0]) if context.args[0].isdecimal() else await _resolve_bot_admin_target(context, context.args[0])
+        if target_id <= 0:
+            raise ValueError("Provide a valid @username or numeric Telegram ID.")
+    except ValueError as exc:
+        await _reply(update, str(exc)); return
     if settings.is_owner(target_id):
         await _reply(update, "You are already the owner."); return
     async with context.application.bot_data["sessions"].begin() as session:
@@ -123,9 +151,14 @@ async def unadmin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings: Settings = context.application.bot_data["settings"]
     if not user or user.id != settings.owner_id or not chat or chat.type != Chat.PRIVATE:
         await _reply(update, "Only the owner can manage bot admins, in DM."); return
-    if len(context.args) != 1 or not context.args[0].isdecimal():
-        await _reply(update, "Usage: /unadmin <numeric_user_id>"); return
-    target_id = int(context.args[0])
+    if len(context.args) != 1:
+        await _reply(update, "Usage: /unadmin @username (numeric Telegram ID also supported)"); return
+    try:
+        target_id = int(context.args[0]) if context.args[0].isdecimal() else await _resolve_bot_admin_target(context, context.args[0])
+        if target_id <= 0:
+            raise ValueError("Provide a valid @username or numeric Telegram ID.")
+    except ValueError as exc:
+        await _reply(update, str(exc)); return
     async with context.application.bot_data["sessions"].begin() as session:
         existing = await session.get(BotAdmin, target_id)
         if not existing:
@@ -193,10 +226,23 @@ async def demote_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     target_message = message.reply_to_message
     target = target_message.from_user if target_message else None
-    if not target:
-        await _reply(update, "Reply directly to the user's message, then send: demote")
+    try:
+        if target:
+            target_id = target.id
+        elif len(context.args) == 1:
+            target_id = (
+                int(context.args[0]) if context.args[0].isdecimal()
+                else await _resolve_bot_admin_target(context, context.args[0])
+            )
+        else:
+            raise ValueError(
+                "Usage: /demote @username (or reply to their message; numeric ID also works)."
+            )
+    except ValueError as exc:
+        await _reply(update, str(exc))
         return
-    if settings.is_owner(target.id):
+
+    if settings.is_owner(target_id):
         await _reply(update, "The configured owner cannot be demoted.")
         return
 
