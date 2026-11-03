@@ -321,9 +321,8 @@ async def familyreset_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     ])
     await message.reply_text(
         "⚠️ <b>Reset all Family data?</b>\\n\\n"
-        "This permanently deletes every Family relationship and all Family requests, "
-        "including pending, accepted, declined and expired requests.\\n\\n"
-        "Users, groups, moderation records, other games and settings will not be changed.",
+        "This deletes only Family relationship records (parents, children, siblings, friends and spouses).\\n\\n"
+        "Family requests, users, groups, bot admins, commands, moderation records, other games and settings will remain untouched.",
         parse_mode="HTML", reply_markup=keyboard,
     )
 
@@ -351,12 +350,11 @@ async def familyreset_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer("Reset cancelled.")
         await query.edit_message_text("Family reset cancelled. No data was changed.")
         return
-    relationships, requests = await _repo(context).reset_all()
-    await query.answer("Family data reset.")
+    relationships = await _repo(context).reset_relationships()
+    await query.answer("Family relationships reset.")
     await query.edit_message_text(
-        "✅ <b>Family data reset complete.</b>\\n\\n"
-        f"Relationships deleted: <b>{relationships}</b>\\n"
-        f"Requests deleted: <b>{requests}</b>\\n\\n"
-        "All other XYRON data remains untouched.",
+        "✅ <b>Family relationship reset complete.</b>\\n\\n"
+        f"Relationships deleted: <b>{relationships}</b>\\n\\n"
+        "Family requests and all other XYRON data remain untouched.",
         parse_mode="HTML",
     )
