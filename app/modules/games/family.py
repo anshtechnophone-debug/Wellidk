@@ -51,10 +51,6 @@ class FamilyRepository:
                     if command in mapping:
                         actor_relation, reverse_relation = mapping[command]
                         if actor_relation in {"son", "daughter"}:
-                            existing = await session.scalar(select(FamilyRelationship).where(
-                                FamilyRelationship.user_id == actor_id,
-                                FamilyRelationship.relation.in_([actor_relation, "son" if actor_relation == "daughter" else "daughter"])
-                            ))
                             # The parent command creates the actor's child edge; this check is
                             # performed on the target, who may have only one parent of each type.
                             parent_type = "father" if actor_relation == "son" else "mother"
@@ -103,7 +99,7 @@ class FamilyRepository:
     async def profile(self, user_id: int):
         async with self.sessions() as session:
             edges = await self._edges(session, user_id)
-            count = len(edges)
+            count = len([edge for edge in edges if edge.relation != "sibling"])
             level, title = 0, "Newborn"
             for index, (threshold, name) in enumerate(LEVELS, 1):
                 if count >= threshold:
@@ -118,7 +114,13 @@ class FamilyRepository:
                 next_ids = set(linked) - siblings
                 siblings.update(next_ids)
                 frontier = list(next_ids)
-            return edges, count, level, title, sorted(siblings - {user_id})
+            sibling_ids = sorted(siblings - {user_id})
+            count += len(sibling_ids)
+            level, title = 0, "Newborn"
+            for index, (threshold, name) in enumerate(LEVELS, 1):
+                if count >= threshold:
+                    level, title = index, name
+            return edges, count, level, title, sibling_ids
 
     async def leaderboard(self, limit: int = 10):
         async with self.sessions() as session:
