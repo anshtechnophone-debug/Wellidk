@@ -27,11 +27,11 @@ COMMANDS = (
     CommandInfo("daily", "Show the top 10 group chatters today", "/daily", "Leaderboards"),
     CommandInfo("health", "Check database and background workers", "/health", "General"),
     CommandInfo("id", "Show Telegram IDs", "/id [reply]", "User Tools"),
-    CommandInfo("admin", "Add a XYRON bot admin (owner only)", "/admin <numeric_user_id>", "Owner Tools", owner_only=True),
-    CommandInfo("promote", "Promote a group member as a limited or full admin", "/promote <l|f> (reply to member)", "Admin Tools", owner_only=True),
+    CommandInfo("admin", "Add a XYRON bot admin (owner only)", "/admin @username (numeric ID also supported)", "Owner Tools", owner_only=True),
+    CommandInfo("promote", "Promote a group member as a limited or full admin", "/promote @username [l|f] (numeric ID or reply also supported)", "Admin Tools", owner_only=True),
     CommandInfo("smartgc", "Toggle Smart GC protection for this group", "/smartgc <on|off>", "Anti-Spam", owner_only=True),
     CommandInfo("mediaclean", "Delete group media after three minutes", "/mediaclean <on|off>", "Message Management", True),
-    CommandInfo("unadmin", "Remove a XYRON bot admin (owner only)", "/unadmin <numeric_user_id>", "Owner Tools", owner_only=True),
+    CommandInfo("unadmin", "Remove a XYRON bot admin (owner only)", "/unadmin @username (numeric ID also supported)", "Owner Tools", owner_only=True),
     CommandInfo("botadminlist", "List all bot admins in DM or only those present in the current group", "/botadminlist", "Owner Tools", owner_only=True),
     CommandInfo("pin", "Pin a replied-to message", "/pin (reply)", "Message Management", True),
     CommandInfo(
@@ -41,23 +41,23 @@ COMMANDS = (
         "Owner Tools",
         owner_only=True,
     ),
-    CommandInfo("ban", "Ban a member", "/ban <reply|user_id> [reason]", "Ban and Unban", True),
+    CommandInfo("ban", "Ban a member", "/ban @username [reason] (numeric ID or reply also supported)", "Ban and Unban", True),
     CommandInfo(
-        "dban", "Ban and delete replied message", "/dban <reply> [reason]", "Ban and Unban", True
+        "dban", "Ban and delete replied message", "/dban @username [reason] (or reply)", "Ban and Unban", True
     ),
     CommandInfo(
-        "sban", "Silently ban a member", "/sban <reply|user_id> [reason]", "Ban and Unban", True
+        "sban", "Silently ban a member", "/sban @username [reason] (numeric ID or reply also supported)", "Ban and Unban", True
     ),
     CommandInfo(
         "tban",
         "Temporarily ban a member",
-        "/tban <reply|user_id> <duration> [reason]",
+        "/tban @username <duration> [reason] (numeric ID or reply also supported)",
         "Ban and Unban",
         True,
     ),
-    CommandInfo("unban", "Unban a member", "/unban <user_id>", "Ban and Unban", True),
+    CommandInfo("unban", "Unban a member", "/unban @username (numeric ID or reply also supported)", "Ban and Unban", True),
     CommandInfo(
-        "kick", "Remove a member", "/kick <reply|user_id> [reason]", "Kick and Restrict", True
+        "kick", "Remove a member", "/kick @username [reason] (numeric ID or reply also supported)", "Kick and Restrict", True
     ),
     CommandInfo(
         "dkick",
@@ -69,7 +69,7 @@ COMMANDS = (
     CommandInfo(
         "skick",
         "Silently remove a member",
-        "/skick <reply|user_id> [reason]",
+        "/skick @username [reason] (numeric ID or reply also supported)",
         "Kick and Restrict",
         True,
     ),
@@ -77,7 +77,7 @@ COMMANDS = (
     CommandInfo(
         "mute",
         "Mute permanently or with a duration",
-        "/mute <reply|id> [duration] [reason]",
+        "/mute @username [duration] [reason] (numeric ID or reply also supported)",
         "Mute and Unmute",
         True,
     ),
@@ -91,32 +91,32 @@ COMMANDS = (
     CommandInfo(
         "smute",
         "Silently restrict a member",
-        "/smute <reply|user_id> [reason]",
+        "/smute @username [reason] (numeric ID or reply also supported)",
         "Mute and Unmute",
         True,
     ),
     CommandInfo(
         "tmute",
         "Temporarily restrict a member",
-        "/tmute <reply|user_id> <duration> [reason]",
+        "/tmute @username <duration> [reason] (numeric ID or reply also supported)",
         "Mute and Unmute",
         True,
     ),
     CommandInfo(
         "unmute",
         "Safely restore saved/default permissions",
-        "/unmute <reply|user_id>",
+        "/unmute @username (numeric ID or reply also supported)",
         "Mute and Unmute",
         True,
     ),
     CommandInfo(
         "mutelist", "List XYRON-tracked mute restrictions", "/mutelist", "Mute and Unmute", True
     ),
-    CommandInfo("warn", "Issue a warning", "/warn <reply|user_id> [reason]", "Warnings", True),
+    CommandInfo("warn", "Issue a warning", "/warn @username [reason] (numeric ID or reply also supported)", "Warnings", True),
     CommandInfo(
-        "warns", "Show a member's warning count", "/warns <reply|user_id>", "Warnings", True
+        "warns", "Show a member's warning count", "/warns @username (numeric ID or reply also supported)", "Warnings", True
     ),
-    CommandInfo("resetwarn", "Clear warnings", "/resetwarn <reply|user_id>", "Warnings", True),
+    CommandInfo("resetwarn", "Clear warnings", "/resetwarn @username (numeric ID or reply also supported)", "Warnings", True),
     CommandInfo("setwarnlimit", "Set warning threshold", "/setwarnlimit <1-20>", "Warnings", True),
     CommandInfo("modlog", "Show recent moderation actions", "/modlog [count]", "Admin Logs", True),
     CommandInfo("adminlist", "List current administrators", "/adminlist", "Admin Tools", True),
@@ -165,12 +165,12 @@ COMMANDS = (
     CommandInfo(
         "approve",
         "Exempt a member from configured protections",
-        "/approve <reply|user_id>",
+        "/approve @username (numeric ID or reply also supported)",
         "Admin Tools",
         True,
     ),
     CommandInfo(
-        "unapprove", "Remove a member exemption", "/unapprove <reply|user_id>", "Admin Tools", True
+        "unapprove", "Remove a member exemption", "/unapprove @username (numeric ID or reply also supported)", "Admin Tools", True
     ),
     CommandInfo(
         "setwelcome",
@@ -195,7 +195,7 @@ COMMANDS = (
         True,
     ),
     CommandInfo(
-        "info", "Show a group member's status", "/info <user_id> or reply", "User Information"
+        "info", "Show a group member's status", "/info @username (numeric ID or reply also supported)", "User Information"
     ),
     CommandInfo("groupinfo", "Show current group information", "/groupinfo", "Group Information"),
     CommandInfo("reports", "List open group reports", "/reports", "Reports", True),
