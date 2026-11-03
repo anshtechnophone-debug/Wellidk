@@ -175,7 +175,7 @@ async def family_relationship_command(update: Update, context: ContextTypes.DEFA
         else:
             child, parent, child_role, parent_role = target, user, "daughter", "mother"
         await message.reply_text(
-            f"✅ <b>You have been connected as {parent_role} and {child_role}.</b>\\n"
+            f"✅ <b>You have been connected as {parent_role} and {child_role}.</b>\n"
             f"👨 Hey {child_role} {_link(child.id, child.full_name)}, "
             f"meet your {parent_role} {_link(parent.id, parent.full_name)}!",
             parse_mode="HTML", disable_web_page_preview=True,
