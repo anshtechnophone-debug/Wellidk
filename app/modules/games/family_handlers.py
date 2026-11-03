@@ -167,10 +167,19 @@ async def family_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
              f"🏅 Level <b>{level}/25 · {title}</b>  •  <b>{count}</b> connections"]
     labels = {"son": "Sons", "daughter": "Daughters", "father": "Father", "mother": "Mother",
               "wife": "Wife", "husband": "Husband", "friend": "Friends", "siblings": "Siblings"}
-    order = ["wife", "husband", "father", "mother", "son", "daughter", "siblings", "friend"]
+    # Show exactly one spouse label from this user's perspective. A /wife
+    # proposal creates Wife for the proposer and Husband for the recipient.
+    spouse_relation = "wife" if grouped.get("wife") else "husband" if grouped.get("husband") else None
+    if spouse_relation:
+        spouse_id = grouped[spouse_relation][0]
+        spouse_name = await _name(context, spouse_id, update.effective_chat.id if update.effective_chat else None)
+        lines.append(f"• <b>{labels[spouse_relation]}:</b> {_link(spouse_id, spouse_name)}")
+    else:
+        lines.append("• <b>Spouse:</b> —")
+    order = ["father", "mother", "son", "daughter", "siblings", "friend"]
     for relation in order:
         ids = grouped.get(relation, [])
-        if relation in {"wife", "husband", "father", "mother"}:
+        if relation in {"father", "mother"}:
             name = await _name(context, ids[0], update.effective_chat.id if update.effective_chat else None) if ids else "—"
             lines.append(f"• <b>{labels[relation]}:</b> {_link(ids[0], name) if ids else '—'}")
         else:
