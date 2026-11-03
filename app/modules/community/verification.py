@@ -314,6 +314,8 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
                 return
             if _QUOTE_REACT_PAYLOAD.fullmatch(start_payload):
                 return
+            if re.fullmatch(r"fr_\\d{1,10}_\\d{1,15}_-?\\d{1,15}_\\d{1,10}", start_payload):
+                return
 
     if query:
         await query.answer("XYRON is reserved for its Master.", show_alert=True)
