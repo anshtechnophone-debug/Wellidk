@@ -1,4 +1,4 @@
-"""QuotLy-inspired chat-bubble quote stickers for XYRON."""
+"""QuotLy-style compact Telegram quote stickers for XYRON."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from telegram.ext import ContextTypes
 logger = logging.getLogger(__name__)
 
 WIDTH = 512
-ACCENTS = ((245, 180, 104), (143, 176, 255), (120, 220, 174))
-BUBBLES = ((48, 37, 55), (35, 43, 65), (31, 54, 51))
+ACCENTS = ((244, 177, 104), (143, 176, 255), (120, 220, 174))
+BUBBLES = ((49, 38, 55), (37, 46, 66), (32, 54, 51))
 
 
 def _plain_unicode(value: str) -> str:
@@ -59,7 +59,7 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, width
     return lines
 
 
-def _avatar(data: bytes | bytearray | None, size: int = 112) -> Image.Image | None:
+def _avatar(data: bytes | bytearray | None, size: int = 78) -> Image.Image | None:
     if not data:
         return None
     try:
@@ -79,78 +79,79 @@ def _render_sticker(
     avatar_data: bytes | bytearray | None,
     theme_index: int,
 ) -> io.BytesIO:
-    """Render a transparent sticker containing a QuotLy-like Telegram message bubble."""
+    """Render a compact incoming-message bubble on a transparent WebP canvas."""
     theme_index %= len(ACCENTS)
     accent = ACCENTS[theme_index]
     bubble_color = BUBBLES[theme_index]
-    quote = _plain_unicode(quote or "[Empty message]")
+    quote = _plain_unicode(" ".join((quote or "[Empty message]").split()))
     author = _plain_unicode(author) or "Unknown user"
     avatar = _avatar(avatar_data)
 
-    # Leave transparent canvas around the message bubble. Avatar overlaps its left edge,
-    # matching the incoming-message layout in the user's reference.
-    bubble_left = 68
-    bubble_right = WIDTH - 12
-    text_left = bubble_left + 24
-    text_width = bubble_right - text_left - 22
-    name_font = _font(25, bold=True)
+    bubble_left, bubble_right = 56, WIDTH - 8
+    text_left = bubble_left + 22
+    text_width = bubble_right - text_left - 18
+    name_font = _font(22, bold=True)
+    message_font = _font(31, bold=False)
 
-    # The reference uses regular white message text rather than oversized bold quote text.
-    message_font = _font(36, bold=False)
-    draw_probe = ImageDraw.Draw(Image.new("RGBA", (WIDTH, 512), (0, 0, 0, 0)))
-    lines = _wrap(draw_probe, quote, message_font, text_width)
-
-    while len(lines) > 5 and message_font.size > 27:
+    probe = ImageDraw.Draw(Image.new("RGBA", (WIDTH, 512), (0, 0, 0, 0)))
+    lines = _wrap(probe, quote, message_font, text_width)
+    while len(lines) > 4 and message_font.size > 25:
         message_font = _font(message_font.size - 2, bold=False)
-        lines = _wrap(draw_probe, quote, message_font, text_width)
-
-    if len(lines) > 5:
-        lines = lines[:5]
+        lines = _wrap(probe, quote, message_font, text_width)
+    if len(lines) > 4:
+        lines = lines[:4]
         lines[-1] = lines[-1].rstrip(" .") + "…"
 
-    name_box = draw_probe.textbbox((0, 0), author[:40], font=name_font)
-    name_height = name_box[3] - name_box[1]
-    line_height = message_font.size + 9
+    name = author[:34]
+    name_bbox = probe.textbbox((0, 0), name, font=name_font)
+    name_height = name_bbox[3] - name_bbox[1]
+    line_height = message_font.size + 7
     text_height = len(lines) * line_height
-    bubble_height = max(132, 22 + name_height + 10 + text_height + 24)
-    bubble_height = min(470, bubble_height)
-    canvas_height = min(512, bubble_height + 42)
-    bubble_top = (canvas_height - bubble_height) // 2
+
+    # Compact padding and avatar proportions follow QuotLy's small message preview.
+    top_pad, name_gap, bottom_pad = 13, 5, 13
+    bubble_height = max(88, top_pad + name_height + name_gap + text_height + bottom_pad)
+    bubble_height = min(250, bubble_height)
+    canvas_height = bubble_height + 20
+    bubble_top = 8
+    bubble_bottom = bubble_top + bubble_height
 
     image = Image.new("RGBA", (WIDTH, canvas_height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
 
-    # Soft dark outline and subtle top highlight create the rounded Telegram bubble.
+    # Rounded Telegram bubble with a small lower-left message tail.
     draw.rounded_rectangle(
-        (bubble_left, bubble_top, bubble_right, bubble_top + bubble_height),
-        radius=34,
-        fill=bubble_color + (248,),
-        outline=(104, 84, 104, 185),
-        width=3,
+        (bubble_left, bubble_top, bubble_right, bubble_bottom),
+        radius=29,
+        fill=bubble_color + (255,),
+        outline=(91, 73, 91, 210),
+        width=2,
     )
-    draw.rounded_rectangle(
-        (bubble_left + 5, bubble_top + 5, bubble_right - 5, bubble_top + 13),
-        radius=5,
-        fill=(255, 255, 255, 12),
+    draw.polygon(
+        [
+            (bubble_left + 5, bubble_bottom - 37),
+            (bubble_left - 17, bubble_bottom - 13),
+            (bubble_left + 25, bubble_bottom - 17),
+        ],
+        fill=bubble_color + (255,),
     )
 
-    name_y = bubble_top + 19
-    draw.text(
-        (text_left, name_y), author[:40],
-        font=name_font, fill=accent + (255,),
-    )
+    name_y = bubble_top + top_pad
+    draw.text((text_left, name_y), name, font=name_font, fill=accent + (255,))
 
-    message_y = name_y + name_height + 12
+    message_y = name_y + name_height + name_gap
     for line in lines:
         draw.text(
-            (text_left, message_y), line,
-            font=message_font, fill=(248, 247, 250, 255),
+            (text_left, message_y),
+            line,
+            font=message_font,
+            fill=(248, 247, 250, 255),
         )
         message_y += line_height
 
     if avatar:
         avatar_y = bubble_top + (bubble_height - avatar.height) // 2
-        image.alpha_composite(avatar, (5, avatar_y))
+        image.alpha_composite(avatar, (0, avatar_y))
 
     output = io.BytesIO()
     output.name = "xyron_quote.webp"
@@ -160,7 +161,7 @@ def _render_sticker(
 
 
 async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a chat-bubble quote sticker for the message being replied to."""
+    """Send a QuotLy-style chat-bubble sticker for the replied-to message."""
     command_message = update.effective_message
     if not command_message:
         return
