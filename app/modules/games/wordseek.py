@@ -180,7 +180,7 @@ class WordSeekRepository:
         if not is_valid_word(selected, length):
             raise WordGameError("The selected answer is outside the valid word list.")
         current = now or datetime.now(UTC)
-        active_key = f"{chat_id}:{user_id}:wordseek"
+        active_key = f"{chat_id}:wordseek"
         async with self.sessions.begin() as session:
             active = await session.scalar(
                 select(WordGameSession)
@@ -221,7 +221,7 @@ class WordSeekRepository:
         async with self.sessions.begin() as session:
             game = await session.scalar(
                 select(WordGameSession)
-                .where(WordGameSession.active_key == active_key)
+                .where(WordGameSession.active_key == f"{chat_id}:wordseek")
                 .with_for_update()
             )
             if game is None:
@@ -275,7 +275,7 @@ class WordSeekRepository:
         async with self.sessions.begin() as session:
             game = await session.scalar(
                 select(WordGameSession)
-                .where(WordGameSession.active_key == f"{chat_id}:{user_id}:wordseek")
+                .where(WordGameSession.active_key == f"{chat_id}:wordseek")
                 .with_for_update()
             )
             if not game:
