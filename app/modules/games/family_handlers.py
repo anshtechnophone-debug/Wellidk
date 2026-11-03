@@ -190,12 +190,10 @@ async def familyrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     message = update.effective_message
     if not message:
         return
-    keyboard = [[InlineKeyboardButton(label, callback_data=f"famrank:{key}:global")]
+    keyboard = [[InlineKeyboardButton(label, callback_data=f"famrank:choose:{key}")]
                 for key, (label, _) in _RANKS.items()]
-    keyboard += [[InlineKeyboardButton("This Chat", callback_data="famrank:total:chat"),
-                  InlineKeyboardButton("Global", callback_data="famrank:total:global")]]
     await message.reply_text(
-        "🏆 <b>FAMILY HALL OF FAME</b>\nChoose a leaderboard, then choose its scope.",
+        "🏆 <b>FAMILY HALL OF FAME</b>\\nChoose a leaderboard.",
         parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
@@ -203,44 +201,87 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     if not query or not query.data:
         return
-    _, category, scope = query.data.split(":")
+    parts = query.data.split(":")
+    if len(parts) != 3:
+        await query.answer("Invalid leaderboard.", show_alert=True)
+        return
+    _, action, value = parts
+    if action == "menu":
+        keyboard = [[InlineKeyboardButton(label, callback_data=f"famrank:choose:{key}")]
+                    for key, (label, _) in _RANKS.items()]
+        await query.answer()
+        await query.edit_message_text("🏆 <b>FAMILY HALL OF FAME</b>\\nChoose a leaderboard.",
+                                      parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+    if action == "choose":
+        if value not in _RANKS:
+            await query.answer("Invalid category.", show_alert=True)
+            return
+        label = _RANKS[value][0]
+        keyboard = [[InlineKeyboardButton("This Chat", callback_data=f"famrank:show:{value}:chat"),
+                     InlineKeyboardButton("Global", callback_data=f"famrank:show:{value}:global")],
+                    [InlineKeyboardButton("⬅️ Back", callback_data="famrank:menu:all")]]
+        await query.answer()
+        await query.edit_message_text(f"🏆 <b>{label}</b>\\nChoose the ranking scope.",
+                                      parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+    if action != "show" or len(parts) != 4:
+        await query.answer("Invalid leaderboard.", show_alert=True)
+        return
+    category, scope = value, parts[3]
     if category not in _RANKS or scope not in {"global", "chat"}:
         await query.answer("Invalid leaderboard.", show_alert=True)
         return
+    chat_id = query.message.chat_id if query.message else None
     if category == "marriage":
         rows = await _repo(context).longest_marriages()
+        if scope == "chat" and chat_id:
+            try:
+                from sqlalchemy import select
+                from app.database.models import KnownUser
+                async with context.application.bot_data["sessions"]() as session:
+                    ids = set(await session.scalars(select(KnownUser.user_id).where(KnownUser.chat_id == chat_id)))
+                rows = [row for row in rows if row[0] in ids and row[1] in ids]
+            except Exception:
+                rows = []
         if not rows:
-            text = "💍 <b>Longest Marriage</b>\nNo marriages yet."
+            text = f"💍 <b>LONGEST MARRIAGES · {scope.upper()}</b>\\nNo marriages yet."
         else:
             now = datetime.now(UTC)
-            lines = ["💍 <b>LONGEST MARRIAGES</b>"]
+            lines = [f"💍 <b>LONGEST MARRIAGES · {scope.upper()}</b>"]
             for i, (left, right, since) in enumerate(rows, 1):
                 days = max(0, (now - since).days)
-                lines.append(f"{i}. {_link(left, await _name(context, left))} + {_link(right, await _name(context, right))} — <b>{days} days</b>")
-            text = "\n".join(lines)
+                lines.append(f"{['🥇','🥈','🥉'][i-1] if i <= 3 else str(i)+'.'} {_link(left, await _name(context, left, chat_id))} + {_link(right, await _name(context, right, chat_id))} — <b>{days} days</b>")
+            text = "\\n".join(lines)
     else:
         rows = await _repo(context).leaderboard(category)
+        if scope == "chat" and chat_id:
+            try:
+                from sqlalchemy import select
+                from app.database.models import KnownUser
+                async with context.application.bot_data["sessions"]() as session:
+                    ids = set(await session.scalars(select(KnownUser.user_id).where(KnownUser.chat_id == chat_id)))
+                rows = [row for row in rows if row[0] in ids]
+            except Exception:
+                rows = []
         if not rows:
-            text = f"{_RANKS[category][0]}\nNo connections yet."
+            text = f"{_RANKS[category][0]} · {scope.upper()}\\nNo connections yet."
         else:
-            lines = [f"🏆 <b>FAMILY HALL OF FAME</b>\n{_RANKS[category][0]} · {scope.upper()}"]
+            lines = [f"🏆 <b>FAMILY HALL OF FAME</b>\\n{_RANKS[category][0]} · {scope.upper()}"]
             medals = ["🥇", "🥈", "🥉"]
-            for i, (uid, score) in enumerate(rows, 1):
-                name = await _name(context, uid, query.message.chat_id if query.message else None)
+            for i, (uid, score) in enumerate(rows[:10], 1):
+                name = await _name(context, uid, chat_id)
                 noun = "connection" if score == 1 else "connections"
                 lines.append(f"{medals[i-1] if i <= 3 else str(i)+'.'} {_link(uid, name)}  <b>{score}</b> {noun}")
-            text = "\n".join(lines)
+            text = "\\n".join(lines)
     await query.answer()
-    try:
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("👦 Sons", callback_data="famrank:sons:global"),
-             InlineKeyboardButton("👧 Daughters", callback_data="famrank:daughters:global")],
-            [InlineKeyboardButton("❤️ Total", callback_data="famrank:total:global"),
-             InlineKeyboardButton("💍 Marriage", callback_data="famrank:marriage:global")],
-            [InlineKeyboardButton("🔄 Menu", callback_data="famrank:menu:global")],
-        ]), disable_web_page_preview=True)
-    except Exception:
-        pass
+    keyboard = [[InlineKeyboardButton("👦 Sons", callback_data="famrank:choose:sons"),
+                 InlineKeyboardButton("👧 Daughters", callback_data="famrank:choose:daughters")],
+                [InlineKeyboardButton("❤️ Total", callback_data="famrank:choose:total"),
+                 InlineKeyboardButton("💍 Marriage", callback_data="famrank:choose:marriage")],
+                [InlineKeyboardButton("🔄 Menu", callback_data="famrank:menu:all")]]
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard),
+                                  disable_web_page_preview=True)
 
 
 async def familytop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
