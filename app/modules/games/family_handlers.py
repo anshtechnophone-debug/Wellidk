@@ -202,7 +202,7 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not query or not query.data:
         return
     parts = query.data.split(":")
-    if len(parts) != 3:
+    if len(parts) < 3:
         await query.answer("Invalid leaderboard.", show_alert=True)
         return
     _, action, value = parts
@@ -234,7 +234,7 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     chat_id = query.message.chat_id if query.message else None
     if category == "marriage":
-        rows = await _repo(context).longest_marriages()
+        rows = await _repo(context).longest_marriages(limit=10000)
         if scope == "chat" and chat_id:
             try:
                 from sqlalchemy import select
@@ -254,7 +254,7 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 lines.append(f"{['🥇','🥈','🥉'][i-1] if i <= 3 else str(i)+'.'} {_link(left, await _name(context, left, chat_id))} + {_link(right, await _name(context, right, chat_id))} — <b>{days} days</b>")
             text = "\\n".join(lines)
     else:
-        rows = await _repo(context).leaderboard(category)
+        rows = await _repo(context).leaderboard(category, limit=10000)
         if scope == "chat" and chat_id:
             try:
                 from sqlalchemy import select
