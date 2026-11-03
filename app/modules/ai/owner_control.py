@@ -125,7 +125,7 @@ def parse_owner_instruction(text: str, bot_username: str | None = None) -> tuple
                 "hour": "h", "hours": "h", "day": "d", "days": "d"}[unit_name]
         return "mute", f"{amount}{unit}"
     named_duration = re.fullmatch(
-        r"mute(?:\\s+(?:this person|this user|that person|him|her))?\\s+for\\s+(ten|five|fifteen|twenty|thirty|one)\\s+(seconds?|minutes?|hours?|days?)",
+        r"mute(?:\s+(?:this person|this user|that person|him|her))?\s+for\s+(ten|five|fifteen|twenty|thirty|one)\s+(seconds?|minutes?|hours?|days?)",
         value,
     )
     if named_duration:
