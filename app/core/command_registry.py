@@ -20,7 +20,7 @@ class CommandInfo:
 
 COMMANDS = (
     CommandInfo("start", "Start XYRON", "/start", "General"),
-    CommandInfo("q", "Create a quote card from a replied message", "/q [1-3] (reply)", "Fun"),
+    CommandInfo("q", "Create a quote sticker from a replied message", "/q [1-3] (reply)", "Fun"),
     CommandInfo("help", "Browse commands by category", "/help", "Help and About"),
     CommandInfo("about", "About XYRON", "/about", "Help and About"),
     CommandInfo("ping", "Check bot responsiveness", "/ping", "General"),
