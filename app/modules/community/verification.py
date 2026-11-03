@@ -24,6 +24,7 @@ _ADMIN_GUIDE_PAYLOAD = re.compile(r"^botadmin_guide_(\d{1,15})$")
 _RULES_PAYLOAD = re.compile(r"^rules_(-?\d{1,15})$")
 COMMUNITY_URL = "https://t.me/+krgZfOwfpZxhODYx"
 _COMMUNITY_CHECK = "community_join_check"
+_QUOTE_REACT_PAYLOAD = re.compile(r"^quote_react_\\d{1,10}$")
 
 
 def _verification_payload(chat_id: int, user_id: int) -> str:
@@ -85,6 +86,9 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     payload = context.args[0] if context.args else ""
+    if _QUOTE_REACT_PAYLOAD.fullmatch(payload):
+        await message.reply_text("You are all set! You can now react to quotes in groups. Return to the group and tap 👍 or 👎 again.")
+        return
     giveaway_match = re.fullmatch(r"gw_(-?\d{1,15})", payload)
     if giveaway_match:
         group_id = int(giveaway_match.group(1))
@@ -232,6 +236,8 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
     # its own active-giveaway and group-membership checks.
     if query and query.data and re.fullmatch(r"giveaway:(?:join|rules):-?\d+", query.data):
         return
+    if query and query.data and re.fullmatch(r"qv:\\d+:(?:up|down)", query.data):
+        return
 
     # This gate controls private-chat/community access, not group command
     # authorization. Group commands must reach their handlers: public commands
@@ -265,6 +271,8 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
             if _RULES_PAYLOAD.fullmatch(start_payload):
                 return
             if re.fullmatch(r"gw_-?\d{1,15}", start_payload):
+                return
+            if _QUOTE_REACT_PAYLOAD.fullmatch(start_payload):
                 return
 
     if query:
