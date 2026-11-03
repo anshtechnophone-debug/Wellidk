@@ -125,9 +125,9 @@ async def ttt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     query = update.callback_query
     if not query or not query.message or not query.from_user:
         return
-    await query.answer()
     data = query.data or ""
     if data == "tttm:noop":
+        await query.answer()
         return
     try:
         position = int(data.split(":", 1)[1])
@@ -174,6 +174,7 @@ async def ttt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if error:
         await query.answer(error, show_alert=True)
         return
+    await query.answer()
     await query.edit_message_text(_render(state, status), reply_markup=_keyboard(list(state["board"]), status == "active"))
 
 
