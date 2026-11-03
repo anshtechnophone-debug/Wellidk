@@ -124,6 +124,15 @@ def parse_owner_instruction(text: str, bot_username: str | None = None) -> tuple
         unit = {"second": "s", "seconds": "s", "minute": "m", "minutes": "m",
                 "hour": "h", "hours": "h", "day": "d", "days": "d"}[unit_name]
         return "mute", f"{amount}{unit}"
+    named_duration = re.fullmatch(
+        r"mute(?:\\s+(?:this person|this user|that person|him|her))?\\s+for\\s+(ten|five|fifteen|twenty|thirty|one)\\s+(seconds?|minutes?|hours?|days?)",
+        value,
+    )
+    if named_duration:
+        amount_name, unit_name = named_duration.groups()
+        amount = {"one": 1, "five": 5, "ten": 10, "fifteen": 15, "twenty": 20, "thirty": 30}[amount_name]
+        unit = {"second": "s", "seconds": "s", "minute": "m", "minutes": "m", "hour": "h", "hours": "h", "day": "d", "days": "d"}[unit_name]
+        return "mute", f"{amount}{unit}"
     short = re.fullmatch(r"mute\s+(\d+)\s*(s|m|h|d)", value)
     if short:
         return "mute", f"{short.group(1)}{short.group(2)}"
