@@ -137,7 +137,7 @@ async def _ranking_name(context, chat_id: int, user_id: int) -> str:
     sessions = context.application.bot_data.get("sessions")
     if sessions is not None:
         try:
-            from sqlalchemy import func, select
+            from sqlalchemy import select
             from app.services.group_history import GroupMessage
 
             async with sessions() as db:
