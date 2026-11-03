@@ -296,7 +296,7 @@ async def family_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     daughters = len(grouped.get("daughter", []))
     siblings = len(sibling_ids)
     friends = len(grouped.get("friend", []))
-    spouses = len(grouped.get("wife", [])) + len(grouped.get("husband", []))
+    spouse_ids = list(dict.fromkeys(grouped.get("wife", []) + grouped.get("husband", [])))
     parents = len(grouped.get("father", [])) + len(grouped.get("mother", []))
 
     ranking = await _repo(context).leaderboard("total", limit=1000000)
@@ -308,7 +308,7 @@ async def family_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"🏅 Level <b>{level}/25 · {title}</b>  •  <b>{count}</b> connections",
         rank_text,
         "",
-        f"💍 Spouse: <b>{spouses}</b>",
+        f"💍 {_link(target.id, target.full_name)} ❤️ {_link(spouse_ids[0], await _name(context, spouse_ids[0], message.chat_id))}" if spouse_ids else "💍 Spouse: —",
         f"👨‍👩 Parents: <b>{parents}</b>",
         f"👦 Sons: <b>{sons}</b>",
         f"👧 Daughters: <b>{daughters}</b>",
