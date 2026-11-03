@@ -1,4 +1,4 @@
-"""Transparent QuotLy-style Telegram quote stickers for XYRON."""
+"""QuotLy-inspired chat-bubble quote stickers for XYRON."""
 
 from __future__ import annotations
 
@@ -13,13 +13,12 @@ from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
 
-SIZE = 512
-MARGIN = 34
-ACCENTS = ((132, 156, 255), (240, 174, 112), (111, 214, 173))
+WIDTH = 512
+ACCENTS = ((245, 180, 104), (143, 176, 255), (120, 220, 174))
+BUBBLES = ((48, 37, 55), (35, 43, 65), (31, 54, 51))
 
 
 def _plain_unicode(value: str) -> str:
-    """Convert decorative mathematical/styled Unicode letters to normal text."""
     return unicodedata.normalize("NFKC", value).strip()
 
 
@@ -51,7 +50,7 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, width
         current = words[0]
         for word in words[1:]:
             candidate = f"{current} {word}"
-            if draw.textbbox((0, 0), candidate, font=font, stroke_width=1)[2] <= width:
+            if draw.textbbox((0, 0), candidate, font=font)[2] <= width:
                 current = candidate
             else:
                 lines.append(current)
@@ -60,15 +59,15 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, width
     return lines
 
 
-def _avatar(data: bytes | bytearray | None, size: int = 76) -> Image.Image | None:
+def _avatar(data: bytes | bytearray | None, size: int = 112) -> Image.Image | None:
     if not data:
         return None
     try:
-        image = ImageOps.fit(Image.open(io.BytesIO(data)).convert("RGBA"), (size, size))
+        avatar = ImageOps.fit(Image.open(io.BytesIO(data)).convert("RGBA"), (size, size))
         mask = Image.new("L", (size, size), 0)
         ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
-        image.putalpha(mask)
-        return image
+        avatar.putalpha(mask)
+        return avatar
     except (OSError, ValueError):
         return None
 
@@ -80,70 +79,78 @@ def _render_sticker(
     avatar_data: bytes | bytearray | None,
     theme_index: int,
 ) -> io.BytesIO:
-    """Render a transparent 512px WebP sticker, not a rectangular image card."""
-    image = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    accent = ACCENTS[theme_index % len(ACCENTS)]
-
-    shadow = (0, 0, 0, 235)
-    quote = _plain_unicode(" ".join((quote or "[Empty message]").split()))[:520]
-    quote = quote or "[Empty message]"
+    """Render a transparent sticker containing a QuotLy-like Telegram message bubble."""
+    theme_index %= len(ACCENTS)
+    accent = ACCENTS[theme_index]
+    bubble_color = BUBBLES[theme_index]
+    quote = _plain_unicode(quote or "[Empty message]")
     author = _plain_unicode(author) or "Unknown user"
-    username = _plain_unicode(username) if username else None
-
-    chosen_font = _font(39, bold=True)
-    lines = _wrap(draw, quote, chosen_font, SIZE - 2 * MARGIN - 18)
-    while (len(lines) > 8 or any(draw.textbbox((0, 0), line, font=chosen_font)[2] > SIZE - 2 * MARGIN - 18 for line in lines)) and chosen_font.size > 25:
-        chosen_font = _font(chosen_font.size - 2, bold=True)
-        lines = _wrap(draw, quote, chosen_font, SIZE - 2 * MARGIN - 18)
-
-    if len(lines) > 8:
-        lines = lines[:8]
-        lines[-1] = lines[-1].rstrip(" .") + "…"
-
-    line_height = chosen_font.size + 12
-    quote_height = len(lines) * line_height
-    author_font = _font(25, bold=True)
-    handle_font = _font(19)
     avatar = _avatar(avatar_data)
 
-    footer_height = max(82 if avatar else 58, 72 if username else 42)
-    total_height = quote_height + 24 + footer_height
-    y = max(24, (SIZE - total_height) // 2)
+    # Leave transparent canvas around the message bubble. Avatar overlaps its left edge,
+    # matching the incoming-message layout in the user's reference.
+    bubble_left = 68
+    bubble_right = WIDTH - 12
+    text_left = bubble_left + 24
+    text_width = bubble_right - text_left - 22
+    name_font = _font(25, bold=True)
 
-    draw.text(
-        (MARGIN - 2, y - 20), "“",
-        font=_font(82, bold=True), fill=accent + (255,),
-        stroke_width=5, stroke_fill=shadow,
+    # The reference uses regular white message text rather than oversized bold quote text.
+    message_font = _font(36, bold=False)
+    draw_probe = ImageDraw.Draw(Image.new("RGBA", (WIDTH, 512), (0, 0, 0, 0)))
+    lines = _wrap(draw_probe, quote, message_font, text_width)
+
+    while len(lines) > 5 and message_font.size > 27:
+        message_font = _font(message_font.size - 2, bold=False)
+        lines = _wrap(draw_probe, quote, message_font, text_width)
+
+    if len(lines) > 5:
+        lines = lines[:5]
+        lines[-1] = lines[-1].rstrip(" .") + "…"
+
+    name_box = draw_probe.textbbox((0, 0), author[:40], font=name_font)
+    name_height = name_box[3] - name_box[1]
+    line_height = message_font.size + 9
+    text_height = len(lines) * line_height
+    bubble_height = max(132, 22 + name_height + 10 + text_height + 24)
+    bubble_height = min(470, bubble_height)
+    canvas_height = min(512, bubble_height + 42)
+    bubble_top = (canvas_height - bubble_height) // 2
+
+    image = Image.new("RGBA", (WIDTH, canvas_height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+
+    # Soft dark outline and subtle top highlight create the rounded Telegram bubble.
+    draw.rounded_rectangle(
+        (bubble_left, bubble_top, bubble_right, bubble_top + bubble_height),
+        radius=34,
+        fill=bubble_color + (248,),
+        outline=(104, 84, 104, 185),
+        width=3,
     )
-    y += 44
+    draw.rounded_rectangle(
+        (bubble_left + 5, bubble_top + 5, bubble_right - 5, bubble_top + 13),
+        radius=5,
+        fill=(255, 255, 255, 12),
+    )
 
+    name_y = bubble_top + 19
+    draw.text(
+        (text_left, name_y), author[:40],
+        font=name_font, fill=accent + (255,),
+    )
+
+    message_y = name_y + name_height + 12
     for line in lines:
         draw.text(
-            (MARGIN, y), line,
-            font=chosen_font, fill=(255, 255, 255, 255),
-            stroke_width=5, stroke_fill=shadow,
+            (text_left, message_y), line,
+            font=message_font, fill=(248, 247, 250, 255),
         )
-        y += line_height
+        message_y += line_height
 
-    y += 25
     if avatar:
-        image.alpha_composite(avatar, (MARGIN, y))
-        text_x = MARGIN + 92
-    else:
-        text_x = MARGIN
-
-    draw.text(
-        (text_x, y + 5), author[:34],
-        font=author_font, fill=accent + (255,),
-        stroke_width=4, stroke_fill=shadow,
-    )
-    if username:
-        draw.text(
-            (text_x, y + 38), f"@{username[:32]}",
-            font=handle_font, fill=(255, 255, 255, 245),
-            stroke_width=3, stroke_fill=shadow,
-        )
+        avatar_y = bubble_top + (bubble_height - avatar.height) // 2
+        image.alpha_composite(avatar, (5, avatar_y))
 
     output = io.BytesIO()
     output.name = "xyron_quote.webp"
@@ -153,7 +160,7 @@ def _render_sticker(
 
 
 async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a transparent quote sticker for the message being replied to."""
+    """Send a chat-bubble quote sticker for the message being replied to."""
     command_message = update.effective_message
     if not command_message:
         return
