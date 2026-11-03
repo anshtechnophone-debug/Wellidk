@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from html import escape
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from app.modules.games.wordseek import WordGameError, WordSeekRepository
@@ -113,15 +113,86 @@ async def wordcancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await message.reply_text("No active game to cancel, or only the starter and group admins can cancel it.")
 
 
+def _ranking_keyboard(period: str = "all", scope: str = "chat", length: int = 4) -> InlineKeyboardMarkup:
+    periods = [("day", "Daily"), ("week", "Weekly"), ("month", "Monthly"), ("all", "All time")]
+    scopes = [("chat", "This chat"), ("global", "Global")]
+    lengths = [(4, "4 letter"), (5, "5 letter"), (6, "6 letter")]
+    def row(items, selected, prefix):
+        return [InlineKeyboardButton(("✓ " if value == selected else "") + label,
+                                     callback_data=f"wr:{prefix}:{value}") for value, label in items]
+    return InlineKeyboardMarkup([
+        row(periods, period, "p"),
+        row(scopes, scope, "s"),
+        row(lengths, length, "l"),
+    ])
+
+
+async def _send_wordrank(target, context, period="all", scope="chat", length=4):
+    chat = target.effective_chat
+    if not chat:
+        return
+    rows = await _games(context).leaderboard(
+        chat.id if scope == "chat" else None, period=period, length=length
+    )
+    title = f"🏆 <b>WordSeek Ranking</b> · {dict(day='Daily', week='Weekly', month='Monthly', all='All time')[period]} · {'This chat' if scope == 'chat' else 'Global'} · {length} letters"
+    if rows:
+        names = []
+        for position, (user_id, points) in enumerate(rows, 1):
+            label = f"User {user_id}"
+            if scope == "chat":
+                try:
+                    member = await context.bot.get_chat_member(chat.id, user_id)
+                    label = member.user.full_name
+                except Exception:
+                    pass
+            names.append(f'{position}. <a href="tg://user?id={user_id}">{escape(label)}</a> — {points} points')
+        body = "\n".join(names)
+    else:
+        body = "No scores for these filters yet."
+    await target.reply_text(title + "\n\n" + body, parse_mode="HTML",
+                            reply_markup=_ranking_keyboard(period, scope, length))
+
+
 async def wordrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    message, chat = update.effective_message, update.effective_chat
-    if not message or not chat:
+    await _send_wordrank(update.effective_message, context)
+
+
+async def wordrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
         return
-    leaderboard = await _games(context).leaderboard(chat.id)
-    if not leaderboard:
-        await message.reply_text("No Word Seek scores in this chat yet.")
+    await query.answer()
+    parts = query.data.split(":")
+    if len(parts) != 3 or parts[0] != "wr":
         return
-    rows = [f"{position}. <code>{user_id}</code> — {points} points"
-            for position, (user_id, points) in enumerate(leaderboard, 1)]
-    await message.reply_text("<b>🏆 WordSeek leaderboard</b>\n" + "\n".join(rows),
-                             parse_mode="HTML")
+    period, scope, length = context.user_data.get("wordrank_filters", ("all", "chat", 4))
+    if parts[1] == "p" and parts[2] in {"day", "week", "month", "all"}:
+        period = parts[2]
+    elif parts[1] == "s" and parts[2] in {"chat", "global"}:
+        scope = parts[2]
+    elif parts[1] == "l" and parts[2] in {"4", "5", "6"}:
+        length = int(parts[2])
+    else:
+        return
+    context.user_data["wordrank_filters"] = (period, scope, length)
+    chat = update.effective_chat
+    rows = await _games(context).leaderboard(
+        chat.id if scope == "chat" and chat else None, period=period, length=length
+    )
+    title = f"🏆 <b>WordSeek Ranking</b> · {dict(day='Daily', week='Weekly', month='Monthly', all='All time')[period]} · {'This chat' if scope == 'chat' else 'Global'} · {length} letters"
+    if rows:
+        names = []
+        for position, (user_id, points) in enumerate(rows, 1):
+            label = f"User {user_id}"
+            if scope == "chat" and chat:
+                try:
+                    member = await context.bot.get_chat_member(chat.id, user_id)
+                    label = member.user.full_name
+                except Exception:
+                    pass
+            names.append(f'{position}. <a href="tg://user?id={user_id}">{escape(label)}</a> — {points} points')
+        body = "\n".join(names)
+    else:
+        body = "No scores for these filters yet."
+    await query.edit_message_text(title + "\n\n" + body, parse_mode="HTML",
+                                  reply_markup=_ranking_keyboard(period, scope, length))
