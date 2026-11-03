@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.constants import ChatType
 from telegram.ext import ContextTypes
 
-from app.modules.games.family import FamilyError, FamilyRepository, LEVELS
+from app.modules.games.family import FamilyError, FamilyRepository
 
 
 def _repo(context):
@@ -44,7 +44,7 @@ async def family_relationship_command(update: Update, context: ContextTypes.DEFA
     try:
         await _repo(context).add(user.id, target.id, command)
     except FamilyError as exc:
-        await message.reply_text(str(exc))
+        await message.reply_text(str(exc), parse_mode="HTML")
         return
     labels = {
         "son": "son", "daughter": "daughter", "father": "father", "mother": "mother",
