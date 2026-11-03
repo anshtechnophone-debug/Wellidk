@@ -152,7 +152,9 @@ async def ttt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         else:
             state = dict(game.state)
             player_mark = "X" if query.from_user.id == state["x_id"] else "O" if query.from_user.id == state["o_id"] else None
-            if state.get("o_id") is None:
+            if state.get("board_message_id") != query.message.message_id:
+                error = "This is an old board. Use the latest Tic-Tac-Toe board."
+            elif state.get("o_id") is None:
                 error = "Waiting for the second player to join."
             elif player_mark is None:
                 error = "You're not a player in this match."
