@@ -59,10 +59,13 @@ async def family_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user, message = update.effective_user, update.effective_message
     if not user or not message:
         return
-    edges, count, level, title = await _repo(context).profile(user.id)
+    edges, count, level, title, sibling_ids = await _repo(context).profile(user.id)
     grouped = {}
     for edge in edges:
-        grouped.setdefault(edge.relation, []).append(edge.related_user_id)
+        if edge.relation != "sibling":
+            grouped.setdefault(edge.relation, []).append(edge.related_user_id)
+    if sibling_ids:
+        grouped["siblings"] = sibling_ids
     lines = [f"🌳 <b>{escape(user.full_name)}'s Family</b>", f"Level: <b>{level}/25 · {title}</b>", f"Global relationships: <b>{count:,}</b>"]
     for relation, ids in grouped.items():
         names = [escape(await _name(context, uid, update.effective_chat.id if update.effective_chat else None)) for uid in ids[:8]]
