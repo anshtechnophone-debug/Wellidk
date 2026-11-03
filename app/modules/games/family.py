@@ -64,12 +64,6 @@ class FamilyRepository:
                             ))
                             if existing_parent:
                                 raise FamilyError(f"That user already has a {parent_type}: {existing_parent.related_user_id}. This relationship cannot be changed.")
-                            existing_child = await session.scalar(select(FamilyRelationship).where(
-                                FamilyRelationship.user_id == target_id,
-                                FamilyRelationship.relation.in_(["son", "daughter"]),
-                            ))
-                            if existing_child:
-                                raise FamilyError("That user already has a parent. Their parent-child relationship cannot be reassigned.")
                         else:
                             existing_parent = await session.scalar(select(FamilyRelationship).where(
                                 FamilyRelationship.user_id == actor_id,
@@ -82,36 +76,15 @@ class FamilyRepository:
                             FamilyRelationship(user_id=target_id, related_user_id=actor_id, relation=reverse_relation, created_at=now),
                         ])
                     elif command in {"brother", "sister"}:
-                        # Treat siblings as one undirected group. Joining merges both groups.
-                        actor_edges = await self._edges(session, actor_id)
-                        target_edges = await self._edges(session, target_id)
-                        members = {actor_id, target_id}
-                        members.update(e.related_user_id for e in actor_edges if e.relation == "sibling")
-                        members.update(e.related_user_id for e in target_edges if e.relation == "sibling")
-                        # Merge transitive sibling clusters.
-                        changed = True
-                        while changed:
-                            changed = False
-                            found = await session.scalars(select(FamilyRelationship).where(
+                        # Store only graph links; connected components form sibling groups.
+                        for left, right in ((actor_id, target_id), (target_id, actor_id)):
+                            exists = await session.scalar(select(FamilyRelationship.id).where(
+                                FamilyRelationship.user_id == left,
+                                FamilyRelationship.related_user_id == right,
                                 FamilyRelationship.relation == "sibling",
-                                FamilyRelationship.user_id.in_(members),
                             ))
-                            for edge in found:
-                                if edge.related_user_id not in members:
-                                    members.add(edge.related_user_id)
-                                    changed = True
-                        if len(members) > 250:
-                            raise FamilyError("This sibling group is too large to merge in one operation.")
-                        existing_pairs = set()
-                        for edge in await session.scalars(select(FamilyRelationship).where(
-                            FamilyRelationship.relation == "sibling",
-                            FamilyRelationship.user_id.in_(members),
-                        )):
-                            existing_pairs.add((edge.user_id, edge.related_user_id))
-                        for left in members:
-                            for right in members:
-                                if left != right and (left, right) not in existing_pairs:
-                                    session.add(FamilyRelationship(user_id=left, related_user_id=right, relation="sibling", created_at=now))
+                            if not exists:
+                                session.add(FamilyRelationship(user_id=left, related_user_id=right, relation="sibling", created_at=now))
                     elif command == "friend":
                         for left, right in ((actor_id, target_id), (target_id, actor_id)):
                             exists = await session.scalar(select(FamilyRelationship.id).where(
@@ -130,12 +103,22 @@ class FamilyRepository:
     async def profile(self, user_id: int):
         async with self.sessions() as session:
             edges = await self._edges(session, user_id)
-            count = int(await session.scalar(select(func.count()).select_from(FamilyRelationship)) or 0) // 2
+            count = len(edges)
             level, title = 0, "Newborn"
-            for threshold, name in LEVELS:
+            for index, (threshold, name) in enumerate(LEVELS, 1):
                 if count >= threshold:
-                    level, title = LEVELS.index((threshold, name)) + 1, name
-            return edges, count, level, title
+                    level, title = index, name
+            siblings = {user_id}
+            frontier = [user_id]
+            while frontier:
+                linked = await session.scalars(select(FamilyRelationship.related_user_id).where(
+                    FamilyRelationship.user_id.in_(frontier),
+                    FamilyRelationship.relation == "sibling",
+                ))
+                next_ids = set(linked) - siblings
+                siblings.update(next_ids)
+                frontier = list(next_ids)
+            return edges, count, level, title, sorted(siblings - {user_id})
 
     async def leaderboard(self, limit: int = 10):
         async with self.sessions() as session:
