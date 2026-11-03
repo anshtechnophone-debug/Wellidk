@@ -28,7 +28,8 @@ async def _start(update: Update, context: ContextTypes.DEFAULT_TYPE, length: int
         f"Guess the hidden {length}-letter word in up to 30 attempts.\n"
         "🟩 Correct spot   🟨 Wrong spot   🟥 Not in word\n"
         "Everyone in this chat can play: type a guess directly in the chat.\n"
-        "Use /wordcancel to stop.",
+        "If guesses are not detected, disable bot privacy with @BotFather or reply to this game message.\n"
+        "The starter or a group admin can use /wordcancel.",
         parse_mode="HTML",
     )
 
@@ -98,8 +99,18 @@ async def wordcancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     message, chat, user = update.effective_message, update.effective_chat, update.effective_user
     if not message or not chat or not user:
         return
-    cancelled = await _games(context).cancel(chat.id, user.id)
-    await message.reply_text("Word Seek cancelled." if cancelled else "You have no active game.")
+    is_admin = False
+    if chat.type in ("group", "supergroup"):
+        try:
+            member = await context.bot.get_chat_member(chat.id, user.id)
+            is_admin = member.status in ("administrator", "creator")
+        except Exception:
+            is_admin = False
+    cancelled = await _games(context).cancel(chat.id, user.id, is_admin=is_admin)
+    if cancelled:
+        await message.reply_text("Word Seek cancelled.")
+    else:
+        await message.reply_text("No active game to cancel, or only the starter and group admins can cancel it.")
 
 
 async def wordrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
