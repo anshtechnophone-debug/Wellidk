@@ -187,18 +187,33 @@ class WordSeekRepository:
         current = now or datetime.now(UTC)
         active_key = f"{chat_id}:wordseek"
         async with self.sessions.begin() as session:
-            active = await session.scalar(
-                select(WordGameSession)
-                .where(
-                    WordGameSession.active_key == active_key,
+            active_games = list(
+                await session.scalars(
+                    select(WordGameSession)
+                    .where(
+                        WordGameSession.chat_id == chat_id,
+                        WordGameSession.state == "active",
+                        WordGameSession.expires_at > current,
+                    )
+                    .order_by(WordGameSession.created_at.desc())
+                    .with_for_update()
                 )
-                .with_for_update()
             )
-            if active and active.expires_at > current:
+            if active_games:
                 raise WordGameError("A Word Seek game is already active in this chat. Everyone can join by guessing!")
-            if active:
-                active.state = "expired"
-                active.active_key = None
+            stale_games = list(
+                await session.scalars(
+                    select(WordGameSession)
+                    .where(
+                        WordGameSession.chat_id == chat_id,
+                        WordGameSession.state == "active",
+                    )
+                    .with_for_update()
+                )
+            )
+            for stale in stale_games:
+                stale.state = "expired"
+                stale.active_key = None
             game = WordGameSession(
                 chat_id=chat_id,
                 user_id=user_id,
@@ -226,7 +241,13 @@ class WordSeekRepository:
         async with self.sessions.begin() as session:
             game = await session.scalar(
                 select(WordGameSession)
-                .where(WordGameSession.active_key == f"{chat_id}:wordseek")
+                .where(
+                    WordGameSession.chat_id == chat_id,
+                    WordGameSession.state == "active",
+                    WordGameSession.expires_at > current,
+                )
+                .order_by(WordGameSession.created_at.desc())
+                .limit(1)
                 .with_for_update()
             )
             if game is None:
