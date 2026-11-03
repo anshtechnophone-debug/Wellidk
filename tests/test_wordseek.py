@@ -30,8 +30,10 @@ def test_word_check_and_duplicate_letter_feedback():
     assert is_valid_word("game", 4)
     assert is_valid_word("about", 5)
     assert is_valid_word("across", 6)
+    assert is_valid_word("leery", 5)
+    assert is_valid_word("bright", 6)
     assert not is_valid_word("zzzz", 4)
-    assert score_guess("game", "name") == "⬛🟩🟩🟩"
+    assert score_guess("game", "name") == "🟥🟩🟩🟩"
     assert score_guess("else", "eels") == "🟩🟨🟨🟨"
 
 
@@ -49,11 +51,13 @@ async def test_game_win_scores_once_and_persists_across_sessions(games):
     await repository.start(-1001, 17, 4, answer="game")
     first = await repository.guess(-1001, 17, "name")
     assert first.state == "active"
-    assert first.guesses_left == 5
+    assert first.guesses_left == 29
     with pytest.raises(WordGameError, match="already tried"):
         await repository.guess(-1001, 17, "name")
     won = await repository.guess(-1001, 17, "game")
     assert (won.state, won.points, won.answer) == ("won", 60, "game")
+    assert won.guesses == ("name", "game")
+    assert won.feedbacks == ("🟥🟩🟩🟩", "🟩🟩🟩🟩")
     with pytest.raises(WordGameError, match="No active"):
         await repository.guess(-1001, 17, "game")
     async with sessions() as session:
