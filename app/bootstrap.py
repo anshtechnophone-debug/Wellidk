@@ -40,6 +40,7 @@ from app.handlers.common import (
 from app.handlers.errors import error_handler
 from app.modules.ai.assistant import AIEventRouter
 from app.modules.ai.owner_control import owner_natural_control
+from app.modules.broadcast import broadcast_command, track_private_recipient
 from app.modules.appeals.handlers import (
     appeal_command,
     appeals_command,
