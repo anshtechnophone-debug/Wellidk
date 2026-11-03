@@ -43,11 +43,14 @@ class SavedGroupQuoteVote(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
-def quote_keyboard(quote_id: int, likes: int = 0, dislikes: int = 0) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
+def quote_keyboard(quote_id: int, likes: int = 0, dislikes: int = 0, start_url: str | None = None) -> InlineKeyboardMarkup:
+    rows = [[
         InlineKeyboardButton(f"👍 {likes}", callback_data=f"qv:{quote_id}:up"),
         InlineKeyboardButton(f"👎 {dislikes}", callback_data=f"qv:{quote_id}:down"),
-    ]])
+    ]]
+    if start_url:
+        rows.append([InlineKeyboardButton("Start XYRON to vote", url=start_url)])
+    return InlineKeyboardMarkup(rows)
 
 
 async def save_group_quote(sessions: async_sessionmaker[AsyncSession], *, chat_id: int, source_message_id: int, author_id: int, author_name: str, username: str | None, quote_text: str) -> int:
@@ -72,6 +75,17 @@ async def quote_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             raise ValueError
     except (ValueError, TypeError):
         await query.answer("This quote vote is invalid.", show_alert=True)
+        return
+    try:
+        await context.bot.send_chat_action(chat_id=user.id, action="typing")
+    except Forbidden:
+        try:
+            bot = await context.bot.get_me()
+            start_url = f"https://t.me/{bot.username}?start=quote_react_{quote_id}"
+            await query.edit_message_reply_markup(reply_markup=quote_keyboard(quote_id, start_url=start_url))
+        except TelegramError:
+            logger.debug("Could not add quote onboarding button", exc_info=True)
+        await query.answer("Open XYRON and press Start first. Then return here to vote.", show_alert=True)
         return
     sessions = context.application.bot_data.get("sessions")
     if sessions is None:
