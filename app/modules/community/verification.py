@@ -86,7 +86,7 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     payload = context.args[0] if context.args else ""
-    family_match = re.fullmatch(r"family_req_(\\d{1,10})_(\\d{1,15})", payload)
+    family_match = re.fullmatch(r"family_req_(\d{1,10})_(\d{1,15})", payload)
     if family_match:
         request_id, expected_user_id = map(int, family_match.groups())
         if user.id != expected_user_id:
