@@ -177,9 +177,16 @@ async def userinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     def history_line(values: list[str]) -> str:
         return ", ".join(html.escape(value) for value in values[:10]) if values else "No history recorded"
 
+    try:
+        current_member = await context.bot.get_chat_member(chat.id, target_user.id)
+        member_status = str(current_member.status).casefold()
+    except TelegramError:
+        member_status = "unknown"
+
     text = (
         f"<b>UID:</b> <code>{target_user.id}</code>\n"
         f"<b>Name:</b> {html.escape(current_name)}\n"
+        f"<b>Status:</b> {html.escape(member_status)}\n"
         f"<b>Username:</b> {html.escape(current_username)}\n"
         f"<b>Old names:</b> {history_line(old_names)}\n"
         f"<b>Old usernames:</b> {history_line(old_usernames)}"
