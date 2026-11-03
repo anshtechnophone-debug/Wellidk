@@ -509,7 +509,7 @@ def _register_general(application: Application) -> None:
         ("familytree", familytree_command),
         ("familyrank", familyrank_command),
         ("familytop", familytop_command),
-        ("familyhelp", familyhelp_command),\n        ("son", family_relationship_command),\n        ("daughter", family_relationship_command),\n        ("father", family_relationship_command),\n        ("mother", family_relationship_command),\n        ("brother", family_relationship_command),\n        ("sister", family_relationship_command),\n        ("friend", family_relationship_command),\n        ("family", family_command),\n        ("familytree", familytree_command),\n        ("familyrank", familyrank_command),\n        ("familytop", familytop_command),\n        ("familyhelp", familyhelp_command),
+        ("familyhelp", familyhelp_command),
     ):
         application.add_handler(CommandHandler(command, callback))
 
