@@ -127,10 +127,10 @@ async def family_remove_command(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     await message.reply_text(
-        "✅ <b>Family relationship removed.</b>\\n"
+        "✅ <b>Family relationship removed.</b>\n"
         f"{_link(replied.from_user.id, replied.from_user.full_name)} and "
         f"{_link(relative_id, await _name(context, relative_id, chat.id))} "
-        "are no longer connected.\\n"
+        "are no longer connected.\n"
         f"<i>Removed: {escape(', '.join(relation_names))}</i>",
         parse_mode="HTML",
         disable_web_page_preview=True,
