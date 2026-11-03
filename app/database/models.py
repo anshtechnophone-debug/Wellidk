@@ -297,3 +297,20 @@ class FamilyRelationship(Base):
     related_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     relation: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
+
+
+class FamilyRequest(Base):
+    """Persistent consent request for marriage or divorce."""
+    __tablename__ = "family_requests"
+    __table_args__ = (Index("ix_family_requests_target_status", "target_id", "status"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    requester_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    target_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    requester_role: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
