@@ -314,3 +314,12 @@ class FamilyRequest(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
     resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class BroadcastRecipient(Base):
+    """Private users who have interacted with XYRON and can receive owner broadcasts."""
+    __tablename__ = "broadcast_recipients"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    first_seen: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
+    last_seen: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
