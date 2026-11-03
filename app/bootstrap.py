@@ -40,7 +40,7 @@ from app.handlers.common import (
 from app.handlers.errors import error_handler
 from app.modules.ai.assistant import AIEventRouter
 from app.modules.ai.owner_control import owner_natural_control
-from app.modules.broadcast import broadcast_command, track_private_recipient
+from app.modules.broadcast import broadcast_command, broadcast_stop_command, track_private_recipient
 from app.modules.appeals.handlers import (
     appeal_command,
     appeals_command,
@@ -407,6 +407,8 @@ async def plain_moderation_command(update: Update, context: ContextTypes.DEFAULT
 
 def _register_general(application: Application) -> None:
     for command, callback in (
+        ("broadcast", broadcast_command),
+        ("broadcast_stop", broadcast_stop_command),
         ("admin", admin_command),
         ("promote", promote_command),
         ("smartgc", smartgc_command),
@@ -683,6 +685,12 @@ def _register_general(application: Application) -> None:
             track_known_user,
         ),
         group=10,
+    )
+
+    # Record all private-chat interactions for future owner broadcasts.
+    application.add_handler(
+        MessageHandler(filters.ChatType.PRIVATE & filters.ALL, track_private_recipient),
+        group=13,
     )
     application.add_handler(
         MessageHandler(filters.ALL, process_group_message),
