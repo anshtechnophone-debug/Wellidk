@@ -102,7 +102,7 @@ async def quote_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 def _tokens(text: str) -> set[str]:
-    words = re.findall(r"[^\\W_]+", text.casefold(), flags=re.UNICODE)
+    words = re.findall(r"[^\W_]+", text.casefold(), flags=re.UNICODE)
     return {word for word in words if len(word) >= 2 and word not in STOP_WORDS}
 
 
