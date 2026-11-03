@@ -304,3 +304,59 @@ async def familyhelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "Reply with /divorce to request a mutual divorce. Requests expire after 24 hours.\n\n"
             "/family — profile (or reply to view another member)\n/familyrank — interactive leaderboards\n"
             "/familyhelp — commands")
+
+
+async def familyreset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message, user = update.effective_message, update.effective_user
+    if not message or not user:
+        return
+    settings = context.application.bot_data.get("settings")
+    owner_ids = set(getattr(settings, "owner_ids", []) or [])
+    if user.id not in owner_ids:
+        await message.reply_text("Only the bot owner can reset Family data.")
+        return
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⚠️ Yes, reset Family", callback_data=f"famreset:confirm:{user.id}"),
+         InlineKeyboardButton("Cancel", callback_data=f"famreset:cancel:{user.id}")]
+    ])
+    await message.reply_text(
+        "⚠️ <b>Reset all Family data?</b>\\n\\n"
+        "This permanently deletes every Family relationship and all Family requests, "
+        "including pending, accepted, declined and expired requests.\\n\\n"
+        "Users, groups, moderation records, other games and settings will not be changed.",
+        parse_mode="HTML", reply_markup=keyboard,
+    )
+
+
+async def familyreset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    user = update.effective_user
+    if not query or not user or not query.data:
+        return
+    parts = query.data.split(":")
+    if len(parts) != 3 or parts[1] not in {"confirm", "cancel"}:
+        await query.answer("Invalid action.", show_alert=True)
+        return
+    settings = context.application.bot_data.get("settings")
+    owner_ids = set(getattr(settings, "owner_ids", []) or [])
+    try:
+        initiator_id = int(parts[2])
+    except ValueError:
+        await query.answer("Invalid confirmation.", show_alert=True)
+        return
+    if user.id not in owner_ids or user.id != initiator_id:
+        await query.answer("Only the owner who started this reset can confirm it.", show_alert=True)
+        return
+    if parts[1] == "cancel":
+        await query.answer("Reset cancelled.")
+        await query.edit_message_text("Family reset cancelled. No data was changed.")
+        return
+    relationships, requests = await _repo(context).reset_all()
+    await query.answer("Family data reset.")
+    await query.edit_message_text(
+        "✅ <b>Family data reset complete.</b>\\n\\n"
+        f"Relationships deleted: <b>{relationships}</b>\\n"
+        f"Requests deleted: <b>{requests}</b>\\n\\n"
+        "All other XYRON data remains untouched.",
+        parse_mode="HTML",
+    )
