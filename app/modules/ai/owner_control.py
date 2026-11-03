@@ -102,7 +102,7 @@ def parse_owner_instruction(text: str, bot_username: str | None = None) -> tuple
 
     if re.fullmatch(r"(?:unmute|un-mute)(?:\s+(?:(?:kr|kar)\s+)?(?:him|her|this person|this user|that person|isko|ise|usko|use))?", value) or re.fullmatch(r"(?:isko|ise|usko|use)\s+(?:unmute|un-mute)(?:\s+(?:kr|kar|karo|karde|kardo|kar\s*do|kr\s*do))?", value) or re.fullmatch(r"(?:isko\s+)?unmute(?:\s+karo|\s+kar\s*do)?", value):
         return "unmute", None
-    match = re.fullmatch(r"(ban|kick)(?:\s+(?:him|her|this person|this user|that person|isko))?", value)
+    match = re.fullmatch(r"(ban|kick)(?:\s+(?:him|her|this person|this user|that person|isko|[1-9][0-9]{0,19}))?", value)
     if match:
         return match.group(1), None
     match = re.fullmatch(r"isko\s+(ban|kick)\s+(?:karo|kar\s*do|do)", value)
@@ -707,7 +707,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             # First preserve the focused moderation planner. If it does not
             # recognize an action, use the shared registry to route any other
             # explicit owner request to an existing command.
-            plan = await _ai_plan(request, context, chat.id)
+            plan = await _ai_plan(request, context, chat.id) if getattr(chat, "id", None) is not None else None
             if plan is None or plan.get("action") == "none":
                 context.chat_data["_xyron_router_reply_target"] = bool(
                     message.reply_to_message
