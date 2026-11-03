@@ -87,7 +87,7 @@ async def require_admin_access(
     if not is_bot_admin and actor.status not in {
         ChatMember.ADMINISTRATOR, ChatMember.OWNER
     }:
-        raise AuthorizationError("You are not an authorized XYRON bot admin.")
+        raise AuthorizationError("You must be a group administrator or authorized XYRON bot admin.")
 
     if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
         raise AuthorizationError("XYRON must be a group administrator to do that.")
