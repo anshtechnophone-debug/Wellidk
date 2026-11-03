@@ -22,10 +22,10 @@ async def _start(update: Update, context: ContextTypes.DEFAULT_TYPE, length: int
         await message.reply_text(str(exc))
         return
     await message.reply_text(
-        f"🧩 <b>WORD SEEK · {length} LETTERS</b>\\n\\n"
-        f"Guess the hidden {length}-letter word in up to 30 attempts.\\n"
-        "🟩 Correct spot   🟨 Wrong spot   🟥 Not in word\\n"
-        "Type your guess directly in the chat.\\n"
+        f"🧩 <b>WORD SEEK · {length} LETTERS</b>\n\n"
+        f"Guess the hidden {length}-letter word in up to 30 attempts.\n"
+        "🟩 Correct spot   🟨 Wrong spot   🟥 Not in word\n"
+        "Type your guess directly in the chat.\n"
         "Use /wordcancel to stop.",
         parse_mode="HTML",
     )
@@ -68,11 +68,11 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
         return
     rows = [f"{feedback}  <b>{word.upper()}</b>"
             for feedback, word in zip(result.feedbacks, result.guesses, strict=True)]
-    board = f"<b>{len(value)}-letter mode · {len(result.guesses)}/30</b>\\n" + "\\n".join(rows)
+    board = f"<b>{len(value)}-letter mode · {len(result.guesses)}/30</b>\n" + "\n".join(rows)
     if result.state == "won":
-        board += f"\\n\\n🎉 <b>Excellent! You found {result.answer.upper()}!</b>\\n⭐ Added {result.points} points to the leaderboard.\\nStart again: /new{len(value)}"
+        board += f"\n\n🎉 <b>Excellent! You found {result.answer.upper()}!</b>\n⭐ Added {result.points} points to the leaderboard.\nStart again: /new{len(value)}"
     elif result.state == "lost":
-        board += f"\\n\\nThe word was <b>{result.answer.upper()}</b>.\\nTry again: /new{len(value)}"
+        board += f"\n\nThe word was <b>{result.answer.upper()}</b>.\nTry again: /new{len(value)}"
     await message.reply_text(board, parse_mode="HTML")
 
 
@@ -110,5 +110,5 @@ async def wordrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
     rows = [f"{position}. <code>{user_id}</code> — {points} points"
             for position, (user_id, points) in enumerate(leaderboard, 1)]
-    await message.reply_text("<b>🏆 WordSeek leaderboard</b>\\n" + "\\n".join(rows),
+    await message.reply_text("<b>🏆 WordSeek leaderboard</b>\n" + "\n".join(rows),
                              parse_mode="HTML")
