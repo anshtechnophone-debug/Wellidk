@@ -283,7 +283,7 @@ class WordSeekRepository:
                 .where(WordGameSession.active_key == f"{chat_id}:wordseek")
                 .with_for_update()
             )
-            if not game:
+            if not game or game.user_id != user_id:
                 return False
             game.state = "cancelled"
             game.active_key = None
