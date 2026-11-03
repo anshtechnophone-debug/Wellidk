@@ -205,7 +205,7 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if len(parts) < 3:
         await query.answer("Invalid leaderboard.", show_alert=True)
         return
-    _, action, value = parts
+    _, action, value = parts[:3]
     if action == "menu":
         keyboard = [[InlineKeyboardButton(label, callback_data=f"famrank:choose:{key}")]
                     for key, (label, _) in _RANKS.items()]
