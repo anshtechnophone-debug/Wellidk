@@ -35,15 +35,61 @@ def _link(user_id: int, name: str) -> str:
     return f'<a href="tg://user?id={user_id}">{escape(name)}</a>'
 
 
-async def _post_family_request(message, context, request_id: int, target_id: int, text: str) -> None:
-    """Post a DM-first request and reveal response buttons after /start."""
-    sent = await message.reply_text(text, parse_mode="HTML", disable_web_page_preview=True)
+async def family_relationship_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message, user = update.effective_message, update.effective_user
+    if not message or not user or not message.reply_to_message or not message.reply_to_message.from_user:
+        if message:
+            await message.reply_text("Reply to the person's message with this command.")
+        return
+    if update.effective_chat and update.effective_chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
+        await message.reply_text("Family relationships can only be created in groups.")
+        return
+    target = message.reply_to_message.from_user
+    command = (message.text or "").split()[0].split("@")[0].lstrip("/").casefold()
+    try:
+        await _repo(context).add(user.id, target.id, command)
+    except FamilyError as exc:
+        await message.reply_text(str(exc), parse_mode="HTML")
+        return
+    labels = {"son": "son", "daughter": "daughter", "father": "father", "mother": "mother",
+              "brother": "sibling", "sister": "sibling", "friend": "friend"}
+    await message.reply_text(
+        f"👨‍👩‍👧‍👦 <b>Family updated!</b>\n{_link(user.id, user.full_name)} and "
+        f"{_link(target.id, target.full_name)} are now connected as {labels.get(command, 'family')}.",
+        parse_mode="HTML", disable_web_page_preview=True)
+
+
+async def _post_family_request(message, context, request_id: int, target_id: int, body: str) -> None:
+    """Show a private-start link first; response buttons are enabled after /start."""
+    sent = await message.reply_text(body, parse_mode="HTML", disable_web_page_preview=True)
+    bot = await context.bot.get_me()
+    payload = f"fr_{request_id}_{target_id}_{sent.chat_id}_{sent.message_id}"
+    url = f"https://t.me/{bot.username}?start={payload}"
+    await sent.edit_reply_markup(reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton("➡️ Accept request — open XYRON DM", url=url)],
+        [InlineKeyboardButton("Decline", callback_data=f"famreq:d:{request_id}")],
+    ]))
+
+
+async def marriage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message, user, chat = update.effective_message, update.effective_user, update.effective_chat
+    if not message or not user or not chat:
+        return
+    if chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP) or not message.reply_to_message or not message.reply_to_message.from_user:
+        await message.reply_text("Reply to the person's message in a group with /wife or /husband.")
+        return
+    target = message.reply_to_message.from_user
+    command = (message.text or "").split()[0].split("@")[0].lstrip("/").lower()
+    try:
+        request_id = await _repo(context).create_request(user.id, target.id, "marriage", command, chat.id)
+    except FamilyError as exc:
+        await message.reply_text(str(exc), parse_mode="HTML")
+        return
     await _post_family_request(
         message, context, request_id, target.id,
         f"💍 <b>Marriage proposal</b>\n{_link(user.id, user.full_name)} has proposed to "
         f"{_link(target.id, target.full_name)} as their {command}.\n\n"
-        "The intended person must open XYRON's DM and press Start before accepting. "
-        "This proposal expires in 24 hours."
+        "The intended person must open XYRON's DM and press Start before accepting. This proposal expires in 24 hours."
     )
 
 
