@@ -164,11 +164,29 @@ async def family_relationship_command(update: Update, context: ContextTypes.DEFA
     except FamilyError as exc:
         await message.reply_text(str(exc), parse_mode="HTML")
         return
-    labels = {"son": "son", "daughter": "daughter", "father": "father", "mother": "mother",
-              "brother": "sibling", "sister": "sibling", "friend": "friend"}
+
+    if command in {"son", "daughter", "father", "mother"}:
+        if command == "son":
+            child, parent, child_role, parent_role = user, target, "son", "father"
+        elif command == "daughter":
+            child, parent, child_role, parent_role = user, target, "daughter", "mother"
+        elif command == "father":
+            child, parent, child_role, parent_role = target, user, "son", "father"
+        else:
+            child, parent, child_role, parent_role = target, user, "daughter", "mother"
+        await message.reply_text(
+            "✅ <b>You have been connected as father and son.</b>\n"
+            f"👨 Hey {child_role} {_link(child.id, child.full_name)}, "
+            f"meet your {parent_role} {_link(parent.id, parent.full_name)}!",
+            parse_mode="HTML", disable_web_page_preview=True,
+        )
+        return
+
+    labels = {"brother": "siblings", "sister": "siblings", "friend": "friends"}
     await message.reply_text(
-        f"👨‍👩‍👧‍👦 <b>Family updated!</b>\n{_link(user.id, user.full_name)} and "
-        f"{_link(target.id, target.full_name)} are now connected as {labels.get(command, 'family')}.",
+        f"👨‍👩‍👧‍👦 <b>Family connection created!</b>\n"
+        f"{_link(user.id, user.full_name)} and {_link(target.id, target.full_name)} "
+        f"are now connected as {labels.get(command, 'family')}.",
         parse_mode="HTML", disable_web_page_preview=True)
 
 
@@ -270,36 +288,35 @@ async def family_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     target = message.reply_to_message.from_user if message.reply_to_message and message.reply_to_message.from_user else user
     edges, count, level, title, sibling_ids = await _repo(context).profile(target.id)
-    grouped = {}
+    grouped: dict[str, list[int]] = {}
     for edge in edges:
-        if edge.relation != "sibling":
-            grouped.setdefault(edge.relation, []).append(edge.related_user_id)
-    if sibling_ids:
-        grouped["siblings"] = sibling_ids
-    lines = [f"🌳 <b>{escape(target.full_name)}'s Family</b>",
-             f"🏅 Level <b>{level}/25 · {title}</b>  •  <b>{count}</b> connections"]
-    labels = {"son": "Sons", "daughter": "Daughters", "father": "Father", "mother": "Mother",
-              "wife": "Wife", "husband": "Husband", "friend": "Friends", "siblings": "Siblings"}
-    # Show exactly one spouse label from this user's perspective. A /wife
-    # proposal creates Wife for the proposer and Husband for the recipient.
-    spouse_relation = "wife" if grouped.get("wife") else "husband" if grouped.get("husband") else None
-    if spouse_relation:
-        spouse_id = grouped[spouse_relation][0]
-        spouse_name = await _name(context, spouse_id, update.effective_chat.id if update.effective_chat else None)
-        lines.append(f"• <b>{labels[spouse_relation]}:</b> {_link(spouse_id, spouse_name)}")
-    else:
-        lines.append("• <b>Spouse:</b> —")
-    order = ["father", "mother", "son", "daughter", "siblings", "friend"]
-    for relation in order:
-        ids = grouped.get(relation, [])
-        if relation in {"father", "mother"}:
-            name = await _name(context, ids[0], update.effective_chat.id if update.effective_chat else None) if ids else "—"
-            lines.append(f"• <b>{labels[relation]}:</b> {_link(ids[0], name) if ids else '—'}")
-        else:
-            names = [_link(uid, await _name(context, uid, update.effective_chat.id if update.effective_chat else None)) for uid in ids]
-            lines.append(f"• <b>{labels[relation]} ({len(ids)}):</b> {', '.join(names) if names else '—'}")
-    if not edges:
-        lines.append("\nNo relationships yet. Reply to someone with a Family command to get started.")
+        grouped.setdefault(edge.relation, []).append(edge.related_user_id)
+
+    sons = len(grouped.get("son", []))
+    daughters = len(grouped.get("daughter", []))
+    siblings = len(sibling_ids)
+    friends = len(grouped.get("friend", []))
+    spouses = len(grouped.get("wife", [])) + len(grouped.get("husband", []))
+    parents = len(grouped.get("father", [])) + len(grouped.get("mother", []))
+
+    ranking = await _repo(context).leaderboard("total", limit=1000000)
+    world_rank = next((index for index, row in enumerate(ranking, 1) if row[0] == target.id), None)
+    rank_text = f"🌍 World Rank: <b>#{world_rank:,}</b>" if world_rank else "🌍 World Rank: <b>Unranked</b>"
+
+    lines = [
+        f"🌳 <b>{escape(target.full_name)}'s Family</b>",
+        f"🏅 Level <b>{level}/25 · {title}</b>  •  <b>{count}</b> connections",
+        rank_text,
+        "",
+        f"💍 Spouse: <b>{spouses}</b>",
+        f"👨‍👩 Parents: <b>{parents}</b>",
+        f"👦 Sons: <b>{sons}</b>",
+        f"👧 Daughters: <b>{daughters}</b>",
+        f"🫂 Siblings: <b>{siblings}</b>",
+        f"🤝 Friends: <b>{friends}</b>",
+    ]
+    if count == 0:
+        lines.extend(["", "<i>No family connections yet. Reply to someone with a Family command to get started.</i>"])
     await message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
 
 
