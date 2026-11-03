@@ -120,7 +120,7 @@ _EXTRA_WORDS = {
 for (const [length, words] of Object.entries(_EXTRA_WORDS)) {
     _WORDS[length] = tuple(dict.fromkeys([*_WORDS[length], *words]));
 }
-_VALID_WORDS = {length: set(words) for length, words in _WORDS.items()}
+_VALID_WORDS = {length: {word for word in words if len(word) == length and word.isalpha()} for length, words in _WORDS.items()}
 MAX_GUESSES = 30
 SESSION_TIMEOUT = timedelta(minutes=15)
 
