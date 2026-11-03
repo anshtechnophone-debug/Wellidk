@@ -278,6 +278,8 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
         return
     if query and query.data and re.fullmatch(r"qv:\d+:(?:up|down)", query.data):
         return
+    if query and query.data and re.fullmatch(r"famreq:[ad]:\d{1,10}", query.data):
+        return
 
     # This gate controls private-chat/community access, not group command
     # authorization. Group commands must reach their handlers: public commands
