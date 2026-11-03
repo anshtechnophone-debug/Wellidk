@@ -106,7 +106,7 @@ from app.modules.games.chain_handlers import (
     wordchain_command,
     wordchaincancel_command,
 )
-from app.modules.games.handlers import (
+from app.modules.games.family_handlers import (\n    family_relationship_command, family_command, familytree_command, familyrank_command, familytop_command, familyhelp_command,\n)\nfrom app.modules.games.handlers import (
     guess_command,
     wordcancel_command,
     wordrank_command,
@@ -489,7 +489,7 @@ def _register_general(application: Application) -> None:
         ("anagramanswer", anagramanswer_command),
         ("teamword", teamword_command),
         ("teamguess", teamguess_command),
-        ("teamwordcancel", teamwordcancel_command),
+        ("teamwordcancel", teamwordcancel_command),\n        ("son", family_relationship_command),\n        ("daughter", family_relationship_command),\n        ("father", family_relationship_command),\n        ("mother", family_relationship_command),\n        ("brother", family_relationship_command),\n        ("sister", family_relationship_command),\n        ("friend", family_relationship_command),\n        ("family", family_command),\n        ("familytree", familytree_command),\n        ("familyrank", familyrank_command),\n        ("familytop", familytop_command),\n        ("familyhelp", familyhelp_command),
     ):
         application.add_handler(CommandHandler(command, callback))
 
