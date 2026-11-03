@@ -86,6 +86,17 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     payload = context.args[0] if context.args else ""
+    family_match = re.fullmatch(r"family_req_(\\d{1,10})_(\\d{1,15})", payload)
+    if family_match:
+        request_id, expected_user_id = map(int, family_match.groups())
+        if user.id != expected_user_id:
+            await message.reply_text("This family request link belongs to another Telegram account.")
+            return
+        await message.reply_text(
+            f"✅ You're now connected to XYRON privately for family request #{request_id}. "
+            "Go back to the group and tap “I've started — Accept” to confirm the request."
+        )
+        return
     if _QUOTE_REACT_PAYLOAD.fullmatch(payload):
         await message.reply_text("You are all set! You can now react to quotes in groups. Return to the group and tap 👍 or 👎 again.")
         return
