@@ -322,7 +322,7 @@ async def familyrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     keyboard = [[InlineKeyboardButton(label, callback_data=f"famrank:choose:{key}")]
                 for key, (label, _) in _RANKS.items()]
     await message.reply_text(
-        "🏆 <b>FAMILY HALL OF FAME</b>\\nChoose a leaderboard.",
+        "🏆 <b>FAMILY HALL OF FAME</b>\nChoose a leaderboard.",
         parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
@@ -351,7 +351,7 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         keyboard = [[InlineKeyboardButton(label, callback_data=f"famrank:choose:{key}")]
                     for key, (label, _) in _RANKS.items()]
         await query.answer()
-        await query.edit_message_text("🏆 <b>FAMILY HALL OF FAME</b>\\nChoose a leaderboard.",
+        await query.edit_message_text("🏆 <b>FAMILY HALL OF FAME</b>\nChoose a leaderboard.",
                                       parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     if action == "choose":
@@ -363,7 +363,7 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                      InlineKeyboardButton("Global", callback_data=f"famrank:show:{value}:global")],
                     [InlineKeyboardButton("⬅️ Back", callback_data="famrank:menu:all")]]
         await query.answer()
-        await query.edit_message_text(f"🏆 <b>{label}</b>\\nChoose the ranking scope.",
+        await query.edit_message_text(f"🏆 <b>{label}</b>\nChoose the ranking scope.",
                                       parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     if action != "show" or len(parts) != 4:
@@ -386,14 +386,14 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             except Exception:
                 rows = []
         if not rows:
-            text = f"💍 <b>LONGEST MARRIAGES · {scope.upper()}</b>\\nNo marriages yet."
+            text = f"💍 <b>LONGEST MARRIAGES · {scope.upper()}</b>\nNo marriages yet."
         else:
             now = datetime.now(UTC)
             lines = [f"💍 <b>LONGEST MARRIAGES · {scope.upper()}</b>"]
             for i, (left, right, since) in enumerate(rows, 1):
                 days = max(0, (now - since).days)
                 lines.append(f"{['🥇','🥈','🥉'][i-1] if i <= 3 else str(i)+'.'} {_link(left, await _name(context, left, chat_id))} + {_link(right, await _name(context, right, chat_id))} — <b>{days} days</b>")
-            text = "\\n".join(lines)
+            text = "\n".join(lines)
     else:
         rows = await _repo(context).leaderboard(category, limit=10000)
         if scope == "chat" and chat_id:
@@ -406,15 +406,15 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             except Exception:
                 rows = []
         if not rows:
-            text = f"{_RANKS[category][0]} · {scope.upper()}\\nNo connections yet."
+            text = f"{_RANKS[category][0]} · {scope.upper()}\nNo connections yet."
         else:
-            lines = [f"🏆 <b>FAMILY HALL OF FAME</b>\\n{_RANKS[category][0]} · {scope.upper()}"]
+            lines = [f"🏆 <b>FAMILY HALL OF FAME</b>\n{_RANKS[category][0]} · {scope.upper()}"]
             medals = ["🥇", "🥈", "🥉"]
             for i, (uid, score) in enumerate(rows[:10], 1):
                 name = await _name(context, uid, chat_id)
                 noun = "connection" if score == 1 else "connections"
                 lines.append(f"{medals[i-1] if i <= 3 else str(i)+'.'} {_link(uid, name)}  <b>{score}</b> {noun}")
-            text = "\\n".join(lines)
+            text = "\n".join(lines)
     await query.answer()
     keyboard = [[InlineKeyboardButton("👦 Sons", callback_data="famrank:choose:sons"),
                  InlineKeyboardButton("👧 Daughters", callback_data="famrank:choose:daughters")],
@@ -450,7 +450,7 @@ async def _familytop_render(context, scope: str, chat_id: int | None, couples: b
         rows = rows[:15]
         heading = f"💍 <b>COUPLE TOP 15</b>  ·  {'GLOBAL' if scope == 'global' else 'THIS CHAT'}"
         if not rows:
-            return heading + "\\n\\nNo couples yet."
+            return heading + "\n\nNo couples yet."
         lines = [heading, ""]
         now = datetime.now(UTC)
         medals = ["🥇", "🥈", "🥉"]
@@ -461,7 +461,7 @@ async def _familytop_render(context, scope: str, chat_id: int | None, couples: b
             right_name = await _name(context, right, chat_id)
             lines.append(f"{rank} {_link(left, left_name)}  ❤️  {_link(right, right_name)}")
             lines.append(f"      <i>{days} days together</i>")
-        return "\\n".join(lines)
+        return "\n".join(lines)
 
     rows = await repo.leaderboard("total", limit=10000)
     if scope == "chat" and chat_id:
@@ -475,7 +475,7 @@ async def _familytop_render(context, scope: str, chat_id: int | None, couples: b
     rows = rows[:15]
     heading = f"🏆 <b>FAMILY TOP 15</b>  ·  {'GLOBAL' if scope == 'global' else 'THIS CHAT'}"
     if not rows:
-        return heading + "\\n\\nNo family relationships yet. Be the first to build your family!"
+        return heading + "\n\nNo family relationships yet. Be the first to build your family!"
     medals = ["🥇", "🥈", "🥉"]
     lines = [heading, "<i>Members with the most family connections</i>", ""]
     for i, (uid, score) in enumerate(rows, 1):
@@ -483,7 +483,7 @@ async def _familytop_render(context, scope: str, chat_id: int | None, couples: b
         name = await _name(context, uid, chat_id)
         noun = "connection" if score == 1 else "connections"
         lines.append(f"{rank} {_link(uid, name)}  —  <b>{score:,}</b> {noun}")
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 async def familytop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -522,8 +522,8 @@ async def familyreset_command(update: Update, context: ContextTypes.DEFAULT_TYPE
          InlineKeyboardButton("Cancel", callback_data=f"famreset:cancel:{user.id}")]
     ])
     await message.reply_text(
-        "⚠️ <b>Reset all Family data?</b>\\n\\n"
-        "This deletes only Family relationship records (parents, children, siblings, friends and spouses).\\n\\n"
+        "⚠️ <b>Reset all Family data?</b>\n\n"
+        "This deletes only Family relationship records (parents, children, siblings, friends and spouses).\n\n"
         "Family requests, users, groups, bot admins, commands, moderation records, other games and settings will remain untouched.",
         parse_mode="HTML", reply_markup=keyboard,
     )
@@ -555,8 +555,8 @@ async def familyreset_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     relationships = await _repo(context).reset_relationships()
     await query.answer("Family relationships reset.")
     await query.edit_message_text(
-        "✅ <b>Family relationship reset complete.</b>\\n\\n"
-        f"Relationships deleted: <b>{relationships}</b>\\n\\n"
+        "✅ <b>Family relationship reset complete.</b>\n\n"
+        f"Relationships deleted: <b>{relationships}</b>\n\n"
         "Family requests and all other XYRON data remain untouched.",
         parse_mode="HTML",
     )
