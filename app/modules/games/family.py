@@ -148,6 +148,12 @@ class FamilyRepository:
             req = await session.get(FamilyRequest, request_id)
             return bool(req and req.target_id == target_id and req.status == "pending" and req.expires_at > now)
 
+    async def is_pending_request_for(self, request_id: int, target_id: int) -> bool:
+        now = datetime.now(UTC)
+        async with self.sessions() as session:
+            req = await session.get(FamilyRequest, request_id)
+            return bool(req and req.target_id == target_id and req.status == "pending" and req.expires_at > now)
+
     async def resolve_request(self, request_id: int, actor_id: int, accept: bool) -> tuple[str, int, int, str]:
         now = datetime.now(UTC)
         async with self.sessions() as session:
