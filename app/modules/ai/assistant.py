@@ -1110,6 +1110,7 @@ class AIEventRouter:
             await context.bot.send_message(
                 settings.owner_id,
                 f"XYRON report review for group {chat.id}\n"
+                f"context_available={bool(rows)}\n"
                 f"{summary}\n\n"
                 "Advisory only: no moderation action was executed.",
             )
