@@ -217,7 +217,7 @@ async def _latest_persisted_moderation_event(
 async def _resolve_plan_target(update: Update, context: ContextTypes.DEFAULT_TYPE, target: Any) -> tuple[int, list[str]]:
     message = update.effective_message
     chat = update.effective_chat
-    if message and message.reply_to_message and message.reply_to_message.from_user and target in (None, "reply"):
+    if message and getattr(message, "reply_to_message", None) and message.reply_to_message.from_user and target in (None, "reply"):
         return await _resolve_target(update, context, [])
     if target in {"last", "last_mute", "last_unmute"}:
         # The database is authoritative; filter by action for specific references.
