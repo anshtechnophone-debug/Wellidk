@@ -89,6 +89,7 @@ from app.modules.games.board_handlers import (
     tttcancel_command,
     tttmove_command,
     ttt_callback,
+    tttend_command,
 )
 from app.modules.games.casual_handlers import (
     gamerank_command,
@@ -482,6 +483,7 @@ def _register_general(application: Application) -> None:
         ("tictactoe", tictactoe_command),
         ("tttmove", tttmove_command),
         ("tttcancel", tttcancel_command),
+        ("end", tttend_command),
         ("wordchain", wordchain_command),
         ("chain", chain_command),
         ("wordchaincancel", wordchaincancel_command),
