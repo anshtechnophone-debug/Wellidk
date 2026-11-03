@@ -5,18 +5,11 @@ from __future__ import annotations
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from app.modules.games.wordseek import WordGameError, WordSeekRepository, score_guess
+from app.modules.games.wordseek import WordGameError, WordSeekRepository
 
 
 def _games(context: ContextTypes.DEFAULT_TYPE) -> WordSeekRepository:
     return WordSeekRepository(context.application.bot_data["sessions"])
-
-
-def _board(guesses: tuple[str, ...], length: int) -> str:
-    rows = []
-    for word in guesses:
-        rows.append(f"{score_guess(_board.answer, word)}  <b>{word.upper()}</b>")
-    return f"<b>{length}-letter mode · {len(guesses)}/30</b>\\n" + "\\n".join(rows)
 
 
 async def _start(update: Update, context: ContextTypes.DEFAULT_TYPE, length: int) -> None:
@@ -28,7 +21,6 @@ async def _start(update: Update, context: ContextTypes.DEFAULT_TYPE, length: int
     except WordGameError as exc:
         await message.reply_text(str(exc))
         return
-    _board.answer = game.answer
     await message.reply_text(
         f"🧩 <b>WORD SEEK · {length} LETTERS</b>\\n\\n"
         f"Guess the hidden {length}-letter word in up to 30 attempts.\\n"
@@ -74,10 +66,8 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
             return
         await message.reply_text(str(exc))
         return
-    _board.answer = result.answer or _board.answer
-    rows = []
-    for word in result.guesses:
-        rows.append(f"{score_guess(_board.answer, word)}  <b>{word.upper()}</b>")
+    rows = [f"{feedback}  <b>{word.upper()}</b>"
+            for feedback, word in zip(result.feedbacks, result.guesses, strict=True)]
     board = f"<b>{len(value)}-letter mode · {len(result.guesses)}/30</b>\\n" + "\\n".join(rows)
     if result.state == "won":
         board += f"\\n\\n🎉 <b>Excellent! You found {result.answer.upper()}!</b>\\n⭐ Added {result.points} points to the leaderboard.\\nStart again: /new{len(value)}"
