@@ -335,6 +335,18 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("Invalid leaderboard.", show_alert=True)
         return
     _, action, value = parts[:3]
+    if action in {"top", "couples"}:
+        if value not in {"global", "chat"}:
+            await query.answer("Invalid scope.", show_alert=True)
+            return
+        chat_id = query.message.chat_id if query.message else None
+        text = await _familytop_render(context, value, chat_id, couples=(action == "couples"))
+        await query.answer()
+        await query.edit_message_text(
+            text, parse_mode="HTML", reply_markup=await _familytop_keyboard(value),
+            disable_web_page_preview=True,
+        )
+        return
     if action == "menu":
         keyboard = [[InlineKeyboardButton(label, callback_data=f"famrank:choose:{key}")]
                     for key, (label, _) in _RANKS.items()]
@@ -413,8 +425,76 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                                   disable_web_page_preview=True)
 
 
+async def _familytop_keyboard(scope: str = "global") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(("✓ " if scope == "global" else "") + "🌐 Global", callback_data="famrank:top:global"),
+            InlineKeyboardButton(("✓ " if scope == "chat" else "") + "💬 This Chat", callback_data="famrank:top:chat"),
+        ],
+        [InlineKeyboardButton("💍 Couple Top", callback_data="famrank:couples:global")],
+    ])
+
+
+async def _familytop_render(context, scope: str, chat_id: int | None, couples: bool = False) -> str:
+    repo = _repo(context)
+    if couples:
+        rows = await repo.longest_marriages(limit=10000)
+        if scope == "chat" and chat_id:
+            from sqlalchemy import select
+            from app.database.models import KnownUser
+            async with context.application.bot_data["sessions"]() as session:
+                ids = set(await session.scalars(
+                    select(KnownUser.user_id).where(KnownUser.chat_id == chat_id)
+                ))
+            rows = [row for row in rows if row[0] in ids and row[1] in ids]
+        rows = rows[:15]
+        heading = f"💍 <b>COUPLE TOP 15</b>  ·  {'GLOBAL' if scope == 'global' else 'THIS CHAT'}"
+        if not rows:
+            return heading + "\\n\\nNo couples yet."
+        lines = [heading, ""]
+        now = datetime.now(UTC)
+        medals = ["🥇", "🥈", "🥉"]
+        for i, (left, right, since) in enumerate(rows, 1):
+            days = max(0, (now - since).days)
+            rank = medals[i - 1] if i <= 3 else f"<b>{i}.</b>"
+            left_name = await _name(context, left, chat_id)
+            right_name = await _name(context, right, chat_id)
+            lines.append(f"{rank} {_link(left, left_name)}  ❤️  {_link(right, right_name)}")
+            lines.append(f"      <i>{days} days together</i>")
+        return "\\n".join(lines)
+
+    rows = await repo.leaderboard("total", limit=10000)
+    if scope == "chat" and chat_id:
+        from sqlalchemy import select
+        from app.database.models import KnownUser
+        async with context.application.bot_data["sessions"]() as session:
+            ids = set(await session.scalars(
+                select(KnownUser.user_id).where(KnownUser.chat_id == chat_id)
+            ))
+        rows = [row for row in rows if row[0] in ids]
+    rows = rows[:15]
+    heading = f"🏆 <b>FAMILY TOP 15</b>  ·  {'GLOBAL' if scope == 'global' else 'THIS CHAT'}"
+    if not rows:
+        return heading + "\\n\\nNo family relationships yet. Be the first to build your family!"
+    medals = ["🥇", "🥈", "🥉"]
+    lines = [heading, "<i>Members with the most family connections</i>", ""]
+    for i, (uid, score) in enumerate(rows, 1):
+        rank = medals[i - 1] if i <= 3 else f"<b>{i}.</b>"
+        name = await _name(context, uid, chat_id)
+        noun = "connection" if score == 1 else "connections"
+        lines.append(f"{rank} {_link(uid, name)}  —  <b>{score:,}</b> {noun}")
+    return "\\n".join(lines)
+
+
 async def familytop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await familyrank_command(update, context)
+    message = update.effective_message
+    if not message:
+        return
+    text = await _familytop_render(context, "global", message.chat_id)
+    await message.reply_text(
+        text, parse_mode="HTML", reply_markup=await _familytop_keyboard("global"),
+        disable_web_page_preview=True,
+    )
 
 
 async def familyhelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
