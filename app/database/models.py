@@ -282,3 +282,18 @@ class BotAdmin(Base):
     added_by: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
 
+
+class FamilyRelationship(Base):
+    """Global, permanent directed family edge; every relationship is stored reciprocally."""
+    __tablename__ = "family_relationships"
+    __table_args__ = (
+        UniqueConstraint("user_id", "related_user_id", "relation", name="uq_family_edge"),
+        Index("ix_family_relationship_user", "user_id", "relation"),
+        Index("ix_family_relationship_related", "related_user_id", "relation"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    related_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    relation: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
