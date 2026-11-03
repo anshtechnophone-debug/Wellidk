@@ -26,8 +26,9 @@ async def test_parent_child_edges_are_reciprocal_and_permanent(family):
     }
     with pytest.raises(FamilyError, match="already has a father"):
         await repo.add(30, 20, "son")
+    await repo.add(10, 30, "father")
     with pytest.raises(FamilyError, match="already have a father"):
-        await repo.add(10, 30, "father")
+        await repo.add(10, 40, "father")
 
 
 @pytest.mark.asyncio
