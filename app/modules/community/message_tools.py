@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from telegram import Chat, ChatMember, Update
+import html
+
+from sqlalchemy import select
+from telegram import Chat, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from app.core.permissions import AuthorizationError, require_admin_access
 from app.services.activity_log import ActivityLogRepository
+from app.services.group_history import GroupMessage
 
 
 async def _reply(update: Update, text: str) -> None:
@@ -113,32 +117,71 @@ async def groupinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def userinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show a user's current identity and names XYRON previously observed in this group."""
     message, chat = update.effective_message, update.effective_chat
     if not message or not chat:
         return
-    if message.reply_to_message and message.reply_to_message.from_user:
-        target_id = message.reply_to_message.from_user.id
-    elif context.args and len(context.args) == 1 and context.args[0].isdecimal():
-        target_id = int(context.args[0])
-    else:
-        await _reply(update, "Usage: reply to a user or use /info <numeric_user_id>.")
-        return
-    try:
-        member = await context.bot.get_chat_member(chat.id, target_id)
-    except TelegramError as exc:
-        await _reply(update, f"Telegram could not find that member: {exc.message}")
-        return
-    role = {
-        ChatMember.OWNER: "owner",
-        ChatMember.ADMINISTRATOR: "administrator",
-        ChatMember.MEMBER: "member",
-        ChatMember.RESTRICTED: "restricted",
-        ChatMember.LEFT: "left",
-        ChatMember.BANNED: "banned",
-    }.get(member.status, "unknown")
-    username = f"@{member.user.username}" if member.user.username else "unavailable"
-    await _reply(
-        update,
-        f"User: {member.user.full_name}\nID: {member.user.id}\n"
-        f"Username: {username}\nStatus: {role}",
+
+    target_user = (
+        message.reply_to_message.from_user
+        if message.reply_to_message and message.reply_to_message.from_user
+        else None
     )
+    if target_user is None:
+        if len(context.args) != 1 or not context.args[0].isdecimal():
+            await _reply(update, "Usage: reply to a user's message or use /info <numeric_user_id>.")
+            return
+        try:
+            member = await context.bot.get_chat_member(chat.id, int(context.args[0]))
+            target_user = member.user
+        except TelegramError as exc:
+            await _reply(update, f"Telegram could not find that member: {exc.message}")
+            return
+
+    sessions = context.application.bot_data.get("sessions")
+    if sessions is None:
+        await _reply(update, "User history is temporarily unavailable.")
+        return
+
+    async with sessions() as session:
+        rows = (
+            await session.execute(
+                select(GroupMessage.display_name, GroupMessage.username)
+                .where(
+                    GroupMessage.chat_id == chat.id,
+                    GroupMessage.user_id == target_user.id,
+                )
+                .order_by(GroupMessage.sent_at.desc())
+                .limit(500)
+            )
+        ).all()
+
+    current_name = target_user.full_name.strip() or "Unavailable"
+    current_username = f"@{target_user.username}" if target_user.username else "Unavailable"
+    old_names: list[str] = []
+    old_usernames: list[str] = []
+    seen_names = {current_name.casefold()}
+    seen_usernames = {target_user.username.casefold()} if target_user.username else set()
+
+    for display_name, username in rows:
+        name = (display_name or "").strip()
+        if name and name.casefold() not in seen_names:
+            seen_names.add(name.casefold())
+            old_names.append(name)
+        if username and username.casefold() not in seen_usernames:
+            seen_usernames.add(username.casefold())
+            old_usernames.append("@" + username.lstrip("@"))
+        if len(old_names) >= 10 and len(old_usernames) >= 10:
+            break
+
+    def history_line(values: list[str]) -> str:
+        return ", ".join(html.escape(value) for value in values[:10]) if values else "No history recorded"
+
+    text = (
+        f"<b>UID:</b> <code>{target_user.id}</code>\n"
+        f"<b>Name:</b> {html.escape(current_name)}\n"
+        f"<b>Username:</b> {html.escape(current_username)}\n"
+        f"<b>Old names:</b> {history_line(old_names)}\n"
+        f"<b>Old usernames:</b> {history_line(old_usernames)}"
+    )
+    await message.reply_text(text, parse_mode="HTML")
