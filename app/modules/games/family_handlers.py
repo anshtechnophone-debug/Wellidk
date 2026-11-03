@@ -36,105 +36,116 @@ def _link(user_id: int, name: str) -> str:
 
 
 async def family_remove_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Owner-only: remove one named person from the replied-to user's family."""
-    message = update.effective_message
-    owner = update.effective_user
-    chat = update.effective_chat
+    """Owner-only: remove family roles or one named/ID member from a replied user's family."""
+    message, owner, chat = update.effective_message, update.effective_user, update.effective_chat
     if not message or not owner or not chat:
         return
-
     settings = context.application.bot_data.get("settings")
-    owner_ids = set(getattr(settings, "owner_ids", []) or [])
-    if owner.id not in owner_ids:
+    if not settings or not settings.is_owner(owner.id):
         await message.reply_text("Only the bot owner can use /remove.")
         return
-
     if chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
         await message.reply_text("Use /remove in a group by replying to the person's message.")
         return
-
     replied = message.reply_to_message
     if not replied or not replied.from_user:
-        await message.reply_text("Reply to the person's message: /remove @username")
+        await message.reply_text("Reply to the person's message: /remove father, mother | @username | user_id")
         return
 
-    if len(context.args) != 1 or not context.args[0].startswith("@"):
-        await message.reply_text("Usage: reply to a person's message with /remove @username")
-        return
-
-    username = context.args[0][1:].strip().casefold()
-    if not username:
-        await message.reply_text("Please provide a valid @username.")
-        return
-
-    from sqlalchemy import and_, func, or_, select
-    from app.database.models import FamilyRelationship, KnownUser
-
-    sessions = context.application.bot_data["sessions"]
-    async with sessions() as session:
-        relative_id = await session.scalar(
-            select(KnownUser.user_id).where(
-                KnownUser.chat_id == chat.id,
-                func.lower(KnownUser.username) == username,
-            ).limit(1)
-        )
-
-    if relative_id is None:
-        await message.reply_text(
-            f"Couldn't find @{escape(username)} in this group's known users. "
-            "Make sure XYRON has seen them in this group."
-        , parse_mode="HTML")
+    tokens = [x.strip().casefold() for x in " ".join(context.args or []).replace(",", " ").split()]
+    aliases = {
+        "father": {"father"}, "mother": {"mother"}, "son": {"son"}, "daughter": {"daughter"},
+        "brother": {"sibling"}, "sister": {"sibling"}, "sibling": {"sibling"},
+        "friend": {"friend"}, "wife": {"wife"}, "husband": {"husband"},
+        "spouse": {"wife", "husband"}, "parent": {"father", "mother"},
+        "parents": {"father", "mother"}, "child": {"son", "daughter"},
+        "children": {"son", "daughter"},
+    }
+    role_mode = bool(tokens) and all(x in aliases for x in tokens)
+    username = None
+    relative_id = None
+    if role_mode:
+        relations = set().union(*(aliases[x] for x in tokens))
+    elif len(tokens) == 1 and tokens[0].startswith("@") and len(tokens[0]) > 1:
+        relations = set()
+        username = tokens[0][1:]
+    elif len(tokens) == 1 and tokens[0].isdigit() and int(tokens[0]) > 0:
+        relations = set()
+        relative_id = int(tokens[0])
+    else:
+        await message.reply_text("Usage: /remove father, mother | @username | numeric_id (reply to the person)")
         return
 
     subject_id = replied.from_user.id
-    if subject_id == relative_id:
+    if relative_id == subject_id:
         await message.reply_text("A person cannot be removed from their own family.")
         return
 
-    async with sessions() as session:
-        async with session.begin():
-            edges = list(await session.scalars(
-                select(FamilyRelationship).where(
-                    FamilyRelationship.user_id == subject_id,
-                    FamilyRelationship.related_user_id == relative_id,
-                )
-            ))
-            if not edges:
-                removed = 0
-            else:
-                result = await session.execute(
-                    FamilyRelationship.__table__.delete().where(
-                        or_(
-                            and_(
-                                FamilyRelationship.user_id == subject_id,
-                                FamilyRelationship.related_user_id == relative_id,
-                            ),
-                            and_(
-                                FamilyRelationship.user_id == relative_id,
-                                FamilyRelationship.related_user_id == subject_id,
-                            ),
-                        )
-                    )
-                )
-                removed = result.rowcount or 0
-                relation_names = sorted({edge.relation for edge in edges})
-
-    if not removed:
-        await message.reply_text(
-            f"@{escape(username)} isn't listed in "
-            f"{escape(replied.from_user.full_name)}'s family."
-        , parse_mode="HTML")
+    from sqlalchemy import func, select
+    from app.database.models import FamilyRelationship, KnownUser
+    sessions = context.application.bot_data["sessions"]
+    if username:
+        async with sessions() as session:
+            relative_id = await session.scalar(select(KnownUser.user_id).where(
+                KnownUser.chat_id == chat.id,
+                func.lower(KnownUser.username) == username.casefold(),
+            ).limit(1))
+        if relative_id is None:
+            await message.reply_text(
+                f"Couldn't find @{escape(username)} in this group's known users. "
+                "Make sure XYRON has seen them in this group."
+            )
+            return
+    if relative_id == subject_id:
+        await message.reply_text("A person cannot be removed from their own family.")
         return
 
-    await message.reply_text(
-        "✅ <b>Family relationship removed.</b>\n"
-        f"{_link(replied.from_user.id, replied.from_user.full_name)} and "
-        f"{_link(relative_id, await _name(context, relative_id, chat.id))} "
-        "are no longer connected.\n"
-        f"<i>Removed: {escape(', '.join(relation_names))}</i>",
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+    reverse = {"father": "son", "son": "father", "mother": "daughter", "daughter": "mother",
+               "wife": "husband", "husband": "wife", "sibling": "sibling", "friend": "friend"}
+    async with sessions() as session:
+        async with session.begin():
+            query = select(FamilyRelationship).where(FamilyRelationship.user_id == subject_id)
+            query = query.where(
+                FamilyRelationship.relation.in_(relations) if role_mode
+                else FamilyRelationship.related_user_id == relative_id
+            )
+            edges = list(await session.scalars(query))
+            for edge in edges:
+                reciprocal = await session.scalars(select(FamilyRelationship).where(
+                    FamilyRelationship.user_id == edge.related_user_id,
+                    FamilyRelationship.related_user_id == subject_id,
+                    FamilyRelationship.relation == reverse.get(edge.relation, edge.relation),
+                ))
+                for other in list(reciprocal):
+                    await session.delete(other)
+                await session.delete(edge)
+            names = sorted({edge.relation for edge in edges})
+            removed_ids = sorted({edge.related_user_id for edge in edges})
+
+    if not edges:
+        label = ", ".join(sorted(relations)) if role_mode else "that user"
+        await message.reply_text(
+            f"No {escape(label)} relationship was found in {escape(replied.from_user.full_name)}'s family."
+        )
+        return
+
+    if role_mode:
+        member_names = ", ".join(escape(await _name(context, uid, chat.id)) for uid in removed_ids)
+        await message.reply_text(
+            "✅ <b>Family relationships removed.</b>\n"
+            f"Roles: <b>{escape(', '.join(names))}</b>\n"
+            f"Members: {member_names or '—'}\n"
+            f"From {_link(subject_id, replied.from_user.full_name)}'s family.",
+            parse_mode="HTML", disable_web_page_preview=True,
+        )
+    else:
+        await message.reply_text(
+            "✅ <b>Family relationship removed.</b>\n"
+            f"{_link(subject_id, replied.from_user.full_name)} and "
+            f"{_link(relative_id, await _name(context, relative_id, chat.id))} are no longer connected.\n"
+            f"<i>Removed: {escape(', '.join(names))}</i>",
+            parse_mode="HTML", disable_web_page_preview=True,
+        )
 
 
 async def family_relationship_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
