@@ -113,6 +113,10 @@ from app.modules.games.family_handlers import (
     familyrank_command,
     familytop_command,
     familyhelp_command,
+    marriage_command,
+    divorce_command,
+    family_request_callback,
+    familyrank_callback,
 )
 from app.modules.games.handlers import (
     guess_command,
@@ -505,6 +509,10 @@ def _register_general(application: Application) -> None:
         ("brother", family_relationship_command),
         ("sister", family_relationship_command),
         ("friend", family_relationship_command),
+        ("wife", marriage_command),
+        ("husband", marriage_command),
+        ("divorce", divorce_command),
+        ("familyinfo", family_command),
         ("family", family_command),
         ("familytree", familytree_command),
         ("familyrank", familyrank_command),
@@ -583,6 +591,8 @@ def _register_general(application: Application) -> None:
     )
     application.add_handler(CallbackQueryHandler(quote_vote_callback, pattern=r"^qv:\d+:(?:up|down)$"), group=0)
     application.add_handler(CallbackQueryHandler(wordrank_callback, pattern=r"^wr:(?:p|s|l):"), group=0)
+    application.add_handler(CallbackQueryHandler(family_request_callback, pattern=r"^famreq:[ad]:\\d+$"), group=0)
+    application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
 
     # WordSeek accepts ordinary text guesses only while that user has an active game.
     application.add_handler(
