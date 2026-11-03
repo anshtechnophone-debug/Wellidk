@@ -186,7 +186,7 @@ async def userinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     text = (
         f"<b>UID:</b> <code>{target_user.id}</code>\n"
         f"<b>Name:</b> {html.escape(current_name)}\n"
-        f"<b>Status:</b> {html.escape(member_status)}\n"
+        f"Status: {html.escape(member_status)}\n"
         f"<b>Username:</b> {html.escape(current_username)}\n"
         f"<b>Old names:</b> {history_line(old_names)}\n"
         f"<b>Old usernames:</b> {history_line(old_usernames)}"
