@@ -226,10 +226,23 @@ async def demote_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     target_message = message.reply_to_message
     target = target_message.from_user if target_message else None
-    if not target:
-        await _reply(update, "Reply directly to the user's message, then send: demote")
+    try:
+        if target:
+            target_id = target.id
+        elif len(context.args) == 1:
+            target_id = (
+                int(context.args[0]) if context.args[0].isdecimal()
+                else await _resolve_bot_admin_target(context, context.args[0])
+            )
+        else:
+            raise ValueError(
+                "Usage: /demote @username (or reply to their message; numeric ID also works)."
+            )
+    except ValueError as exc:
+        await _reply(update, str(exc))
         return
-    if settings.is_owner(target.id):
+
+    if settings.is_owner(target_id):
         await _reply(update, "The configured owner cannot be demoted.")
         return
 
