@@ -244,7 +244,6 @@ class WordSeekRepository:
                 .where(
                     WordGameSession.chat_id == chat_id,
                     WordGameSession.state == "active",
-                    WordGameSession.expires_at > current,
                 )
                 .order_by(WordGameSession.created_at.desc())
                 .limit(1)
