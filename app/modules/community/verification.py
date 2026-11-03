@@ -86,15 +86,44 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     payload = context.args[0] if context.args else ""
-    family_match = re.fullmatch(r"family_req_(\d{1,10})_(\d{1,15})", payload)
+    family_match = re.fullmatch(r"fr_(\d{1,10})_(\d{1,15})_(-?\d{1,15})_(\d{1,10})", payload)
     if family_match:
-        request_id, expected_user_id = map(int, family_match.groups())
+        request_id, expected_user_id, group_id, message_id = map(int, family_match.groups())
+        if user.id != expected_user_id:
+            await message.reply_text("This family request link belongs to another Telegram account.")
+            return
+        from app.modules.games.family import FamilyRepository
+        repository = FamilyRepository(context.application.bot_data["sessions"])
+        if not await repository.is_pending_request_for(request_id, user.id):
+            await message.reply_text("This family request has expired or was already answered.")
+            return
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Accept", callback_data=f"famreq:a:{request_id}"),
+            InlineKeyboardButton("Decline", callback_data=f"famreq:d:{request_id}"),
+        ]])
+        try:
+            await context.bot.edit_message_reply_markup(
+                chat_id=group_id, message_id=message_id, reply_markup=keyboard
+            )
+        except TelegramError:
+            await message.reply_text(
+                "You're connected, but I couldn't update the group buttons. "
+                "Please ask an admin to check that XYRON can edit its messages."
+            )
+            return
+        await message.reply_text(
+            f"✅ XYRON is started! Request #{request_id} is ready. "
+            "Go back to the group and tap Accept or Decline."
+        )
+        return
+    legacy_family_match = re.fullmatch(r"family_req_(\d{1,10})_(\d{1,15})", payload)
+    if legacy_family_match:
+        request_id, expected_user_id = map(int, legacy_family_match.groups())
         if user.id != expected_user_id:
             await message.reply_text("This family request link belongs to another Telegram account.")
             return
         await message.reply_text(
-            f"✅ You're now connected to XYRON privately for family request #{request_id}. "
-            "Go back to the group and tap “I've started — Accept” to confirm the request."
+            f"✅ XYRON is started for request #{request_id}. Please ask for a fresh request link in the group."
         )
         return
     if _QUOTE_REACT_PAYLOAD.fullmatch(payload):
