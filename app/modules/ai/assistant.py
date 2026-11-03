@@ -687,11 +687,10 @@ class AIEventRouter:
                 ),
             )
 
-        # Group members may address XYRON for conversation or advisory analysis.
-        # Natural-language moderation controls are separately owner-restricted.
-        if chat.type == "private" and not settings.is_owner(user.id):
-            if user.id not in {8797066795, 8803598351, 8860754092}:
-                return
+        # XYRON's conversational AI is owner-only in every chat.
+        # Mentioning/replying to the bot never grants another member access.
+        if not settings.is_owner(user.id):
+            return
 
         if chat.type == "private":
             kind = (
