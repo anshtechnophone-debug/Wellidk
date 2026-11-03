@@ -117,6 +117,11 @@ _EXTRA_WORDS = {
     5: """abide abode abort abuse actor acute adapt adept admit adopt adore adult after again agent agile aging agony agree ahead alarm album alert algae alike alive allow alloy alone along alter amend ample angel anger angle angry angst anime ankle annoy apart apple apply arena argue arise armed armor aroma array arrow aside asset atlas audio audit avoid awake award aware awful badly baker basic basil batch beach beard beast began begin being below bench berry birth black blade blame blank blast blaze bleak blend bless blind blink bliss block blond blood bloom blown board boast bonus boost booth bound brain brake brand brave bread break brick bride brief bring broad broke brook brown brush build built bunch buyer cable cabin camel candy canon cargo carry carve catch cater cause cease chain chair chalk charm chart chase cheap cheat check cheek cheer chess chest chief child chill china choir choke chord chose civic civil claim clamp class clean clear clerk click cliff climb cling clinic clock clone close cloth cloud clown coach coast coral couch could count court cover crack craft crash cream creek crime crisp cross crowd crown crude crush crust curve cycle daily dairy daisy dance dated deals dealt death debut decay delay depth devil diary digit dirty doubt dozen draft drama dream dress dried drift drill drink drive drove drunk eager early earth easel eaten eight elbow elder elect elite empty enact enemy enjoy enter entry equal error essay event every exact exist extra faith false fancy fault favor feast fence fetch fever fiber field fifth fifty fight final first fixed flame flash fleet flesh flick flies float floor flour fluid flush focus force forge forth forty forum found frame frank fraud freak fresh front frost fruit fully funny fuzzy giant given glass glaze globe glory going grace grade grain grand grant grape graph grasp grass great green greet grief grill grind gross group grown guard guess guest guide habit happy harsh haste hasty haunt heart heavy hello hence hobby honey honor horse hotel house human humor ideal image imply inbox index inner input issue ivory jolly joint judge juice juicy jumbo karma kayak kneel knife knock known label labor large laser later laugh layer learn lease least leave legal leery lemon level lever light limit linen liver local logic loose lower loyal lucky lunch lyric magic major maker march marry match maybe mayor medal media mercy merge merit merry metal meter might minor minus mixed model money month moral motor mount mouse mouth movie music naive naked nerve never newly night noble noise north novel nurse occur ocean offer often onion opera orbit order other ought outer owner oxide paint panel panic paper party peace pearl phase phone photo piano piece pilot pinch pitch place plain plane plant plate plead plenty point polar pound power press price pride prime print prior prize proof proud prove queen query quest quick quiet quite quote radar radio raise range rapid ratio reach react ready realm rebel refer relax relay reply reset retro rhyme rider right rigid rival river robot rocky roman rough round route royal ruler rural sad? saint salad salon sandy scale scene scent scope score scout scrap screw serve seven shade shadow shaft shake shall shame shape share sharp sheep sheer sheet shelf shell shift shine shiny shirt shock shoes shoot shore short shout shown sight sigma since sixth sixty sized skill skirt skull slave sleep slice slide slight slime sling slip? slope small smart smell smile smoke snack snake sneak sober solar solid solve sorry sound south space spare speak speed spell spend spent spice spicy spike spill spin split spoke spoon sport spray squad staff stage stake stamp stand stare stark start state steam steel steep steer stick stiff still stock stone stood stool store storm story strip stuck study stuff style sugar suite sunny super sweet table taken taste teach tears teeth terms thank their theme there these thick thief thing think third those three threw throw thumb tight timer times tired title today topic total touch tough tower toxic trace track trade train treat trend trial tribe trick tried trips truly trust truth twice uncle under union unity until upper upset urban usage usual valid value vapor video vigil villa vinyl viral virus visit vital vivid vocal voice voter waist waste watch water weary weave wedge weird whale wheat wheel where which while white whole whose widow width wield winds wince winer? wings winner wiser witch woman women world worry worse worst worth would wound woven wreck wrist write wrong yacht yearn yeast yield young youth""".split(),
     6: """abroad accept access accuse across acting action active actual adapt? admire advice advise affect afford afraid agency agenda almost always amount anchor animal annual answer anyone anyhow appeal appear arcade argued arrive artist aspect assess assign assist assume assure attack attend august author autumn avenue backup barely basket battle beacon become before behalf behave belief belong beloved better beyond bicycle bishop bitter blanket blossom blouse board? border bottle bottom branch brandy breath breeze bridge bright broken broker budget buffer burden button camera camp? cancel cancer candle cannot canvas canyon career carpet carrot castle casual caught center chance change charge cheese cherry chest? choice choose chrome church circle circus claims clarify client climate closed closet coffee collect colony color? combine comedy comfort comic common comply compose concert conduct confirm connect consist consume contact contain content contest control convert cookie copper corner costly cotton county couple course cousin cover? create credit crisis critic custom cycle danger debate decade decide decline decode defend degree delay? demand depend depict design desire desktop detail device differ dinner direct doctor dollar domain donate double dozen? driven during easily eating editor effect effort either eleven emerge empire employ enable ending energy engage engine enough enrich ensure entire entity entry? escape estate ethics ethnic except excess excite excuse expand expect expert export extend extent fabric factor failed fairly family famous farmer father fellow female figure filing finger finish fiscal fitness flower follow foolish forest forget formal format former fossil foster friend frozen future gadget galaxy garden gather gender gentle gifted global golden gossip govern grab? ground growth guitar guilty handle happen harbor hardly health height helmet hidden highly honest horror hostel impact impose income indeed infant inform inhale inherit inside insist intend invest invite island itself jacket junior keeper kernel kitchen kitten latest launch lawyer leader league length lesson letter likely listen little locate lonely lovely lumber luxury machine mainly manner manual margin marine market master matter mature medium member memory mental mentor merely method middle minute mirror mobile modern modest modify moment monday monkey mother motion museum mutual nation native nature nearby nearly needle nephew nickel nobody normal notice number? object obtain occupy occur? office online option orange orbit? origin output oxygen parent people period permit person phrase picnic planet player please pocket poetry police policy polish polite postal powder pretty prince prison profit proper public pursue puzzle random rarely rather reader reason recent record reduce reform regard region relate relief remain remark remedy remind remote remove repair repeat replace reply report rescue resist result retail return reveal review rhythm safety sample satisfy school screen search season second secret secure select senior series server settle severe shadow? shield signal silver simple simply single sister slowly smooth social source speech sphere spider spirit spoken spring square stable stadium staff? status steady stolen street stress strict string strive strong submit sudden suffer summer summit supply surely survey switch symbol system talent target taught tenant tender theory thirty though thread threat ticket timely tissue tomato tomorrow? toward travel treaty twelve unable unique united unless unlike unlock update useful valley vanish velvet vendor verify version victim viewer village violent vision visual volume wallet wander wealth weapon? weekly weight window winner winter wisdom wonder wooden worker writer yellow""".split(),
 }
+
+_EXTRA_WORDS[4] = tuple([*_EXTRA_WORDS[4], *"""acorn acre aged amid anew ante arch area arms army atom aunt aura avid axis babe back bald balm band bang barn bass bead beak beam bean beef beer bend bent bias bike bill bind bite blow blur bold bolt bomb bond boom boot bore bout brag bran brat brew brow bulk bump bunk burr bush bust buzz cafe cage calf cane cape cart cave cent chew chic chin chip chop clad clam clap claw clip clog clue coil coin cola colt comb cone cope copy cord core cork corn cove cram crew crib crop cube cuff cult curb curl cute dame damp dare dart dash daze dean debt deem deer deny dial dice dime dine ding disc disk dive dock does doll dome done doom dose dove drag drew drip dual duck dull dump dune dusk dust echo edit envy epic exit fade fail fame fang fare fear feat fend fern flag flap flaw flee flip foam fold ford fort frog fuse gape gang gasp geek gear gaze glow goal goat grab gray grid grim grin guru hail halt heal heap heel hell herd hide hire hood hook horn jade jazz join jolt jump keen kiss kite knee knit knob knot lace lamb lame lamp lens liar lice lick limb limp lips loaf logo loop loss lump lung lure mast maze memo mesh mill mime mint mist mold mole monk moor moth mule myth nest noon noun numb odds pave pear peel peer pelt pick pile pill pine plea plot plug plum plus poet poll pond pulp pump quit quiz rake rank reef roam roar roof rope rush rust sage scan scar shed sift silk sill sing sink slab slam sled slim slip slug snap soak soap soar sock soda sofa soot soup sour span spar sped spin spit stem stir swan swim sync taco tail tame tear tent tick tilt toll toss trek trim trip tube tuck tuna twin vale vary veil vein vial vice view void vote wage wand ward warn warp weep whip wilt wink wire wolf wool wore wreck wren yarn yoga""".split()])
+_EXTRA_WORDS[5] = tuple([*_EXTRA_WORDS[5], *"""aback abase abbey abbot abide abort abyss acorn acted adorn aisle algae alias allay alley allot aloud alpha altar amiss amuse ankle antic apron arose attic bacon badge bagel balmy banal banjo basin bathe beady berth biker binge blade bland bleed blink bliss boast brace brake brisk brute cacao cache cacti cadre cameo canny canoe caper cedar champ chaos chime chunk clang clash cleat cling clink cloak clout cobra cocoa colon comet comma conch condo cough coupe covet crack crate crave crawl crazy credo creep crest cried crook crude cruel crumb cubic cumin curly curry curse daisy decor decoy defer deity delta demon denim dense depot derby deter diner disco ditch ditto dizzy dodge donor dryer eagle easel eater ebony edict eerie elude email ember emcee endow ennui equip erase erupt ethic evade exalt excel exert exile expel fable facet faint fairy fatal favor ferry fewer fiend filet finch flare flask flesh flick fling flock flute foggy forge freak frisk fungi gamut gamma gamer gauge gaunt gauze gazer gecko geeky genie genre ghost glaze gleam glide gloom glove gnash gnome hardy haven havoc hazel heath hedge heron hinge hobby hound humid idiom incur inept inert infer intro ionic irony jazzy jelly jewel jiffy joist joker joust kebab khaki koala laden lager lance lapel larva latch latte leach leafy leaky leash lemur lilac liner lipid liter llama lodge login lorry lotus lunar macro madam magma mambo manga mango manor maple marsh mason matey metro micro midst milky mimic miner mixer modem mogul moist molar moody mower mulch mummy mural nanny nasal nasty natal naval needy niche ninja ninth noisy nosey notch octal olive omega onset opine optic ounce ozone pansy parka pasta paste patio peach pecan pedal penal penny peril pinch pixel plaid pluck plumb plume plump plush poise poker polka porch posit proxy pudgy puree purge rabbi rabid racer rally ranch raven recap regal rehab reign renew repay rerun resin retry ridge rifle rigor ripen risen rivet rodeo roomy roost rotor rover rubric rugby rumor salsa satin sauce scalp scarf scary scold scoop scorn scrub seedy setup sewer shady shard shark shave shawl shear sheen shook shred shrub shrug siege silly sinus skate slain slang slant slate slick slight slink sloth slump smash smirk snare snarl sniff snoop snore snowy sonic spear spiny spoil spoof spout spree sprig squat staid stain stair stale stalk stall stamp stark stave stead steak steep stern sting stink stint stoic stoke stool stoop stout stove strap straw stray strut stump sulky surge sushi swami swamp swarm swash swath swear sweep swept swift swipe swirl swish sword sworn taboo tacit tally talon tango tangy tapir tasty tease tempo tempt tenet tenor tense tenth tepid terra terse testy theta thigh thong thorn thump tiara tidal tiger timid tipsy titan toast token tonal tonic tooth towel tract trail trait tramp trash tripe trite troll troop trout trove trump trunk tuber tumor tummy tuple tutor twine twist ultra umber undue unfit unify unite utter vague valet valor vault vegan venue verge verse vigil villa vinyl viola vowel waive weary whisk widen windy winch witty yacht yearn""".split()])
+_EXTRA_WORDS[6] = tuple([*_EXTRA_WORDS[6], *"""abduct absorb absurd accent accord accrue achieve acumen advance advent aerial alight almond alpine anchor ardent argent armada around arrest ascend astute atomic attach awaken babble badger bedlam behold benefit berate bidder bikini blight blonde breach broker bronze browse bypass cabana campus canary carbon carton casino cavern chapel charter checkup cherish chisel clever coffin collar column combat coming concur confer confess conifer console context crochet cruise crumble crunch cutter damage daring deduct deploy desert detect disclose discuss display divide drawer driver evolve granite grapple graphic gravity humble hunter hybrid jagged jargon jersey jigsaw jingle kettle kidney kindly magnet nimble object occupy number oxygen permit polish profit remedy reveal secure shadow shield simply smooth sphere spider spirit spoken stable stadium stolen summit survey symbol tenant tender threat timber timely tissue tomato unlock vanish velvet vendor verify version viewer village wallet wander wisdom""".split()])
+
 for length, words in _EXTRA_WORDS.items():
     _WORDS[length] = tuple(dict.fromkeys([*_WORDS[length], *words]))
 _VALID_WORDS = {length: {word for word in words if len(word) == length and word.isalpha()} for length, words in _WORDS.items()}
@@ -180,20 +185,35 @@ class WordSeekRepository:
         if not is_valid_word(selected, length):
             raise WordGameError("The selected answer is outside the valid word list.")
         current = now or datetime.now(UTC)
-        active_key = f"{chat_id}:{user_id}:wordseek"
+        active_key = f"{chat_id}:wordseek"
         async with self.sessions.begin() as session:
-            active = await session.scalar(
-                select(WordGameSession)
-                .where(
-                    WordGameSession.active_key == active_key,
+            active_games = list(
+                await session.scalars(
+                    select(WordGameSession)
+                    .where(
+                        WordGameSession.chat_id == chat_id,
+                        WordGameSession.state == "active",
+                        WordGameSession.expires_at > current,
+                    )
+                    .order_by(WordGameSession.created_at.desc())
+                    .with_for_update()
                 )
-                .with_for_update()
             )
-            if active and active.expires_at > current:
-                raise WordGameError("You already have an active Word Seek game in this chat.")
-            if active:
-                active.state = "expired"
-                active.active_key = None
+            if active_games:
+                raise WordGameError("A Word Seek game is already active in this chat. Everyone can join by guessing!")
+            stale_games = list(
+                await session.scalars(
+                    select(WordGameSession)
+                    .where(
+                        WordGameSession.chat_id == chat_id,
+                        WordGameSession.state == "active",
+                    )
+                    .with_for_update()
+                )
+            )
+            for stale in stale_games:
+                stale.state = "expired"
+                stale.active_key = None
             game = WordGameSession(
                 chat_id=chat_id,
                 user_id=user_id,
@@ -221,7 +241,12 @@ class WordSeekRepository:
         async with self.sessions.begin() as session:
             game = await session.scalar(
                 select(WordGameSession)
-                .where(WordGameSession.active_key == active_key)
+                .where(
+                    WordGameSession.chat_id == chat_id,
+                    WordGameSession.state == "active",
+                )
+                .order_by(WordGameSession.created_at.desc())
+                .limit(1)
                 .with_for_update()
             )
             if game is None:
@@ -271,27 +296,47 @@ class WordSeekRepository:
             raise WordGameError("That Word Seek game expired. Start a new one with /wordseek.")
         return result
 
-    async def cancel(self, chat_id: int, user_id: int) -> bool:
+    async def cancel(self, chat_id: int, user_id: int, *, is_admin: bool = False) -> bool:
         async with self.sessions.begin() as session:
             game = await session.scalar(
                 select(WordGameSession)
-                .where(WordGameSession.active_key == f"{chat_id}:{user_id}:wordseek")
+                .where(
+                    WordGameSession.chat_id == chat_id,
+                    WordGameSession.state == "active",
+                )
+                .order_by(WordGameSession.created_at.desc())
+                .limit(1)
                 .with_for_update()
             )
-            if not game:
+            if not game or (game.user_id != user_id and not is_admin):
                 return False
             game.state = "cancelled"
             game.active_key = None
             return True
 
-    async def leaderboard(self, chat_id: int, limit: int = 10) -> list[tuple[int, int]]:
+    async def leaderboard(
+        self, chat_id: int | None, limit: int = 10, *, period: str = "all", length: int = 4
+    ) -> list[tuple[int, int]]:
         from sqlalchemy import func
+        from datetime import timedelta
 
+        if period not in {"day", "week", "month", "all"} or length not in (4, 5, 6):
+            raise WordGameError("Invalid ranking filter.")
+        current = datetime.now(UTC)
+        cutoff = {"day": current - timedelta(days=1), "week": current - timedelta(days=7),
+                  "month": current - timedelta(days=30), "all": None}[period]
         async with self.sessions() as session:
-            result = await session.execute(
+            query = (
                 select(WordGameScore.user_id, func.sum(WordGameScore.points).label("points"))
-                .where(WordGameScore.chat_id == chat_id)
-                .group_by(WordGameScore.user_id)
+                .join(WordGameSession, WordGameSession.id == WordGameScore.session_id)
+                .where(WordGameSession.word_length == length)
+            )
+            if chat_id is not None:
+                query = query.where(WordGameScore.chat_id == chat_id)
+            if cutoff is not None:
+                query = query.where(WordGameScore.created_at >= cutoff)
+            result = await session.execute(
+                query.group_by(WordGameScore.user_id)
                 .order_by(func.sum(WordGameScore.points).desc(), WordGameScore.user_id)
                 .limit(limit)
             )

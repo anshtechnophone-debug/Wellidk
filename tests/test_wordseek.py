@@ -68,22 +68,20 @@ async def test_game_win_scores_once_and_persists_across_sessions(games):
 
 
 @pytest.mark.asyncio
-async def test_games_are_isolated_by_chat_and_player(games):
+async def test_games_are_shared_by_chat_but_isolated_between_chats(games):
     repository, sessions = games
     await repository.start(-1001, 17, 4, answer="game")
     await repository.start(-1002, 17, 4, answer="game")
-    await repository.start(-1001, 18, 4, answer="game")
-    with pytest.raises(WordGameError, match="already have"):
-        await repository.start(-1001, 17, 4, answer="game")
-    result = await repository.guess(-1002, 17, "game")
+    with pytest.raises(WordGameError, match="already active"):
+        await repository.start(-1001, 18, 4, answer="able")
+    result = await repository.guess(-1001, 18, "game")
     assert result.state == "won"
+    assert result.guesses == ("game",)
     async with sessions() as session:
-        active = list(
-            await session.scalars(select(WordGameSession).where(WordGameSession.state == "active"))
-        )
-    assert {(game.chat_id, game.user_id) for game in active} == {(-1001, 17), (-1001, 18)}
-
-
+        scores = list(await session.scalars(select(WordGameScore)))
+        active = list(await session.scalars(select(WordGameSession).where(WordGameSession.state == "active")))
+    assert len(scores) == 1 and scores[0].user_id == 18
+    assert {(game.chat_id, game.user_id) for game in active} == {(-1002, 17)}
 @pytest.mark.asyncio
 async def test_game_timeout_and_cancellation(games):
     repository, sessions = games
