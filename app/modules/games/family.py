@@ -190,22 +190,17 @@ class FamilyRepository:
     async def leaderboard(self, category: str = "total", limit: int = 10):
         relation = {"sons": "son", "daughters": "daughter"}.get(category)
         async with self.sessions() as session:
+            stmt = select(
+                FamilyRelationship.user_id,
+                func.count(FamilyRelationship.id).label("score"),
+            )
             if relation:
-                stmt = select(FamilyRelationship.user_id, func.count(FamilyRelationship.id).label("score")).where(
-                    FamilyRelationship.relation == relation).group_by(FamilyRelationship.user_id)
-            else:
-                stmt = select(FamilyRelationship.user_id, func.count(FamilyRelationship.id).label("score")).where(
-                    FamilyRelationship.relation != "sibling").group_by(FamilyRelationship.user_id)
-            stmt = stmt.order_by(func.count(FamilyRelationship.id).desc(), FamilyRelationship.user_id.asc()).limit(limit)
-            rows = list((await session.execute(stmt)).all())
-            if category == "total":
-                # Sibling groups count as distinct connections for progression.
-                for index, (uid, score) in enumerate(rows):
-                    sibling_count = await session.scalar(select(func.count(FamilyRelationship.id)).where(
-                        FamilyRelationship.user_id == uid, FamilyRelationship.relation == "sibling"))
-                    rows[index] = (uid, score + int(sibling_count or 0))
-                rows.sort(key=lambda row: (-row[1], row[0]))
-            return rows
+                stmt = stmt.where(FamilyRelationship.relation == relation)
+            stmt = stmt.group_by(FamilyRelationship.user_id).order_by(
+                func.count(FamilyRelationship.id).desc(),
+                FamilyRelationship.user_id.asc(),
+            ).limit(limit)
+            return list((await session.execute(stmt)).all())
 
     async def longest_marriages(self, limit: int = 10):
         async with self.sessions() as session:
