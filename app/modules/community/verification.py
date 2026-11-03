@@ -24,7 +24,7 @@ _ADMIN_GUIDE_PAYLOAD = re.compile(r"^botadmin_guide_(\d{1,15})$")
 _RULES_PAYLOAD = re.compile(r"^rules_(-?\d{1,15})$")
 COMMUNITY_URL = "https://t.me/+krgZfOwfpZxhODYx"
 _COMMUNITY_CHECK = "community_join_check"
-_QUOTE_REACT_PAYLOAD = re.compile(r"^quote_react_\\d{1,10}$")
+_QUOTE_REACT_PAYLOAD = re.compile(r"^quote_react_\d{1,10}$")
 
 
 def _verification_payload(chat_id: int, user_id: int) -> str:
@@ -236,7 +236,7 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
     # its own active-giveaway and group-membership checks.
     if query and query.data and re.fullmatch(r"giveaway:(?:join|rules):-?\d+", query.data):
         return
-    if query and query.data and re.fullmatch(r"qv:\\d+:(?:up|down)", query.data):
+    if query and query.data and re.fullmatch(r"qv:\d+:(?:up|down)", query.data):
         return
 
     # This gate controls private-chat/community access, not group command
