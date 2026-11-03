@@ -244,6 +244,14 @@ class FamilyRepository:
             ).limit(limit)
             return list((await session.execute(stmt)).all())
 
+    async def reset_all(self) -> tuple[int, int]:
+        """Delete only Family relationships and request history."""
+        async with self.sessions() as session:
+            async with session.begin():
+                relationship_result = await session.execute(FamilyRelationship.__table__.delete())
+                request_result = await session.execute(FamilyRequest.__table__.delete())
+                return relationship_result.rowcount or 0, request_result.rowcount or 0
+
     async def longest_marriages(self, limit: int = 10):
         async with self.sessions() as session:
             rows = list((await session.execute(select(
