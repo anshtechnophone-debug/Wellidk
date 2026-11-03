@@ -73,7 +73,7 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
         board += f"\n\n🎉 <b>Excellent! You found {result.answer.upper()}!</b>\n⭐ Added {result.points} points to the leaderboard.\nStart again: /new{len(value)}"
     elif result.state == "lost":
         board += f"\n\nThe word was <b>{result.answer.upper()}</b>.\nTry again: /new{len(value)}"
-    await message.reply_text(f"👤 {user.full_name} guessed:\\n" + board, parse_mode="HTML")
+    await message.reply_text(f"👤 {user.full_name} guessed:\n" + board, parse_mode="HTML")
 
 
 async def guess_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
