@@ -32,6 +32,32 @@ async def test_parent_child_edges_are_reciprocal_and_permanent(family):
 
 
 @pytest.mark.asyncio
+async def test_child_cannot_make_parent_their_child_or_create_ancestor_cycle(family):
+    repo, sessions = family
+    await repo.add(10, 20, "son")  # 10 is 20's father.
+    with pytest.raises(FamilyError, match="family cycle"):
+        await repo.add(20, 10, "son")
+    with pytest.raises(FamilyError, match="family cycle"):
+        await repo.add(20, 10, "father")
+
+    # The rejected commands must not alter the original parent-child edges.
+    async with sessions() as session:
+        edges = list(await session.scalars(select(FamilyRelationship)))
+    assert {(e.user_id, e.related_user_id, e.relation) for e in edges} == {
+        (10, 20, "son"), (20, 10, "father")
+    }
+
+
+@pytest.mark.asyncio
+async def test_cannot_make_an_ancestor_a_child_in_a_multigeneration_tree(family):
+    repo, _ = family
+    await repo.add(1, 2, "son")
+    await repo.add(2, 3, "son")
+    with pytest.raises(FamilyError, match="family cycle"):
+        await repo.add(3, 1, "son")
+
+
+@pytest.mark.asyncio
 async def test_father_and_mother_are_separate_single_slots(family):
     repo, sessions = family
     await repo.add(10, 20, "son")
