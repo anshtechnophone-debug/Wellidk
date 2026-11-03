@@ -591,6 +591,8 @@ def _register_general(application: Application) -> None:
     )
     application.add_handler(CallbackQueryHandler(quote_vote_callback, pattern=r"^qv:\d+:(?:up|down)$"), group=0)
     application.add_handler(CallbackQueryHandler(wordrank_callback, pattern=r"^wr:(?:p|s|l):"), group=0)
+    application.add_handler(CallbackQueryHandler(family_request_callback, pattern=r"^famreq:[ad]:[0-9]+$"), group=0)
+    application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
     application.add_handler(CallbackQueryHandler(family_request_callback, pattern=r"^famreq:[ad]:\\d+$"), group=0)
     application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
 
