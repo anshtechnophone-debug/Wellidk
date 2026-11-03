@@ -39,8 +39,8 @@ class FamilyRepository:
             raise FamilyError("You cannot create a family relationship with yourself.")
         command = command.casefold()
         mapping = {
-            "son": ("son", "father"), "daughter": ("daughter", "mother"),
-            "father": ("father", "son"), "mother": ("mother", "daughter"),
+            "son": ("father", "son"), "daughter": ("mother", "daughter"),
+            "father": ("son", "father"), "mother": ("daughter", "mother"),
         }
         now = datetime.now(UTC)
         async with self.sessions() as session:
