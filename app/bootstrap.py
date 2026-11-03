@@ -106,7 +106,9 @@ from app.modules.games.chain_handlers import (
     wordchain_command,
     wordchaincancel_command,
 )
-from app.modules.games.family_handlers import (, familyreset_command, familyreset_callback
+from app.modules.games.family_handlers import (
+    familyreset_command,
+    familyreset_callback,
     family_relationship_command,
     family_command,
     familytree_command,
