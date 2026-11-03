@@ -729,8 +729,14 @@ class AIEventRouter:
         ):
             return
 
+        bot_username = (getattr(context.bot, "username", None) or "").casefold()
+        mentioned_usernames = {
+            name.casefold()
+            for name in re.findall(r"@([\w.-]{2,})", raw_text, re.IGNORECASE)
+            if name.casefold() != bot_username
+        }
         person_specific_history = bool(
-            re.search(r"@[\w.-]{2,}", raw_text, re.IGNORECASE)
+            mentioned_usernames
             or re.search(
                 r"\b(?:what did|messages from|msg from|chat by|what was said by|did)\s+@?[\w.-]{2,}",
                 raw_text,
