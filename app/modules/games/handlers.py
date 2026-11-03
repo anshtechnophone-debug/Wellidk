@@ -25,7 +25,7 @@ async def _start(update: Update, context: ContextTypes.DEFAULT_TYPE, length: int
         f"🧩 <b>WORD SEEK · {length} LETTERS</b>\n\n"
         f"Guess the hidden {length}-letter word in up to 30 attempts.\n"
         "🟩 Correct spot   🟨 Wrong spot   🟥 Not in word\n"
-        "Type your guess directly in the chat.\n"
+        "Everyone in this chat can play: type a guess directly in the chat.\n"
         "Use /wordcancel to stop.",
         parse_mode="HTML",
     )
@@ -73,7 +73,7 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
         board += f"\n\n🎉 <b>Excellent! You found {result.answer.upper()}!</b>\n⭐ Added {result.points} points to the leaderboard.\nStart again: /new{len(value)}"
     elif result.state == "lost":
         board += f"\n\nThe word was <b>{result.answer.upper()}</b>.\nTry again: /new{len(value)}"
-    await message.reply_text(board, parse_mode="HTML")
+    await message.reply_text(f"👤 {user.full_name} guessed:\\n" + board, parse_mode="HTML")
 
 
 async def guess_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
