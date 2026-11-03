@@ -74,11 +74,19 @@ async def require_admin_access(
         raise AuthorizationError("The configured owner must be a group administrator.")
 
     actor = await context.bot.get_chat_member(chat.id, actor_user.id)
-    async with context.application.bot_data["sessions"]() as session:
-        is_bot_admin = settings.is_owner(actor_user.id) or bool(
-            await session.get(BotAdmin, actor_user.id)
-        )
-    if not is_bot_admin:
+    # Resolve the internal XYRON role when the database is available. Lightweight
+    # contexts (and temporary DB outages) must not crash permission checks; in
+    # that case only Telegram group administrators and the configured owner pass.
+    is_bot_admin = settings.is_owner(actor_user.id)
+    application = getattr(context, "application", None)
+    bot_data = getattr(application, "bot_data", {}) if application else {}
+    sessions = bot_data.get("sessions")
+    if sessions is not None and not is_bot_admin:
+        async with sessions() as session:
+            is_bot_admin = bool(await session.get(BotAdmin, actor_user.id))
+    if not is_bot_admin and actor.status not in {
+        ChatMember.ADMINISTRATOR, ChatMember.OWNER
+    }:
         raise AuthorizationError("You are not an authorized XYRON bot admin.")
 
     if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
@@ -91,8 +99,20 @@ async def require_admin_access(
         }.get(bot_permission, bot_permission.removeprefix("can_").replace("_", " "))
         raise AuthorizationError(f"XYRON is missing the permission to {human}.")
 
-    # XYRON bot admins do not need Telegram group-admin status; Telegram's
-    # own bot permissions above remain mandatory for the requested operation.
+    # Telegram admins cannot exercise rights they do not personally hold.
+    if (
+        bot_permission
+        and actor.status == ChatMember.ADMINISTRATOR
+        and not getattr(actor, bot_permission, False)
+    ):
+        human = {
+            "can_restrict_members": "restrict members",
+            "can_delete_messages": "delete messages",
+            "can_pin_messages": "pin messages",
+        }.get(bot_permission, bot_permission.removeprefix("can_").replace("_", " "))
+        raise AuthorizationError(
+            f"Your Telegram administrator privileges do not allow {human}."
+        )
     return AdminAccess(actor=actor, bot=bot_member, is_bot_admin=is_bot_admin)
 
 
