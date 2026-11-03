@@ -296,14 +296,19 @@ class WordSeekRepository:
             raise WordGameError("That Word Seek game expired. Start a new one with /wordseek.")
         return result
 
-    async def cancel(self, chat_id: int, user_id: int) -> bool:
+    async def cancel(self, chat_id: int, user_id: int, *, is_admin: bool = False) -> bool:
         async with self.sessions.begin() as session:
             game = await session.scalar(
                 select(WordGameSession)
-                .where(WordGameSession.active_key == f"{chat_id}:wordseek")
+                .where(
+                    WordGameSession.chat_id == chat_id,
+                    WordGameSession.state == "active",
+                )
+                .order_by(WordGameSession.created_at.desc())
+                .limit(1)
                 .with_for_update()
             )
-            if not game or game.user_id != user_id:
+            if not game or (game.user_id != user_id and not is_admin):
                 return False
             game.state = "cancelled"
             game.active_key = None
