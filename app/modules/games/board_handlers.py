@@ -118,7 +118,13 @@ async def tictactoe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         text = "🎮 Tic-Tac-Toe lobby created!\n❌ X: " + user.full_name + "\nWaiting for a second player. They can join with /tictactoe."
     else:
         text = "🎮 Match started!\n" + _render(state).replace("**", "")
-    await message.reply_text(text, reply_markup=_keyboard(list(state["board"]), response == "joined"))
+    board_message = await message.reply_text(text, reply_markup=_keyboard(list(state["board"]), response == "joined"))
+    async with sessions.begin() as db:
+        game = await db.scalar(select(CasualGameSession).where(CasualGameSession.active_key == key).with_for_update())
+        if game:
+            latest = dict(game.state)
+            latest["board_message_id"] = board_message.message_id
+            game.state = latest
 
 
 async def ttt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -195,3 +201,46 @@ async def tttcancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             game.status, game.active_key = "cancelled", None
             cancelled = True
     await _reply(update, "Tic-Tac-Toe cancelled." if cancelled else "No active match to cancel.")
+
+
+async def tttend_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """End the active match when a participant replies to its board with /end."""
+    chat, user, message = update.effective_chat, update.effective_user, update.effective_message
+    if not chat or not user or not message or not message.reply_to_message:
+        await _reply(update, "Reply to the active Tic-Tac-Toe board with /end to end that match.")
+        return
+    target = message.reply_to_message
+    key = f"{chat.id}:tictactoe:multiplayer"
+    sessions = context.application.bot_data["sessions"]
+    ended = False
+    async with sessions.begin() as db:
+        game = await db.scalar(select(CasualGameSession).where(CasualGameSession.active_key == key).with_for_update())
+        if game:
+            state = dict(game.state)
+            players = {state.get("x_id"), state.get("o_id")}
+            if user.id not in players:
+                reason = "Only a player in this match can end it."
+            elif state.get("board_message_id") != target.message_id or target.from_user is None or target.from_user.id != context.bot.id:
+                reason = "Reply directly to the current Tic-Tac-Toe board message with /end."
+            else:
+                game.status = "cancelled"
+                game.active_key = None
+                state["ended_by"] = user.full_name
+                game.state = state
+                ended = True
+                reason = ""
+        else:
+            reason = "There is no active Tic-Tac-Toe match to end."
+    if ended:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat.id,
+                message_id=target.message_id,
+                text=_render(state, "cancelled") + f"\nEnded by: {user.full_name}",
+                reply_markup=None,
+            )
+        except Exception:
+            pass
+        await _reply(update, "Tic-Tac-Toe match ended.")
+    else:
+        await _reply(update, reason)
