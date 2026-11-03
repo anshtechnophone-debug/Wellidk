@@ -73,10 +73,13 @@ async def marriage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     except FamilyError as exc:
         await message.reply_text(str(exc), parse_mode="HTML")
         return
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("💍 Accept", callback_data=f"famreq:a:{request_id}"),
-        InlineKeyboardButton("Decline", callback_data=f"famreq:d:{request_id}"),
-    ]])
+    bot = await context.bot.get_me()
+    start_url = f"https://t.me/{bot.username}?start=family_req_{request_id}_{target.id}"
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💬 Open XYRON privately", url=start_url)],
+        [InlineKeyboardButton("✅ I've started — Accept", callback_data=f"famreq:a:{request_id}"),
+         InlineKeyboardButton("Decline", callback_data=f"famreq:d:{request_id}")],
+    ])
     await message.reply_text(
         f"💍 <b>Marriage proposal</b>\n{_link(user.id, user.full_name)} has proposed to "
         f"{_link(target.id, target.full_name)} as their {command}.\n\n"
@@ -97,10 +100,13 @@ async def divorce_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     except FamilyError as exc:
         await message.reply_text(str(exc), parse_mode="HTML")
         return
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Accept divorce", callback_data=f"famreq:a:{request_id}"),
-        InlineKeyboardButton("Decline", callback_data=f"famreq:d:{request_id}"),
-    ]])
+    bot = await context.bot.get_me()
+    start_url = f"https://t.me/{bot.username}?start=family_req_{request_id}_{target.id}"
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💬 Open XYRON privately", url=start_url)],
+        [InlineKeyboardButton("✅ I've started — Accept", callback_data=f"famreq:a:{request_id}"),
+         InlineKeyboardButton("Decline", callback_data=f"famreq:d:{request_id}")],
+    ])
     await message.reply_text(
         f"💔 <b>Divorce request</b>\n{_link(user.id, user.full_name)} has requested a mutual divorce from "
         f"{_link(target.id, target.full_name)}.\n\nOnly the spouse can respond. Expires in 24 hours.",
