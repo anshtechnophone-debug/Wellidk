@@ -76,8 +76,8 @@ async def marriage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     bot = await context.bot.get_me()
     start_url = f"https://t.me/{bot.username}?start=family_req_{request_id}_{target.id}"
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💬 Open XYRON privately", url=start_url)],
-        [InlineKeyboardButton("✅ I've started — Accept", callback_data=f"famreq:a:{request_id}"),
+        [InlineKeyboardButton("💍 Accept request — open XYRON", url=start_url)],
+        [InlineKeyboardButton("✅ I've started — Confirm Accept", callback_data=f"famreq:a:{request_id}"),
          InlineKeyboardButton("Decline", callback_data=f"famreq:d:{request_id}")],
     ])
     await message.reply_text(
@@ -103,8 +103,8 @@ async def divorce_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     bot = await context.bot.get_me()
     start_url = f"https://t.me/{bot.username}?start=family_req_{request_id}_{target.id}"
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💬 Open XYRON privately", url=start_url)],
-        [InlineKeyboardButton("✅ I've started — Accept", callback_data=f"famreq:a:{request_id}"),
+        [InlineKeyboardButton("💍 Accept request — open XYRON", url=start_url)],
+        [InlineKeyboardButton("✅ I've started — Confirm Accept", callback_data=f"famreq:a:{request_id}"),
          InlineKeyboardButton("Decline", callback_data=f"famreq:d:{request_id}")],
     ])
     await message.reply_text(
