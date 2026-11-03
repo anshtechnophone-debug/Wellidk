@@ -82,6 +82,7 @@ from app.modules.community.message_tools import (
 )
 from app.modules.games.anagram_handlers import anagram_command, anagramanswer_command
 from app.modules.quote_generator import quote_command
+from app.modules.quote_features import quote_auto_match_handler, quote_vote_callback
 from app.modules.games.board_handlers import (
     rps_command,
     tictactoe_command,
@@ -551,6 +552,13 @@ def _register_general(application: Application) -> None:
     application.add_handler(
         CallbackQueryHandler(giveaway_callback_handler, pattern=r"^giveaway:(?:join|rules):-?\d+$"),
         group=0,
+    )
+    application.add_handler(CallbackQueryHandler(quote_vote_callback, pattern=r"^qv:\d+:(?:up|down)$"), group=0)
+
+    # Match saved group quotes against later conversational messages.
+    application.add_handler(
+        MessageHandler(filters.ChatType.GROUPS & (filters.TEXT | filters.CAPTION) & ~filters.COMMAND, quote_auto_match_handler),
+        group=4,
     )
 
     # Weekly giveaway controls and text-message scoring run independently of other handlers.
