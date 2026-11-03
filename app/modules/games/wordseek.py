@@ -137,6 +137,7 @@ class GuessResult:
     points: int = 0
     answer: str | None = None
     guesses: tuple[str, ...] = ()
+    feedbacks: tuple[str, ...] = ()
 
 
 def is_valid_word(word: str, length: int) -> bool:
@@ -146,7 +147,7 @@ def is_valid_word(word: str, length: int) -> bool:
 def score_guess(answer: str, guess: str) -> str:
     answer = answer.casefold()
     guess = guess.casefold()
-    feedback = ["⬛"] * len(answer)
+    feedback = ["🟥"] * len(answer)
     remaining: dict[str, int] = {}
     for index, (target_letter, guessed_letter) in enumerate(zip(answer, guess, strict=True)):
         if target_letter == guessed_letter:
@@ -265,6 +266,7 @@ class WordSeekRepository:
                     points=points,
                     answer=game.answer if game.state in {"won", "lost"} else None,
                     guesses=tuple(game.guesses),
+                    feedbacks=tuple(score_guess(game.answer, item) for item in game.guesses),
                 )
         if expired:
             raise WordGameError("That Word Seek game expired. Start a new one with /wordseek.")
