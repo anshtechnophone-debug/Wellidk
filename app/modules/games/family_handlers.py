@@ -167,13 +167,13 @@ async def family_relationship_command(update: Update, context: ContextTypes.DEFA
 
     if command in {"son", "daughter", "father", "mother"}:
         if command == "son":
-            child, parent, child_role, parent_role = user, target, "son", "father"
-        elif command == "daughter":
-            child, parent, child_role, parent_role = user, target, "daughter", "mother"
-        elif command == "father":
             child, parent, child_role, parent_role = target, user, "son", "father"
-        else:
+        elif command == "daughter":
             child, parent, child_role, parent_role = target, user, "daughter", "mother"
+        elif command == "father":
+            child, parent, child_role, parent_role = user, target, "son", "father"
+        else:
+            child, parent, child_role, parent_role = user, target, "daughter", "mother"
         await message.reply_text(
             f"✅ <b>You have been connected as {parent_role} and {child_role}.</b>\n"
             f"👨 Hey {child_role} {_link(child.id, child.full_name)}, "
