@@ -63,7 +63,7 @@ async def _user_label(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id:
                 display_name = display_name or history.display_name
     if username:
         return "@" + html.escape(username.lstrip("@"))
-    name = html.escape(display_name or "Telegram user")
+    name = html.escape(display_name or f"user {user_id}")
     return f'<a href="tg://user?id={user_id}">{name}</a>'
 
 
@@ -443,7 +443,7 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
             action=normalized,
             status="success",
             details={"reason": reason, "duration": str(duration) if duration else None},
-            created_at=message.date,
+            created_at=getattr(message, "date", None) or datetime.now(UTC),
         )
     except Exception:
         logger.exception("Could not write temporary moderation audit event")
