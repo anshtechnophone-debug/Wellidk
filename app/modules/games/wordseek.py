@@ -195,7 +195,7 @@ class WordSeekRepository:
                 .with_for_update()
             )
             if active and active.expires_at > current:
-                raise WordGameError("You already have an active Word Seek game in this chat.")
+                raise WordGameError("A Word Seek game is already active in this chat. Everyone can join by guessing!")
             if active:
                 active.state = "expired"
                 active.active_key = None
