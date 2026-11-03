@@ -184,7 +184,7 @@ async def _ranking_text(context, chat_id: int, period: str, scope: str, length: 
 
 
 async def _send_wordrank(target, context, period="all", scope="chat", length=4):
-    chat = target.effective_chat
+    chat = target.chat
     if not chat:
         return
     context.user_data["wordrank_filters"] = (period, scope, length)
