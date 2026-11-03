@@ -49,9 +49,10 @@ class FamilyRepository:
                     if command in mapping:
                         actor_relation, reverse_relation = mapping[command]
                         if actor_relation in {"son", "daughter"}:
+                            parent_id, child_id = actor_id, target_id
                             parent_slot = "father" if actor_relation == "son" else "mother"
                             existing_parent = await session.scalar(select(FamilyRelationship).where(
-                                FamilyRelationship.user_id == target_id,
+                                FamilyRelationship.user_id == child_id,
                                 FamilyRelationship.relation == parent_slot,
                             ))
                             if existing_parent:
@@ -60,16 +61,10 @@ class FamilyRepository:
                                     f'<a href="tg://user?id={existing_parent.related_user_id}">view profile</a>. '
                                     "This relationship cannot be changed."
                                 )
-                            existing_child = await session.scalar(select(FamilyRelationship.id).where(
-                                FamilyRelationship.user_id == target_id,
-                                FamilyRelationship.related_user_id == actor_id,
-                                FamilyRelationship.relation.in_(["father", "mother"]),
-                            ))
-                            if existing_child:
-                                raise FamilyError("You have already assigned this person as your child.")
                         else:
+                            parent_id, child_id = target_id, actor_id
                             existing_parent = await session.scalar(select(FamilyRelationship).where(
-                                FamilyRelationship.user_id == actor_id,
+                                FamilyRelationship.user_id == child_id,
                                 FamilyRelationship.relation == actor_relation,
                             ))
                             if existing_parent:
@@ -78,6 +73,27 @@ class FamilyRepository:
                                     f'<a href="tg://user?id={existing_parent.related_user_id}">view profile</a>. '
                                     "This relationship cannot be changed."
                                 )
+
+                        # A parent must never be their own descendant. Walk upward
+                        # from the proposed parent; if the proposed child is found,
+                        # adding this edge would create a family cycle.
+                        ancestors = {parent_id}
+                        frontier = [parent_id]
+                        while frontier:
+                            parent_edges = await session.scalars(select(
+                                FamilyRelationship.related_user_id
+                            ).where(
+                                FamilyRelationship.user_id.in_(frontier),
+                                FamilyRelationship.relation.in_(["father", "mother"]),
+                            ))
+                            next_ids = set(parent_edges) - ancestors
+                            if child_id in next_ids:
+                                raise FamilyError(
+                                    "This would create an impossible family cycle. "
+                                    "A parent cannot become their own child's child."
+                                )
+                            ancestors.update(next_ids)
+                            frontier = list(next_ids)
                         session.add_all([
                             FamilyRelationship(user_id=actor_id, related_user_id=target_id, relation=actor_relation, created_at=now),
                             FamilyRelationship(user_id=target_id, related_user_id=actor_id, relation=reverse_relation, created_at=now),
