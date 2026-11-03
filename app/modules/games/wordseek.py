@@ -314,14 +314,29 @@ class WordSeekRepository:
             game.active_key = None
             return True
 
-    async def leaderboard(self, chat_id: int, limit: int = 10) -> list[tuple[int, int]]:
+    async def leaderboard(
+        self, chat_id: int | None, limit: int = 10, *, period: str = "all", length: int = 4
+    ) -> list[tuple[int, int]]:
         from sqlalchemy import func
+        from datetime import timedelta
 
+        if period not in {"day", "week", "month", "all"} or length not in (4, 5, 6):
+            raise WordGameError("Invalid ranking filter.")
+        current = datetime.now(UTC)
+        cutoff = {"day": current - timedelta(days=1), "week": current - timedelta(days=7),
+                  "month": current - timedelta(days=30), "all": None}[period]
         async with self.sessions() as session:
-            result = await session.execute(
+            query = (
                 select(WordGameScore.user_id, func.sum(WordGameScore.points).label("points"))
-                .where(WordGameScore.chat_id == chat_id)
-                .group_by(WordGameScore.user_id)
+                .join(WordGameSession, WordGameSession.id == WordGameScore.session_id)
+                .where(WordGameSession.word_length == length)
+            )
+            if chat_id is not None:
+                query = query.where(WordGameScore.chat_id == chat_id)
+            if cutoff is not None:
+                query = query.where(WordGameScore.created_at >= cutoff)
+            result = await session.execute(
+                query.group_by(WordGameScore.user_id)
                 .order_by(func.sum(WordGameScore.points).desc(), WordGameScore.user_id)
                 .limit(limit)
             )
