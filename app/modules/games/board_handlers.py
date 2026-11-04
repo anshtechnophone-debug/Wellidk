@@ -150,7 +150,6 @@ async def _refresh_ttt_message(context, game_id: int) -> None:
                 message_id=int(message_id),
                 text=text,
                 reply_markup=markup,
-                parse_mode="Markdown",
             )
         except TelegramError:
             pass
@@ -199,7 +198,7 @@ async def tictactoe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         game = await session.get(CasualGameSession, game_id)
         text = _ttt_text(game)
         markup = _ttt_keyboard(game)
-    sent = await message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+    sent = await message.reply_text(text, reply_markup=markup)
     async with sessions.begin() as session:
         game = await session.get(CasualGameSession, game_id)
         if game:
@@ -304,9 +303,22 @@ async def join_ttt_from_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     message, user = update.effective_message, update.effective_user
     if not message or not user:
         return
-    joined_id, error = await _join_game(
-        context.application.bot_data["sessions"], game_id, user.id, user.full_name
-    )
+    sessions = context.application.bot_data["sessions"]
+    async with sessions() as session:
+        pending = await session.get(CasualGameSession, game_id)
+        group_id = pending.chat_id if pending and pending.status == "waiting" else None
+    if group_id is None:
+        await message.reply_text("This Tic-Tac-Toe invitation has expired or is no longer waiting.")
+        return
+    try:
+        member = await context.bot.get_chat_member(group_id, user.id)
+        if member.status not in {"member", "administrator", "creator"} and not bool(getattr(member, "is_member", False)):
+            await message.reply_text("Join the group first, then tap Join Game again.")
+            return
+    except TelegramError:
+        await message.reply_text("I couldn't verify that you're in the game group. Join it first, then try again.")
+        return
+    joined_id, error = await _join_game(sessions, game_id, user.id, user.full_name)
     if error:
         await message.reply_text(error)
         return
