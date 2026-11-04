@@ -69,6 +69,22 @@ class KnownUser(Base):
     last_seen: Mapped[datetime] = mapped_column(UTCDateTime())
 
 
+class GlobalUser(Base):
+    """Global index of Telegram users XYRON has actually encountered."""
+    __tablename__ = "global_users"
+    __table_args__ = (Index("ix_global_users_username", "username"),)
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    first_name: Mapped[str] = mapped_column(String(255), default="")
+    last_name: Mapped[str] = mapped_column(String(255), default="")
+    is_bot: Mapped[bool] = mapped_column(Boolean, default=False)
+    seen_in_private: Mapped[bool] = mapped_column(Boolean, default=False)
+    seen_in_groups: Mapped[bool] = mapped_column(Boolean, default=False)
+    first_seen: Mapped[datetime] = mapped_column(UTCDateTime())
+    last_seen: Mapped[datetime] = mapped_column(UTCDateTime())
+
+
 class ModerationEvent(Base):
     __tablename__ = "moderation_events"
     __table_args__ = (Index("ix_moderation_events_group_created", "chat_id", "created_at"),)
