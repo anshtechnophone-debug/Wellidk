@@ -18,7 +18,17 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     else:
         logger.exception("Unhandled update error", exc_info=error)
     if isinstance(update, Update) and update.effective_message:
+        # Show the real exception instead of hiding every failure behind a
+        # generic message. Send as plain text so HTML/Markdown in an exception
+        # can never break delivery of the error itself.
+        detail = str(error).strip() if error is not None else ""
+        if not detail:
+            detail = type(error).__name__ if error is not None else "Unknown error"
+        detail = detail[:3500]
         try:
-            await update.effective_message.reply_text("XYRON could not complete that request.")
+            await update.effective_message.reply_text(
+                f"⚠️ XYRON error: {detail}",
+                parse_mode=None,
+            )
         except TelegramError:
-            logger.info("Could not send error notice to chat")
+            logger.exception("Could not send the actual error notice to chat")
