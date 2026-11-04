@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 revision = "0009_global_user_registry"
 down_revision = "0008_appeals"
@@ -95,7 +96,42 @@ def upgrade() -> None:
 
     if users:
         global_users = sa.Table("global_users", sa.MetaData(), autoload_with=bind)
-        bind.execute(global_users.insert(), list(users.values()))
+        stmt = sqlite_insert(global_users).values(list(users.values()))
+        excluded = stmt.excluded
+
+        # The registry may already contain live rows because XYRON stays online
+        # while this migration runs. Merge the historical flags and timestamps
+        # instead of failing on an existing user_id or overwriting newer data.
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["user_id"],
+            set_={
+                "username": sa.func.coalesce(
+                    excluded.username, global_users.c.username
+                ),
+                "first_name": sa.func.coalesce(
+                    sa.func.nullif(excluded.first_name, ""),
+                    global_users.c.first_name,
+                ),
+                "last_name": sa.func.coalesce(
+                    sa.func.nullif(excluded.last_name, ""),
+                    global_users.c.last_name,
+                ),
+                "is_bot": sa.func.max(global_users.c.is_bot, excluded.is_bot),
+                "seen_in_private": sa.func.max(
+                    global_users.c.seen_in_private, excluded.seen_in_private
+                ),
+                "seen_in_groups": sa.func.max(
+                    global_users.c.seen_in_groups, excluded.seen_in_groups
+                ),
+                "first_seen": sa.func.min(
+                    global_users.c.first_seen, excluded.first_seen
+                ),
+                "last_seen": sa.func.max(
+                    global_users.c.last_seen, excluded.last_seen
+                ),
+            },
+        )
+        bind.execute(stmt)
 
 
 def downgrade() -> None:
