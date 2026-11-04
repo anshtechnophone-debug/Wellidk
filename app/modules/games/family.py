@@ -51,6 +51,17 @@ class FamilyRepository:
                         if actor_relation in {"son", "daughter"}:
                             parent_id, child_id = actor_id, target_id
                             parent_slot = "father" if actor_relation == "son" else "mother"
+                            opposite_slot = "mother" if parent_slot == "father" else "father"
+                            same_person_opposite_role = await session.scalar(select(FamilyRelationship).where(
+                                FamilyRelationship.user_id == child_id,
+                                FamilyRelationship.relation == opposite_slot,
+                                FamilyRelationship.related_user_id == parent_id,
+                            ))
+                            if same_person_opposite_role:
+                                raise FamilyError(
+                                    "You are already connected to this person as their "
+                                    f"{opposite_slot}. You cannot also be their {parent_slot}."
+                                )
                             existing_parent = await session.scalar(select(FamilyRelationship).where(
                                 FamilyRelationship.user_id == child_id,
                                 FamilyRelationship.relation == parent_slot,
