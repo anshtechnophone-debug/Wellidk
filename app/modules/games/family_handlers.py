@@ -1,4 +1,4 @@
-"""Telegram handlers for the global Family game."""
+""""Telegram handlers for the global Family game."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -132,17 +132,17 @@ async def family_remove_command(update: Update, context: ContextTypes.DEFAULT_TY
     if role_mode:
         member_names = ", ".join(escape(await _name(context, uid, chat.id)) for uid in removed_ids)
         await message.reply_text(
-            "✅ <b>Family relationships removed.</b>\n"
-            f"Roles: <b>{escape(', '.join(names))}</b>\n"
-            f"Members: {member_names or '—'}\n"
+            "✅ <b>Family relationships removed.</b>\\n"
+            f"Roles: <b>{escape(', '.join(names))}</b>\\n"
+            f"Members: {member_names or '—'}\\n"
             f"From {_link(subject_id, replied.from_user.full_name)}'s family.",
             parse_mode="HTML", disable_web_page_preview=True,
         )
     else:
         await message.reply_text(
-            "✅ <b>Family relationship removed.</b>\n"
+            "✅ <b>Family relationship removed.</b>\\n"
             f"{_link(subject_id, replied.from_user.full_name)} and "
-            f"{_link(relative_id, await _name(context, relative_id, chat.id))} are no longer connected.\n"
+            f"{_link(relative_id, await _name(context, relative_id, chat.id))} are no longer connected.\\n"
             f"<i>Removed: {escape(', '.join(names))}</i>",
             parse_mode="HTML", disable_web_page_preview=True,
         )
@@ -188,8 +188,6 @@ async def family_relationship_command(update: Update, context: ContextTypes.DEFA
         try:
             await message.reply_text("✅ " + confirmation)
         except Exception:
-            # The relationship transaction has committed. A Telegram reply
-            # failure must not be reported as a failed family operation.
             try:
                 await context.bot.send_message(chat_id=message.chat_id, text="✅ " + confirmation)
             except Exception:
@@ -201,7 +199,7 @@ async def family_relationship_command(update: Update, context: ContextTypes.DEFA
 
     labels = {"brother": "siblings", "sister": "siblings", "friend": "friends"}
     await message.reply_text(
-        f"👨‍👩‍👧‍👦 <b>Family connection created!</b>\n"
+        f"👨‍👩‍👧‍👦 <b>Family connection created!</b>\\n"
         f"{_link(user.id, user.full_name)} and {_link(target.id, target.full_name)} "
         f"are now connected as {labels.get(command, 'family')}.",
         parse_mode="HTML", disable_web_page_preview=True)
@@ -235,8 +233,8 @@ async def marriage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
     await _post_family_request(
         message, context, request_id, target.id,
-        f"💍 <b>Marriage proposal</b>\n{_link(user.id, user.full_name)} has proposed to "
-        f"{_link(target.id, target.full_name)} as their {command}.\n\n"
+        f"💍 <b>Marriage proposal</b>\\n{_link(user.id, user.full_name)} has proposed to "
+        f"{_link(target.id, target.full_name)} as their {command}.\\n\\n"
         "The intended person must open XYRON's DM and press Start before accepting. This proposal expires in 24 hours."
     )
 
@@ -256,8 +254,8 @@ async def divorce_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     await _post_family_request(
         message, context, request_id, target.id,
-        f"💔 <b>Divorce request</b>\n{_link(user.id, user.full_name)} has requested a mutual divorce from "
-        f"{_link(target.id, target.full_name)}.\n\n"
+        f"💔 <b>Divorce request</b>\\n{_link(user.id, user.full_name)} has requested a mutual divorce from "
+        f"{_link(target.id, target.full_name)}.\\n\\n"
         "The intended person must open XYRON's DM and press Start before accepting. Expires in 24 hours."
     )
 
@@ -284,15 +282,11 @@ async def family_request_callback(update: Update, context: ContextTypes.DEFAULT_
     verb = ("marriage" if kind == "marriage" else "divorce")
     outcome = "accepted" if status == "accepted" else "declined"
     try:
-        await context.bot.send_message(
-            chat_id=requester_id,
-            text=f"Your {verb} request was {outcome} by the other person.")
+        await context.bot.send_message(chat_id=requester_id, text=f"Your {verb} request was {outcome} by the other person.")
     except Exception:
         pass
     try:
-        await context.bot.send_message(
-            chat_id=target_id,
-            text=f"You {outcome} the {verb} request.")
+        await context.bot.send_message(chat_id=target_id, text=f"You {outcome} the {verb} request.")
     except Exception:
         pass
     if query.message:
@@ -309,32 +303,40 @@ async def family_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     for edge in edges:
         grouped.setdefault(edge.relation, []).append(edge.related_user_id)
 
-    sons = len(grouped.get("son", []))
-    daughters = len(grouped.get("daughter", []))
-    siblings = len(sibling_ids)
-    friends = len(grouped.get("friend", []))
+    father_ids = list(dict.fromkeys(grouped.get("father", [])))
+    mother_ids = list(dict.fromkeys(grouped.get("mother", [])))
     spouse_ids = list(dict.fromkeys(grouped.get("wife", []) + grouped.get("husband", [])))
-    parents = len(grouped.get("father", [])) + len(grouped.get("mother", []))
 
     ranking = await _repo(context).leaderboard("total", limit=1000000)
     world_rank = next((index for index, row in enumerate(ranking, 1) if row[0] == target.id), None)
     rank_text = f"🌍 World Rank: <b>#{world_rank:,}</b>" if world_rank else "🌍 World Rank: <b>Unranked</b>"
+
+    spouse_text = (
+        f"💍 {_link(target.id, target.full_name)} ❤️ "
+        f"{_link(spouse_ids[0], await _name(context, spouse_ids[0], message.chat_id))}"
+        if spouse_ids else "💍 Spouse: —"
+    )
+    father_text = (
+        f"👨 Father: {_link(father_ids[0], await _name(context, father_ids[0], message.chat_id))}"
+        if father_ids else "👨 Father: —"
+    )
+    mother_text = (
+        f"👩 Mother: {_link(mother_ids[0], await _name(context, mother_ids[0], message.chat_id))}"
+        if mother_ids else "👩 Mother: —"
+    )
 
     lines = [
         f"🌳 <b>{escape(target.full_name)}'s Family</b>",
         f"🏅 Level <b>{level}/25 · {title}</b>  •  <b>{count}</b> connections",
         rank_text,
         "",
-        f"💍 {_link(target.id, target.full_name)} ❤️ {_link(spouse_ids[0], await _name(context, spouse_ids[0], message.chat_id))}" if spouse_ids else "💍 Spouse: —",
-        f"👨‍👩 Parents: <b>{parents}</b>",
-        f"👦 Sons: <b>{sons}</b>",
-        f"👧 Daughters: <b>{daughters}</b>",
-        f"🫂 Siblings: <b>{siblings}</b>",
-        f"🤝 Friends: <b>{friends}</b>",
+        spouse_text,
+        father_text,
+        mother_text,
     ]
     if count == 0:
         lines.extend(["", "<i>No family connections yet. Reply to someone with a Family command to get started.</i>"])
-    await message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
+    await message.reply_text("\\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
 
 
 async def familytree_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -356,7 +358,7 @@ async def familyrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     keyboard = [[InlineKeyboardButton(label, callback_data=f"famrank:choose:{key}")]
                 for key, (label, _) in _RANKS.items()]
     await message.reply_text(
-        "🏆 <b>FAMILY HALL OF FAME</b>\nChoose a leaderboard.",
+        "🏆 <b>FAMILY HALL OF FAME</b>\\nChoose a leaderboard.",
         parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
@@ -376,16 +378,13 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         chat_id = query.message.chat_id if query.message else None
         text = await _familytop_render(context, value, chat_id, couples=(action == "couples"))
         await query.answer()
-        await query.edit_message_text(
-            text, parse_mode="HTML", reply_markup=await _familytop_keyboard(value),
-            disable_web_page_preview=True,
-        )
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=await _familytop_keyboard(value), disable_web_page_preview=True)
         return
     if action == "menu":
         keyboard = [[InlineKeyboardButton(label, callback_data=f"famrank:choose:{key}")]
                     for key, (label, _) in _RANKS.items()]
         await query.answer()
-        await query.edit_message_text("🏆 <b>FAMILY HALL OF FAME</b>\nChoose a leaderboard.",
+        await query.edit_message_text("🏆 <b>FAMILY HALL OF FAME</b>\\nChoose a leaderboard.",
                                       parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     if action == "choose":
@@ -397,7 +396,7 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                      InlineKeyboardButton("Global", callback_data=f"famrank:show:{value}:global")],
                     [InlineKeyboardButton("⬅️ Back", callback_data="famrank:menu:all")]]
         await query.answer()
-        await query.edit_message_text(f"🏆 <b>{label}</b>\nChoose the ranking scope.",
+        await query.edit_message_text(f"🏆 <b>{label}</b>\\nChoose the ranking scope.",
                                       parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     if action != "show" or len(parts) != 4:
@@ -420,14 +419,14 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             except Exception:
                 rows = []
         if not rows:
-            text = f"💍 <b>LONGEST MARRIAGES · {scope.upper()}</b>\nNo marriages yet."
+            text = f"💍 <b>LONGEST MARRIAGES · {scope.upper()}</b>\\nNo marriages yet."
         else:
             now = datetime.now(UTC)
             lines = [f"💍 <b>LONGEST MARRIAGES · {scope.upper()}</b>"]
             for i, (left, right, since) in enumerate(rows, 1):
                 days = max(0, (now - since).days)
                 lines.append(f"{['🥇','🥈','🥉'][i-1] if i <= 3 else str(i)+'.'} {_link(left, await _name(context, left, chat_id))} + {_link(right, await _name(context, right, chat_id))} — <b>{days} days</b>")
-            text = "\n".join(lines)
+            text = "\\n".join(lines)
     else:
         rows = await _repo(context).leaderboard(category, limit=10000)
         if scope == "chat" and chat_id:
@@ -440,15 +439,15 @@ async def familyrank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             except Exception:
                 rows = []
         if not rows:
-            text = f"{_RANKS[category][0]} · {scope.upper()}\nNo connections yet."
+            text = f"{_RANKS[category][0]} · {scope.upper()}\\nNo connections yet."
         else:
-            lines = [f"🏆 <b>FAMILY HALL OF FAME</b>\n{_RANKS[category][0]} · {scope.upper()}"]
+            lines = [f"🏆 <b>FAMILY HALL OF FAME</b>\\n{_RANKS[category][0]} · {scope.upper()}"]
             medals = ["🥇", "🥈", "🥉"]
             for i, (uid, score) in enumerate(rows[:10], 1):
                 name = await _name(context, uid, chat_id)
                 noun = "connection" if score == 1 else "connections"
                 lines.append(f"{medals[i-1] if i <= 3 else str(i)+'.'} {_link(uid, name)}  <b>{score}</b> {noun}")
-            text = "\n".join(lines)
+            text = "\\n".join(lines)
     await query.answer()
     keyboard = [[InlineKeyboardButton("👦 Sons", callback_data="famrank:choose:sons"),
                  InlineKeyboardButton("👧 Daughters", callback_data="famrank:choose:daughters")],
@@ -484,7 +483,7 @@ async def _familytop_render(context, scope: str, chat_id: int | None, couples: b
         rows = rows[:15]
         heading = f"💍 <b>COUPLE TOP 15</b>  ·  {'GLOBAL' if scope == 'global' else 'THIS CHAT'}"
         if not rows:
-            return heading + "\n\nNo couples yet."
+            return heading + "\\n\\nNo couples yet."
         lines = [heading, ""]
         now = datetime.now(UTC)
         medals = ["🥇", "🥈", "🥉"]
@@ -495,7 +494,7 @@ async def _familytop_render(context, scope: str, chat_id: int | None, couples: b
             right_name = await _name(context, right, chat_id)
             lines.append(f"{rank} {_link(left, left_name)}  ❤️  {_link(right, right_name)}")
             lines.append(f"      <i>{days} days together</i>")
-        return "\n".join(lines)
+        return "\\n".join(lines)
 
     rows = await repo.leaderboard("total", limit=10000)
     if scope == "chat" and chat_id:
@@ -509,7 +508,7 @@ async def _familytop_render(context, scope: str, chat_id: int | None, couples: b
     rows = rows[:15]
     heading = f"🏆 <b>FAMILY TOP 15</b>  ·  {'GLOBAL' if scope == 'global' else 'THIS CHAT'}"
     if not rows:
-        return heading + "\n\nNo family relationships yet. Be the first to build your family!"
+        return heading + "\\n\\nNo family relationships yet. Be the first to build your family!"
     medals = ["🥇", "🥈", "🥉"]
     lines = [heading, "<i>Members with the most family connections</i>", ""]
     for i, (uid, score) in enumerate(rows, 1):
@@ -517,7 +516,7 @@ async def _familytop_render(context, scope: str, chat_id: int | None, couples: b
         name = await _name(context, uid, chat_id)
         noun = "connection" if score == 1 else "connections"
         lines.append(f"{rank} {_link(uid, name)}  —  <b>{score:,}</b> {noun}")
-    return "\n".join(lines)
+    return "\\n".join(lines)
 
 
 async def familytop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -534,11 +533,11 @@ async def familytop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def familyhelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_message:
         await update.effective_message.reply_text(
-            "🌳 FAMILY — GLOBAL GAME\n\n"
-            "Reply to a user's message: /son, /daughter, /father, /mother, /brother, /sister or /friend.\n"
+            "🌳 FAMILY — GLOBAL GAME\\n\\n"
+            "Reply to a user's message: /son, /daughter, /father, /mother, /brother, /sister or /friend.\\n"
             "Reply with /wife or /husband to propose marriage; the other person must accept. "
-            "Reply with /divorce to request a mutual divorce. Requests expire after 24 hours.\n\n"
-            "/family — profile (or reply to view another member)\n/familyrank — interactive leaderboards\n"
+            "Reply with /divorce to request a mutual divorce. Requests expire after 24 hours.\\n\\n"
+            "/family — profile (or reply to view another member)\\n/familyrank — interactive leaderboards\\n"
             "/familyhelp — commands")
 
 
@@ -556,8 +555,8 @@ async def familyreset_command(update: Update, context: ContextTypes.DEFAULT_TYPE
          InlineKeyboardButton("Cancel", callback_data=f"famreset:cancel:{user.id}")]
     ])
     await message.reply_text(
-        "⚠️ <b>Reset all Family data?</b>\n\n"
-        "This deletes only Family relationship records (parents, children, siblings, friends and spouses).\n\n"
+        "⚠️ <b>Reset all Family data?</b>\\n\\n"
+        "This deletes only Family relationship records (parents, children, siblings, friends and spouses).\\n\\n"
         "Family requests, users, groups, bot admins, commands, moderation records, other games and settings will remain untouched.",
         parse_mode="HTML", reply_markup=keyboard,
     )
@@ -589,8 +588,8 @@ async def familyreset_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     relationships = await _repo(context).reset_relationships()
     await query.answer("Family relationships reset.")
     await query.edit_message_text(
-        "✅ <b>Family relationship reset complete.</b>\n\n"
-        f"Relationships deleted: <b>{relationships}</b>\n\n"
+        "✅ <b>Family relationship reset complete.</b>\\n\\n"
+        f"Relationships deleted: <b>{relationships}</b>\\n\\n"
         "Family requests and all other XYRON data remain untouched.",
         parse_mode="HTML",
     )
