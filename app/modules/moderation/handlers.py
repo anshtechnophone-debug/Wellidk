@@ -942,8 +942,8 @@ async def track_known_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             )
 
 
-// Imported allowlist: 255 IDs with no Cyrillic, Han, Hiragana, Katakana, or Hangul characters in their exported display names.
-// Script-based filtering only; this does not establish nationality. Restricted to the owner's specified supergroup.
+# Imported allowlist: 255 IDs with no Cyrillic, Han, Hiragana, Katakana, or Hangul characters in their exported display names.
+# Script-based filtering only; this does not establish nationality. Restricted to the owner's specified supergroup.
 UNBANALL_CHAT_ID = -1002587093927
 UNBANALL_USER_IDS = (
     6553160554,
