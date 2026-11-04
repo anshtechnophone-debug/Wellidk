@@ -58,6 +58,7 @@ COMMANDS = (
         True,
     ),
     CommandInfo("unban", "Unban a member", "/unban @username (numeric ID or reply also supported)", "Ban and Unban", True),
+    CommandInfo("unbanall", "Unban imported IDs in the configured group (group owner only)", "/unbanall", "Ban and Unban", True),
     CommandInfo(
         "kick", "Remove a member", "/kick @username [reason] (numeric ID or reply also supported)", "Kick and Restrict", True
     ),
