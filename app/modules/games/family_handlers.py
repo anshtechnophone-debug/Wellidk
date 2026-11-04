@@ -160,7 +160,7 @@ async def family_relationship_command(update: Update, context: ContextTypes.DEFA
     target = message.reply_to_message.from_user
     command = (message.text or "").split()[0].split("@")[0].lstrip("/").casefold()
     try:
-        await _repo(context).add(user.id, target.id, command)
+        result = await _repo(context).add(user.id, target.id, command)
     except FamilyError as exc:
         await message.reply_text(str(exc), parse_mode="HTML")
         return
@@ -174,12 +174,29 @@ async def family_relationship_command(update: Update, context: ContextTypes.DEFA
             child, parent, child_role, parent_role = user, target, "son", "father"
         else:
             child, parent, child_role, parent_role = user, target, "daughter", "mother"
-        await message.reply_text(
-            f"✅ <b>You have been connected as {parent_role} and {child_role}.</b>\n"
-            f"👨 Hey {child_role} {_link(child.id, child.full_name)}, "
-            f"meet your {parent_role} {_link(parent.id, parent.full_name)}!",
-            parse_mode="HTML", disable_web_page_preview=True,
-        )
+
+        if result == "exists":
+            confirmation = (
+                f"{child.full_name} is already connected as your {child_role}. "
+                "No duplicate relationship was created."
+            )
+        else:
+            confirmation = (
+                f"You have been connected as {parent_role} and {child_role}.\\n"
+                f"Hey {child_role} {child.full_name}, meet your {parent_role} {parent.full_name}!"
+            )
+        try:
+            await message.reply_text("✅ " + confirmation)
+        except Exception:
+            # The relationship transaction has committed. A Telegram reply
+            # failure must not be reported as a failed family operation.
+            try:
+                await context.bot.send_message(chat_id=message.chat_id, text="✅ " + confirmation)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    "Family relationship saved, but confirmation could not be delivered"
+                )
         return
 
     labels = {"brother": "siblings", "sister": "siblings", "friend": "friends"}
