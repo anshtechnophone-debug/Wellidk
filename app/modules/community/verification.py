@@ -86,6 +86,12 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     payload = context.args[0] if context.args else ""
+    ttt_join_match = re.fullmatch(r"tttj_(\d{1,10})", payload)
+    if ttt_join_match:
+        from app.modules.games.board_handlers import join_ttt_from_start
+
+        await join_ttt_from_start(update, context, int(ttt_join_match.group(1)))
+        return
     family_match = re.fullmatch(r"fr_(\d{1,10})_(\d{1,15})_(-?\d{1,15})_(\d{1,10})", payload)
     if family_match:
         request_id, expected_user_id, group_id, message_id = map(int, family_match.groups())
@@ -276,6 +282,8 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
     # its own active-giveaway and group-membership checks.
     if query and query.data and re.fullmatch(r"giveaway:(?:join|rules):-?\d+", query.data):
         return
+    if query and query.data and re.fullmatch(r"ttt:(?:join|move):\d+(?::\d+)?", query.data):
+        return
     if query and query.data and re.fullmatch(r"qv:\d+:(?:up|down)", query.data):
         return
     if query and query.data and re.fullmatch(r"famreq:[ad]:\d{1,10}", query.data):
@@ -313,6 +321,8 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
             if _RULES_PAYLOAD.fullmatch(start_payload):
                 return
             if re.fullmatch(r"gw_-?\d{1,15}", start_payload):
+                return
+            if re.fullmatch(r"tttj_\d{1,10}", start_payload):
                 return
             if _QUOTE_REACT_PAYLOAD.fullmatch(start_payload):
                 return
