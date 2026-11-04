@@ -175,21 +175,26 @@ async def family_relationship_command(update: Update, context: ContextTypes.DEFA
         else:
             child, parent, child_role, parent_role = user, target, "daughter", "mother"
 
+        child_link = _link(child.id, child.username or child.full_name)
+        parent_link = _link(parent.id, parent.username or parent.full_name)
         if result == "exists":
             confirmation = (
-                f"{child.full_name} is already connected as your {child_role}. "
+                f"✅ {child_link} is already connected as your {child_role}. "
                 "No duplicate relationship was created."
             )
         else:
             confirmation = (
-                f"You have been connected as {parent_role} and {child_role}.\n"
-                f"Hey {child_role} {child.full_name}, meet your {parent_role} {parent.full_name}!"
+                f"✅ You have been connected as {parent_role} and {child_role}.\\n"
+                f"Hey {child_role} {child_link}, meet your {parent_role} {parent_link}!"
             )
         try:
-            await message.reply_text("✅ " + confirmation)
+            await message.reply_text(confirmation, parse_mode="HTML", disable_web_page_preview=True)
         except Exception:
             try:
-                await context.bot.send_message(chat_id=message.chat_id, text="✅ " + confirmation)
+                await context.bot.send_message(
+                    chat_id=message.chat_id, text=confirmation,
+                    parse_mode="HTML", disable_web_page_preview=True,
+                )
             except Exception:
                 import logging
                 logging.getLogger(__name__).exception(
