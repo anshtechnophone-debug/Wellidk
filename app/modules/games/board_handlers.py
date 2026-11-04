@@ -17,7 +17,10 @@ from app.database.models import (
 )
 from app.modules.games.casual import CasualGameError, CasualGameRepository, rps_transition
 
-_TTT_ACTIVE_KEY = lambda chat_id: f"{chat_id}:tictactoe"
+def _ttt_active_key(chat_id: int) -> str:
+    return f"{chat_id}:tictactoe"
+
+
 _TTT_TIMEOUT = timedelta(minutes=15)
 
 
@@ -64,7 +67,7 @@ def _ttt_text(game: CasualGameSession) -> str:
     else:
         status = "Tap Join to play against the challenger."
     return (
-        "🎮 **TIC-TAC-TOE**\n\n"
+        "🎮 TIC-TAC-TOE\n\n"
         f"❎ X — {p1}\n"
         f"⭕ O — {p2}\n\n"
         f"{status}"
@@ -95,7 +98,7 @@ def _ttt_keyboard(game: CasualGameSession) -> InlineKeyboardMarkup | None:
 async def _get_active_ttt(session, chat_id: int):
     return await session.scalar(
         select(CasualGameSession).where(
-            CasualGameSession.active_key == _TTT_ACTIVE_KEY(chat_id),
+            CasualGameSession.active_key == _ttt_active_key(chat_id),
             CasualGameSession.game_type == "tictactoe",
         )
     )
@@ -177,7 +180,7 @@ async def tictactoe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             chat_id=chat.id,
             user_id=user.id,
             game_type="tictactoe",
-            active_key=_TTT_ACTIVE_KEY(chat.id),
+            active_key=_ttt_active_key(chat.id),
             state={
                 "player1_id": user.id,
                 "player1_name": user.full_name,
