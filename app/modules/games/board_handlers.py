@@ -17,6 +17,7 @@ from app.database.models import (
 )
 from app.modules.games.casual import CasualGameError, CasualGameRepository, rps_transition
 
+
 def _ttt_active_key(chat_id: int) -> str:
     return f"{chat_id}:tictactoe"
 
