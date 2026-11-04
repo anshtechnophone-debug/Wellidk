@@ -90,6 +90,7 @@ from app.modules.games.board_handlers import (
     tictactoe_command,
     tttcancel_command,
     tttmove_command,
+    ttt_callback_handler,
 )
 from app.modules.games.casual_handlers import (
     gamerank_command,
@@ -603,6 +604,7 @@ def _register_general(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(family_request_callback, pattern=r"^famreq:[ad]:[0-9]+$"), group=0)
     application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
     application.add_handler(CallbackQueryHandler(familyreset_callback, pattern=r"^famreset:(?:confirm|cancel):[0-9]+$"), group=0)
+    application.add_handler(CallbackQueryHandler(ttt_callback_handler, pattern=r"^ttt:(?:join|move):"), group=0)
     application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
 
     # WordSeek accepts ordinary text guesses only while that user has an active game.
