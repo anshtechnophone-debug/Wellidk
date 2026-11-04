@@ -280,7 +280,9 @@ async def ttt_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     if _winner(board, mark):
                         game.status = "won"
                         game.active_key = None
-                        state["winner_name"] = state["player1_name"] if mark == "X" else state["player2_name"]
+                        state["winner_name"] = (
+                            state["player1_name"] if mark == "X" else state["player2_name"]
+                        )
                         session.add(CasualGameScore(
                             session_id=game.id,
                             chat_id=game.chat_id,
@@ -293,7 +295,8 @@ async def ttt_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                         game.status = "tied"
                         game.active_key = None
                     else:
-                        state["turn"] = int(state["player2_id"] if mark == "X" else state["player1_id"])
+                        next_player = state["player2_id"] if mark == "X" else state["player1_id"]
+                        state["turn"] = int(next_player)
                     game.state = state
     if result_text:
         await query.answer(result_text, show_alert=True)
@@ -302,7 +305,9 @@ async def ttt_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     await _refresh_ttt_message(context, game_id)
 
 
-async def join_ttt_from_start(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id: int) -> None:
+async def join_ttt_from_start(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, game_id: int
+) -> None:
     message, user = update.effective_message, update.effective_user
     if not message or not user:
         return
@@ -315,11 +320,16 @@ async def join_ttt_from_start(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     try:
         member = await context.bot.get_chat_member(group_id, user.id)
-        if member.status not in {"member", "administrator", "creator"} and not bool(getattr(member, "is_member", False)):
+        is_member = member.status in {"member", "administrator", "creator"} or bool(
+            getattr(member, "is_member", False)
+        )
+        if not is_member:
             await message.reply_text("Join the group first, then tap Join Game again.")
             return
     except TelegramError:
-        await message.reply_text("I couldn't verify that you're in the game group. Join it first, then try again.")
+        await message.reply_text(
+            "I couldn't verify that you're in the game group. Join it first, then try again."
+        )
         return
     joined_id, error = await _join_game(sessions, game_id, user.id, user.full_name)
     if error:
