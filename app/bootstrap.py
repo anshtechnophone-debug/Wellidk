@@ -41,6 +41,7 @@ from app.handlers.errors import error_handler
 from app.modules.ai.assistant import AIEventRouter
 from app.modules.ai.owner_control import owner_natural_control
 from app.modules.broadcast import broadcast_command, broadcast_stop_command, track_private_recipient
+from app.modules.user_registry import track_global_chat_member, track_global_user
 from app.modules.appeals.handlers import (
     appeal_command,
     appeals_command,
@@ -693,6 +694,20 @@ def _register_general(application: Application) -> None:
     application.add_handler(
         MessageHandler(filters.ChatType.PRIVATE & filters.ALL, track_private_recipient),
         group=13,
+    )
+
+    # Maintain a single registry across private chats and groups. This runs
+    # after the feature handlers so commands and ordinary messages are included.
+    application.add_handler(
+        MessageHandler(filters.ALL, track_global_user),
+        group=14,
+    )
+    application.add_handler(
+        ChatMemberHandler(
+            track_global_chat_member,
+            ChatMemberHandler.CHAT_MEMBER,
+        ),
+        group=14,
     )
     application.add_handler(
         MessageHandler(filters.ALL, process_group_message),
