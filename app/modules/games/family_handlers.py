@@ -325,6 +325,11 @@ async def family_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if mother_ids else "👩 Mother: —"
     )
 
+    sons_count = len(set(grouped.get("son", [])))
+    daughters_count = len(set(grouped.get("daughter", [])))
+    siblings_count = len(set(grouped.get("sibling", [])))
+    friends_count = len(set(grouped.get("friend", [])))
+
     lines = [
         f"🌳 <b>{escape(target.full_name)}'s Family</b>",
         f"🏅 Level <b>{level}/25 · {title}</b>  •  <b>{count}</b> connections",
@@ -333,6 +338,10 @@ async def family_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         spouse_text,
         father_text,
         mother_text,
+        f"👦 Sons: <b>{sons_count}</b>",
+        f"👧 Daughters: <b>{daughters_count}</b>",
+        f"🧑‍🤝‍🧑 Siblings: <b>{siblings_count}</b>",
+        f"🤝 Friends: <b>{friends_count}</b>",
     ]
     if count == 0:
         lines.extend(["", "<i>No family connections yet. Reply to someone with a Family command to get started.</i>"])
