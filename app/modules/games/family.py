@@ -55,6 +55,9 @@ class FamilyRepository:
                                 FamilyRelationship.user_id == child_id,
                                 FamilyRelationship.relation == parent_slot,
                             ))
+                            if existing_parent and existing_parent.related_user_id == parent_id:
+                                # A retry after a Telegram reply failure must be harmless.
+                                return "exists"
                             if existing_parent:
                                 raise FamilyError(
                                     f"That user already has a {parent_slot}: "
