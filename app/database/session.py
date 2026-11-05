@@ -9,6 +9,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from app.database.models import Base
+from app.database import group_bot_admins as _group_bot_admins  # register group-scoped table
 
 
 def create_database(database_url: str) -> tuple[AsyncEngine, async_sessionmaker]:
@@ -21,8 +22,6 @@ def create_database(database_url: str) -> tuple[AsyncEngine, async_sessionmaker]
     engine_options: dict[str, object] = {"pool_pre_ping": True}
     if is_file_sqlite:
         Path(url.database).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
-        # Wait for a concurrent SQLite writer instead of failing immediately with
-        # "database is locked".
         engine_options["connect_args"] = {"timeout": 30}
 
     engine = create_async_engine(database_url, **engine_options)
@@ -41,10 +40,8 @@ def create_database(database_url: str) -> tuple[AsyncEngine, async_sessionmaker]
 
 
 async def initialize_schema(engine: AsyncEngine) -> None:
-    """Create a fresh development database; production upgrades use Alembic."""
+    """Create missing tables, including the new group-scoped bot-admin table."""
     if engine.dialect.name == "sqlite":
-        # WAL allows readers to continue while a writer is active. Set it once
-        # during startup, before background workers begin using the database.
         async with engine.connect() as connection:
             await connection.exec_driver_sql("PRAGMA journal_mode=WAL")
             await connection.commit()
