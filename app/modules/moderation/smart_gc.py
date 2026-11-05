@@ -1,8 +1,5 @@
-"""Smart GC abusive-language warning guard.
+"""Smart GC: per-group abusive-language and media protection."""
 
-The guard is enabled per group with /smartgc on and uses the existing durable
-warning table. Three warnings result in a ban.
-"""
 from __future__ import annotations
 
 import logging
@@ -18,8 +15,6 @@ from app.services.moderation import ModerationRepository
 
 logger = logging.getLogger(__name__)
 
-# Match whole uncensored words only. Censored spellings such as ch#t are
-# intentionally not matched.
 _ABUSIVE_WORDS = (
     "chut", "chutiya", "chutia", "lund", "randi", "randii",
     "bhosda", "bhosdi", "bhosdike", "madarchod", "madar chod",
@@ -32,7 +27,7 @@ _ABUSE_RE = re.compile(
     + r")(?![a-z0-9])",
     re.IGNORECASE,
 )
-_WARNING_LIMIT = 3
+_WARNING_LIMIT = 5
 
 
 def _normalize(text: str) -> str:
@@ -63,9 +58,9 @@ async def smartgc_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await policies.set_value(chat.id, "smart_gc", {"enabled": enabled})
     if message:
         await message.reply_text(
-            "Smart GC is ON. Uncensored abusive language is monitored; "
-            "3 warnings result in a ban."
-            if enabled else "Smart GC is OFF. Automatic abuse warnings are disabled."
+            "🛡 Smart GC is ON. Abusive language: 5 warnings then ban. "
+            "Media (except voice notes) is deleted after 5 minutes."
+            if enabled else "Smart GC is OFF. Smart GC word and media protections are disabled."
         )
 
 
@@ -92,8 +87,10 @@ async def smartgc_abuse_guard(
     smart_gc = policy.get("smart_gc", {})
     if not isinstance(smart_gc, dict) or not smart_gc.get("enabled"):
         return
+    approved = {int(value) for value in policy.get("approved_users", [])}
+    if user.id in approved:
+        return
 
-    # Do not police the owner or existing group administrators.
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
     except TelegramError:
@@ -102,7 +99,6 @@ async def smartgc_abuse_guard(
     if member.status in {"administrator", "creator"}:
         return
 
-    # Delete the uncensored message when the bot has the required permission.
     try:
         bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
         if getattr(bot_member, "can_delete_messages", False):
@@ -135,24 +131,24 @@ async def smartgc_abuse_guard(
         if not getattr(bot_member, "can_restrict_members", False):
             await context.bot.send_message(
                 chat.id,
-                f"⚠️ {mention} reached 3 warnings, but I cannot ban them because "
+                f"⚠️ {mention} reached 5 warnings, but I cannot ban them because "
                 "I need the Restrict Members permission.",
                 parse_mode="HTML",
             )
             return
         await context.bot.ban_chat_member(chat.id, user.id)
         await repository.record(
-            chat.id, bot_id, user.id, "smartgc_three_warnings_ban",
-            "Reached 3 abusive-language warnings",
+            chat.id, bot_id, user.id, "smartgc_five_warnings_ban",
+            "Reached 5 abusive-language warnings",
         )
         await context.bot.send_message(
             chat.id,
-            f"🚫 {mention} has been banned after 3 abusive-language warnings.",
+            f"🚫 {mention} has been banned after 5 abusive-language warnings.",
             parse_mode="HTML",
         )
     except TelegramError:
         logger.exception("Smart GC failed to ban user %s in chat %s", user.id, chat.id)
         await context.bot.send_message(
-            chat.id, f"⚠️ {mention} reached 3 warnings, but Telegram rejected the ban.",
+            chat.id, f"⚠️ {mention} reached 5 warnings, but Telegram rejected the ban.",
             parse_mode="HTML",
         )
