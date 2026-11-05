@@ -82,15 +82,21 @@ async def _send_rules_dm(
     group_id: int,
 ) -> bool:
     """Send the originating group's rules and name to a user's private chat."""
-    # These are the canonical rules requested for every group. Do not let
-    # stale per-group rules saved before this update override this exact text.
+    # Use this group's saved rules when available; otherwise show the clear defaults.
     rules = DEFAULT_GROUP_RULES
-    group_title = "Group"
+    try:
+        policy = await _repository(context).get(group_id)
+        saved_rules = policy.get('rules')
+        if isinstance(saved_rules, str) and saved_rules.strip():
+            rules = saved_rules
+    except Exception:
+        logger.exception('Could not load saved rules for chat %s', group_id)
+    group_title = 'Group'
     try:
         group = await context.bot.get_chat(group_id)
-        group_title = getattr(group, "title", None) or group_title
+        group_title = getattr(group, 'title', None) or group_title
     except TelegramError:
-        logger.warning("Could not fetch title for rules chat %s; using generic title", group_id)
+        logger.warning('Could not fetch title for rules chat %s; using generic title', group_id)
 
     await context.bot.send_message(
         chat_id=user_id,
