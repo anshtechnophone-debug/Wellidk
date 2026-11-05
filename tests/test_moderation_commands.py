@@ -87,7 +87,9 @@ async def test_mute_api_success_records_and_saves_pre_mute_baseline(bot_context)
     baseline = await repository.restriction_permissions(-1001, 22)
     assert baseline["can_send_messages"] is True
     assert baseline["can_send_photos"] is False
-    assert "Muted user 22" in message.reply_text.await_args.args[0]
+    assert "Muted " in message.reply_text.await_args.args[0]
+    assert "user 22</a>" in message.reply_text.await_args.args[0]
+    assert "tg://user?id=22" in message.reply_text.await_args.args[0]
 
 
 @pytest.mark.asyncio
@@ -118,7 +120,9 @@ async def test_mute_duration_creates_restart_safe_expiration(bot_context):
         action = await session.scalar(select(TemporaryAction))
     assert action.action == "unmute"
     assert datetime.now(UTC) < action.expires_at < datetime.now(UTC) + timedelta(minutes=11)
-    assert "Temporarily muted user 22" in message.reply_text.await_args.args[0]
+    assert "Temporarily muted " in message.reply_text.await_args.args[0]
+    assert "user 22</a>" in message.reply_text.await_args.args[0]
+    assert "tg://user?id=22" in message.reply_text.await_args.args[0]
 
 
 @pytest.mark.asyncio
