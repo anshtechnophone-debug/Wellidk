@@ -125,7 +125,6 @@ Access labels describe XYRON's command-level gate. `/help` is private-chat only 
 | Command | Description | Example | Access |
 | --- | --- | --- | --- |
 | `/wordrank` | Show this chat's Word Seek leaderboard | `/wordrank` | any member |
-| `/gamerank <hangman\|scramble\|number>` | Show a local game leaderboard | `/gamerank hangman` | any member |
 
 ## Locks
 
