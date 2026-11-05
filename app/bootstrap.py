@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from telegram import BotCommandScopeChat, BotCommandScopeDefault, Chat, Update
+from telegram import BotCommandScopeAllPrivateChats, BotCommandScopeChat, Chat, Update
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -75,14 +75,13 @@ from app.modules.community.handlers import (
     unapprove_command,
     unlock_command,
 )
-from app.modules.community.verification import community_access_gate, community_join_check_callback, verify_human_callback
+from app.modules.community.verification import (\n    bot_added_as_admin,\n    community_access_gate,\n    community_join_check_callback,\n    verify_human_callback,\n)
 from app.modules.community.message_tools import (
     delete_command,
     groupinfo_command,
     purge_command,
     userinfo_command,
 )
-from app.modules.games.anagram_handlers import anagram_command, anagramanswer_command
 from app.modules.quote_generator import quote_command
 from app.modules.quote_commands import quote_random_command, quote_top_command, quote_recall_handler
 from app.modules.quote_features import quote_auto_match_handler, quote_vote_callback
@@ -92,23 +91,6 @@ from app.modules.games.board_handlers import (
     tttcancel_command,
     tttmove_command,
     ttt_callback_handler,
-)
-from app.modules.games.casual_handlers import (
-    gamerank_command,
-    hangcancel_command,
-    hangman_command,
-    letter_command,
-    numbercancel_command,
-    numbergame_command,
-    numberguess_command,
-    scramble_command,
-    scramblecancel_command,
-    unscramble_command,
-)
-from app.modules.games.chain_handlers import (
-    chain_command,
-    wordchain_command,
-    wordchaincancel_command,
 )
 from app.modules.games.family_handlers import (
     familyreset_command,
@@ -135,22 +117,6 @@ from app.modules.games.handlers import (
     new5_command,
     new6_command,
     wordseek_text_handler,
-)
-from app.modules.games.question_handlers import (
-    mathanswer_command,
-    questioncancel_command,
-    quickmath_command,
-    riddle_command,
-    riddleanswer_command,
-    tfanswer_command,
-    trivia_command,
-    triviaanswer_command,
-    truefalse_command,
-)
-from app.modules.games.team_handlers import (
-    teamguess_command,
-    teamword_command,
-    teamwordcancel_command,
 )
 from app.modules.moderation.bot_admins import admin_command, unadmin_command, botadminlist_command, demote_command, pin_command
 from app.modules.moderation.handlers import (
@@ -484,37 +450,10 @@ def _register_general(application: Application) -> None:
         ("groupinfo", groupinfo_command),
         ("reports", reports_command),
         ("reviewreport", review_report_command),
-        ("hangman", hangman_command),
-        ("letter", letter_command),
-        ("hangcancel", hangcancel_command),
-        ("scramble", scramble_command),
-        ("unscramble", unscramble_command),
-        ("scramblecancel", scramblecancel_command),
-        ("numbergame", numbergame_command),
-        ("numberguess", numberguess_command),
-        ("numbercancel", numbercancel_command),
-        ("gamerank", gamerank_command),
-        ("trivia", trivia_command),
-        ("triviaanswer", triviaanswer_command),
-        ("truefalse", truefalse_command),
-        ("tfanswer", tfanswer_command),
-        ("riddle", riddle_command),
-        ("riddleanswer", riddleanswer_command),
-        ("quickmath", quickmath_command),
-        ("mathanswer", mathanswer_command),
-        ("questioncancel", questioncancel_command),
         ("rps", rps_command),
         ("tictactoe", tictactoe_command),
         ("tttmove", tttmove_command),
         ("tttcancel", tttcancel_command),
-        ("wordchain", wordchain_command),
-        ("chain", chain_command),
-        ("wordchaincancel", wordchaincancel_command),
-        ("anagram", anagram_command),
-        ("anagramanswer", anagramanswer_command),
-        ("teamword", teamword_command),
-        ("teamguess", teamguess_command),
-        ("teamwordcancel", teamwordcancel_command),
         ("son", family_relationship_command),
         ("daughter", family_relationship_command),
         ("father", family_relationship_command),
@@ -534,7 +473,7 @@ def _register_general(application: Application) -> None:
         ("familyhelp", familyhelp_command),
         ("familyreset", familyreset_command),
     ):
-        application.add_handler(CommandHandler(command, callback))
+        application.add_handler(\n            CommandHandler(command, callback, filters=filters.ChatType.PRIVATE)\n            if command == "help" else CommandHandler(command, callback)\n        )
 
     for command in (
         "ban",
@@ -751,7 +690,7 @@ def _register_general(application: Application) -> None:
             group_member_event,
             ChatMemberHandler.CHAT_MEMBER,
         )
-    )
+    )\n    application.add_handler(\n        ChatMemberHandler(bot_added_as_admin, ChatMemberHandler.MY_CHAT_MEMBER),\n        group=11,\n    )
 
     application.bot_data["ai_router"] = AIEventRouter(
         application.bot_data["settings"]
@@ -793,12 +732,15 @@ async def _post_init(application: Application) -> None:
     # so initialize_schema can create the group history table as well.
     await initialize_schema(engine)
 
-    # Hide the slash-command menu from everyone by default; publish it only
-    # in the configured owner's private chat.
-    await application.bot.set_my_commands([], scope=BotCommandScopeDefault())
+    # Publish the public command list in private chats only. Owner-only
+    # commands remain visible only in the configured owner's private chat.
+    await application.bot.set_my_commands(
+        bot_commands(),
+        scope=BotCommandScopeAllPrivateChats(),
+    )
     for owner_id in settings.owner_ids:
         await application.bot.set_my_commands(
-            bot_commands(),
+            bot_commands(include_owner=True),
             scope=BotCommandScopeChat(chat_id=owner_id),
         )
 
