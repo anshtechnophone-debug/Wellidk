@@ -347,6 +347,13 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         return
     bot_username = getattr(context.bot, "username", None)
     text = (message.text or "").strip()
+    # Do not interpret a message explicitly addressed to a different bot as
+    # an instruction for XYRON, even when the message contains a known action.
+    leading_mention = re.match(r"^@([A-Za-z0-9_]+)\\b", text)
+    if leading_mention and (
+        not bot_username or leading_mention.group(1).casefold() != bot_username.casefold()
+    ):
+        return
     request = _strip_address(text, bot_username)
 
     # Moderation history is read from the database, not volatile conversation memory.
