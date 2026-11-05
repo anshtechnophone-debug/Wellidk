@@ -84,6 +84,7 @@ from app.modules.community.message_tools import (
 )
 from app.modules.games.anagram_handlers import anagram_command, anagramanswer_command
 from app.modules.quote_generator import quote_command
+from app.modules.quote_commands import quote_random_command, quote_top_command, quote_recall_handler
 from app.modules.quote_features import quote_auto_match_handler, quote_vote_callback
 from app.modules.games.board_handlers import (
     rps_command,
@@ -423,6 +424,8 @@ def _register_general(application: Application) -> None:
         ("pin", pin_command),
         ("start", start_command),
         ("q", quote_command),
+        ("qrand", quote_random_command),
+        ("qtop", quote_top_command),
         ("help", help_command),
         ("about", about_command),
         ("ping", ping_command),
