@@ -31,8 +31,10 @@ async def _name(context, user_id: int, chat_id: int | None = None) -> str:
     return f"User {user_id}"
 
 
-def _link(user_id: int, name: str) -> str:
-    return f'<a href="tg://user?id={user_id}">{escape(name)}</a>'
+def _link(user_id: int, name: str | None) -> str:
+    # Telegram users may have no first/last name; never pass None to html.escape.
+    safe_name = str(name or f"User {user_id}")
+    return f'<a href="tg://user?id={user_id}">{escape(safe_name)}</a>'
 
 
 async def family_remove_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
