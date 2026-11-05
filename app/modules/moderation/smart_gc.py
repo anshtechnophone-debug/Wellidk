@@ -80,16 +80,29 @@ def _menu_text(features: dict[str, bool], enabled: bool) -> str:
     )
 
 
+async def _can_manage_smart_gc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user, chat = update.effective_user, update.effective_chat
+    if not user or not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        return False
+    settings = context.application.bot_data['settings']
+    if settings.is_owner(user.id):
+        return True
+    try:
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        return member.status in {'administrator', 'creator'}
+    except TelegramError:
+        return False
+
+
 async def _show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user, chat, message = update.effective_user, update.effective_chat, update.effective_message
-    settings = context.application.bot_data["settings"]
-    if not user or not settings.is_owner(user.id):
-        if message:
-            await message.reply_text("Only the configured owner can control Smart GC.")
-        return
     if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         if message:
             await message.reply_text("Use this command inside the group you want to protect.")
+        return
+    if not await _can_manage_smart_gc(update, context):
+        if message:
+            await message.reply_text("Only group admins can configure Smart GC.")
         return
 
     policies = GroupPolicyRepository(context.application.bot_data["sessions"])
@@ -119,14 +132,13 @@ async def smartgc_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     args = [arg.casefold() for arg in context.args]
     if args == ["off"]:
         user, chat, message = update.effective_user, update.effective_chat, update.effective_message
-        settings = context.application.bot_data["settings"]
-        if not user or not settings.is_owner(user.id):
-            if message:
-                await message.reply_text("Only the configured owner can control Smart GC.")
-            return
         if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
             if message:
                 await message.reply_text("Use this command inside the group you want to protect.")
+            return
+        if not await _can_manage_smart_gc(update, context):
+            if message:
+                await message.reply_text("Only group admins can configure Smart GC.")
             return
         policies = GroupPolicyRepository(context.application.bot_data["sessions"])
         current = await policies.get(chat.id)
@@ -150,15 +162,19 @@ async def smartgc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     query = update.callback_query
     if not query:
         return
-    user = query.from_user
-    settings = context.application.bot_data["settings"]
-    if not user or not settings.is_owner(user.id):
-        await query.answer("Only the configured bot owner can change Smart GC.", show_alert=True)
-        return
     message = query.message
     chat = getattr(message, "chat", None)
     if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         await query.answer("Open Smart GC settings inside the group.", show_alert=True)
+        return
+    try:
+        member = await context.bot.get_chat_member(chat.id, query.from_user.id)
+        settings = context.application.bot_data["settings"]
+        allowed = settings.is_owner(query.from_user.id) or member.status in {"administrator", "creator"}
+    except TelegramError:
+        allowed = False
+    if not allowed:
+        await query.answer("Only group admins can change Smart GC.", show_alert=True)
         return
 
     data = query.data or ""
