@@ -566,6 +566,7 @@ async def _familytop_render(context, scope: str, chat_id: int | None, couples: b
                 f"{rank} {_link(left, left_name)} ❤️ {_link(right, right_name)}"
                 f"\n   🛡️ <b>{points:,} protection points</b>"
             )
+            lines.append("")
         return "\n".join(lines)
 
     rows = await repo.leaderboard("total", limit=10000)
