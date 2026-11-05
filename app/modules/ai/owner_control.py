@@ -349,7 +349,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     text = (message.text or "").strip()
     # Do not interpret a message explicitly addressed to a different bot as
     # an instruction for XYRON, even when the message contains a known action.
-    leading_mention = re.match(r"^@([A-Za-z0-9_]+)\\b", text)
+    leading_mention = re.match(r"^@([A-Za-z0-9_]+)\b", text)
     if leading_mention and (
         not bot_username or leading_mention.group(1).casefold() != bot_username.casefold()
     ):
