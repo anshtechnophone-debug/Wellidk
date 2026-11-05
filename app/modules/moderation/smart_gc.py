@@ -59,7 +59,8 @@ async def smartgc_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if message:
         await message.reply_text(
             "🛡 Smart GC is ON. Abusive language: 5 warnings then ban. "
-            "Media (except voice notes) is deleted after 5 minutes."
+            "Explicit adult media is deleted immediately; regular members are muted for 24 hours. " 
+            "Admins are deletion-only. Other media (except voice notes) is deleted after 5 minutes."
             if enabled else "Smart GC is OFF. Smart GC word and media protections are disabled."
         )
 
