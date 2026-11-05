@@ -159,7 +159,8 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Handle deep links and require official-channel membership for public access."""
     message = update.effective_message
     user = update.effective_user
-    if not message or not user:
+    chat = update.effective_chat
+    if not message or not user or not chat or chat.type != Chat.PRIVATE:
         return
 
     payload = context.args[0] if context.args else ""
