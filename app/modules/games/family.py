@@ -1,13 +1,13 @@
 """Global Family game repository and progression."""
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.database.models import FamilyRelationship, FamilyRequest
+from app.database.models import CoupleProtection, FamilyRelationship, FamilyRequest
 
 LEVELS = [
     (1, "Newborn"), (2, "Beginner"), (5, "Rookie"), (10, "Learner"),
@@ -257,6 +257,85 @@ class FamilyRepository:
                 FamilyRelationship.user_id.asc(),
             ).limit(limit)
             return list((await session.execute(stmt)).all())
+
+    async def couple_partner(self, user_id: int) -> int | None:
+        async with self.sessions() as session:
+            return await session.scalar(select(FamilyRelationship.related_user_id).where(
+                FamilyRelationship.user_id == user_id,
+                FamilyRelationship.relation.in_(["wife", "husband"]),
+            ).limit(1))
+
+    async def couple_protection_stats(self, user_id: int):
+        partner_id = await self.couple_partner(user_id)
+        if partner_id is None:
+            raise FamilyError("You are not married yet. Use /wife or /husband to create a couple first.")
+        left_id, right_id = sorted((user_id, partner_id))
+        today = datetime.now(UTC).date()
+        async with self.sessions() as session:
+            total = await session.scalar(select(func.count(CoupleProtection.id)).where(
+                CoupleProtection.couple_left_id == left_id,
+                CoupleProtection.couple_right_id == right_id,
+            )) or 0
+            own_today = await session.scalar(select(CoupleProtection.id).where(
+                CoupleProtection.couple_left_id == left_id,
+                CoupleProtection.couple_right_id == right_id,
+                CoupleProtection.protector_id == user_id,
+                CoupleProtection.protection_date == today,
+            ).limit(1))
+            own_total = await session.scalar(select(func.count(CoupleProtection.id)).where(
+                CoupleProtection.couple_left_id == left_id,
+                CoupleProtection.couple_right_id == right_id,
+                CoupleProtection.protector_id == user_id,
+            )) or 0
+            partner_total = total - own_total
+        return {
+            "partner_id": partner_id,
+            "total_points": total * 50,
+            "your_points": own_total * 50,
+            "partner_points": partner_total * 50,
+            "protected_today": own_today is not None,
+        }
+
+    async def protect_partner(self, user_id: int):
+        partner_id = await self.couple_partner(user_id)
+        if partner_id is None:
+            raise FamilyError("You need to be married before you can protect a partner.")
+        left_id, right_id = sorted((user_id, partner_id))
+        today = datetime.now(UTC).date()
+        async with self.sessions() as session:
+            try:
+                async with session.begin():
+                    session.add(CoupleProtection(
+                        couple_left_id=left_id,
+                        couple_right_id=right_id,
+                        protector_id=user_id,
+                        protected_partner_id=partner_id,
+                        protection_date=today,
+                    ))
+                    await session.flush()
+            except IntegrityError:
+                raise FamilyError("You have already protected your partner today. Come back tomorrow!") from None
+        return await self.couple_protection_stats(user_id)
+
+    async def top_couples(self, limit: int = 15):
+        async with self.sessions() as session:
+            marriages = list((await session.execute(select(
+                FamilyRelationship.user_id, FamilyRelationship.related_user_id
+            ).where(FamilyRelationship.relation == "wife"))).all())
+            totals = list((await session.execute(select(
+                CoupleProtection.couple_left_id,
+                CoupleProtection.couple_right_id,
+                func.count(CoupleProtection.id),
+            ).group_by(
+                CoupleProtection.couple_left_id, CoupleProtection.couple_right_id
+            ))).all())
+        points_by_pair = {(left, right): count * 50 for left, right, count in totals}
+        ranked = []
+        for left, right in marriages:
+            pair = tuple(sorted((left, right)))
+            ranked.append((left, right, points_by_pair.get(pair, 0)))
+        ranked.sort(key=lambda row: (-row[2], row[0], row[1]))
+        return ranked[:limit]
 
     async def reset_relationships(self) -> int:
         """Delete only Family relationship records; preserve all Family requests."""
