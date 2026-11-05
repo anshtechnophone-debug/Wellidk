@@ -10,6 +10,7 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from app.services.group_policy import GroupPolicyRepository
+from app.modules.moderation.smart_gc import feature_enabled
 
 logger = logging.getLogger(__name__)
 MEDIA_DELETE_DELAY_SECONDS = 300
@@ -69,9 +70,16 @@ async def delayed_media_delete_handler(
     policy = await GroupPolicyRepository(sessions).get(chat.id)
     smart_gc = policy.get("smart_gc", {})
     approved = {int(value) for value in policy.get("approved_users", [])}
-    if not isinstance(smart_gc, dict) or not smart_gc.get("enabled"):
+    if (
+        not isinstance(smart_gc, dict)
+        or not smart_gc.get("enabled")
+        or not feature_enabled(smart_gc, "media_cleanup")
+    ):
         return
-    if message.from_user and message.from_user.id in approved:
+    if (
+        feature_enabled(smart_gc, "approved_exemption")
+        and message.from_user and message.from_user.id in approved
+    ):
         return
 
     context.application.create_task(
