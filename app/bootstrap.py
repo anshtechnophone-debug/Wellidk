@@ -602,6 +602,9 @@ def _register_general(application: Application) -> None:
 
     application.add_handler(
         CallbackQueryHandler(smartgc_callback, pattern=r"^sgc:(?:toggle:[a-z_]+|enable)$"),
+        group=0,
+    )
+    application.add_handler(
         CallbackQueryHandler(giveaway_callback_handler, pattern=r"^giveaway:(?:join|rules):-?\d+$"),
         group=0,
     )
