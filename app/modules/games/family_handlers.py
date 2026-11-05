@@ -367,6 +367,66 @@ _RANKS = {
 }
 
 
+async def _couple_page(context, user_id: int):
+    repo = _repo(context)
+    stats = await repo.couple_protection_stats(user_id)
+    partner_id = stats["partner_id"]
+    partner_name = await _name(context, partner_id)
+    status = "✅ Already protected today" if stats["protected_today"] else "🟢 Available today"
+    text = (
+        "🛡️ <b>COUPLE PROTECTION</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"❤️ {_link(user_id, await _name(context, user_id))}  ×  {_link(partner_id, partner_name)}\n\n"
+        f"🏆 <b>{stats['total_points']:,}</b> protection points\n"
+        f"🙋 Your contribution: <b>{stats['your_points']:,}</b> points\n"
+        f"💗 Partner's contribution: <b>{stats['partner_points']:,}</b> points\n\n"
+        f"🛡️ Your daily protection: <b>{status}</b>\n"
+        "<i>Protect your partner once a day to add 50 points to your couple score. "
+        "If both partners protect each other, your couple earns 100 points that day.</i>"
+    )
+    button = "✅ Protected Today" if stats["protected_today"] else "🛡️ Protect Your Partner (+50)"
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(button, callback_data="cp:refresh" if stats["protected_today"] else "cp:protect")],
+        [InlineKeyboardButton("🔄 Refresh", callback_data="cp:refresh")],
+    ])
+    return text, keyboard
+
+
+async def cp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message, user = update.effective_message, update.effective_user
+    if not message or not user:
+        return
+    try:
+        text, keyboard = await _couple_page(context, user.id)
+    except FamilyError as exc:
+        await message.reply_text(f"💍 {escape(str(exc))}", parse_mode="HTML")
+        return
+    await message.reply_text(text, parse_mode="HTML", reply_markup=keyboard, disable_web_page_preview=True)
+
+
+async def cp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query, user = update.callback_query, update.effective_user
+    if not query or not user or not query.data:
+        return
+    if query.data == "cp:protect":
+        try:
+            await _repo(context).protect_partner(user.id)
+        except FamilyError as exc:
+            await query.answer(str(exc), show_alert=True)
+            return
+        await query.answer("🛡️ +50 protection points added!")
+    else:
+        try:
+            await _repo(context).couple_protection_stats(user.id)
+        except FamilyError as exc:
+            await query.answer(str(exc), show_alert=True)
+            return
+        await query.answer("Couple page refreshed.")
+    if query.message:
+        text, keyboard = await _couple_page(context, user.id)
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard, disable_web_page_preview=True)
+
+
 async def familyrank_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if not message:
@@ -487,7 +547,7 @@ async def _familytop_keyboard(scope: str = "global") -> InlineKeyboardMarkup:
 async def _familytop_render(context, scope: str, chat_id: int | None, couples: bool = False) -> str:
     repo = _repo(context)
     if couples:
-        rows = await repo.longest_marriages(limit=10000)
+        rows = await repo.top_couples(limit=10000)
         if scope == "chat" and chat_id:
             from sqlalchemy import select
             from app.database.models import KnownUser
@@ -500,16 +560,16 @@ async def _familytop_render(context, scope: str, chat_id: int | None, couples: b
         heading = f"💍 <b>COUPLE TOP 15</b>  ·  {'GLOBAL' if scope == 'global' else 'THIS CHAT'}"
         if not rows:
             return heading + "\n\nNo couples yet."
-        lines = [heading, ""]
-        now = datetime.now(UTC)
+        lines = [heading, "<i>Ranked by couple protection points</i>", ""]
         medals = ["🥇", "🥈", "🥉"]
-        for i, (left, right, since) in enumerate(rows, 1):
-            days = max(0, (now - since).days)
+        for i, (left, right, points) in enumerate(rows, 1):
             rank = medals[i - 1] if i <= 3 else f"<b>{i}.</b>"
             left_name = await _name(context, left, chat_id)
             right_name = await _name(context, right, chat_id)
-            lines.append(f"{rank} {_link(left, left_name)}  ❤️  {_link(right, right_name)}")
-            lines.append(f"      <i>{days} days together</i>")
+            lines.append(
+                f"{rank} {_link(left, left_name)}  ❤️  {_link(right, right_name)}  "
+                f"<b>{points:,} protection points</b>"
+            )
         return "\n".join(lines)
 
     rows = await repo.leaderboard("total", limit=10000)
