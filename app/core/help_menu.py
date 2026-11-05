@@ -118,11 +118,11 @@ def build_help_page(category_key: str | None = None, page_number: int = 0) -> He
     sections = []
     for command in selected:
         permission = (
-            "owner only" if command.owner_only else "group admin" if command.admin else "everyone"
+            "Only the XYRON owner" if command.owner_only else "Group admins" if command.admin else "Everyone"
         )
         sections.append(
             f"{command.usage}\n{command.description}\n"
-            f"Example: {_example(command)}\nPermission: {permission}"
+            f"Example: {_example(command)}\nWho can use it: {permission}"
         )
     rows = []
     navigation = []
