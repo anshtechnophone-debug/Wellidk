@@ -67,6 +67,21 @@ async def test_real_admin_with_permission_is_authorized_without_bot_admin_role()
 
 
 @pytest.mark.asyncio
+async def test_telegram_group_owner_always_has_full_moderation_access():
+    owner = _member(ChatMember.OWNER)
+    context = _context(
+        _member(ChatMember.ADMINISTRATOR, can_restrict_members=True),
+        owner,
+    )
+    access = await require_admin_access(
+        _update(), context, Settings(bot_token="token", owner_id=10),
+        "can_restrict_members",
+    )
+    assert access.actor is owner
+    assert access.is_bot_admin is False
+
+
+@pytest.mark.asyncio
 async def test_real_admin_without_right_can_use_group_bot_admin_appointment():
     actor = _member(ChatMember.ADMINISTRATOR, can_restrict_members=False)
     context = _context(
