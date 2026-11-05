@@ -1,8 +1,8 @@
 # XYRON Command Reference
 
-Generated from the enabled command registry: 95 commands in 26 categories.
+Generated from the current enabled command registry. Use `/help` in XYRON's private chat to browse the live command list.
 
-Access labels describe XYRON's command-level gate. Administrative operations additionally re-check the configured owner's current group membership and the bot's required Telegram rights. XYRON bot admins (non-owner) are mute-only: they cannot ban or kick, and can mute at most one member per group every 10 minutes. The configured owner is exempt from this cooldown and retains full moderation access.
+Access labels describe XYRON's command-level gate. `/help` is private-chat only and requires official-channel membership. Group administration commands also check the actor's Telegram rights and XYRON's required permissions. XYRON bot admins (non-owner) are mute-only: they cannot ban or kick, and can mute at most one member per group every 10 minutes. The configured owner is exempt from this cooldown and retains full moderation access.
 
 ## Admin Logs
 
@@ -31,10 +31,16 @@ Access labels describe XYRON's command-level gate. Administrative operations add
 
 ## Anti-Spam
 
-| Command | Description | Example | Access |\n| --- | --- | --- | --- |\n| `/spamprotector <on|off>` | Owner-only automatic mute after 15 messages within 30 seconds; mute lasts 10 minutes | `/spamprotector on` | configured owner |\n\nThe configured owner can also send `Xyron Spam protector onn` or `Xyron Spam protector off` in the group. This setting is stored per group.\n\n
 | Command | Description | Example | Access |
 | --- | --- | --- | --- |
-| `/antiflood <on\|off> [threshold] [seconds] [repeat threshold]` | Configure message flood deletion | `/antiflood on 5 10 3` | group admin |
+| `/spamprotector <on|off>` | Enable or disable automatic spam muting | `/spamprotector on` | configured owner |
+| `/smartgc [on|off]` | Configure abusive-language protection, NSFW detection, media cleanup, and approved-user exemptions | `/smartgc` | group admin |
+
+## Group Setup
+
+| Command | Description | Example | Access |
+| --- | --- | --- | --- |
+| `/verification <on|off>` | Turn new-member human verification on or off | `/verification off` | group admin |
 
 ## Ban and Unban
 
@@ -55,33 +61,33 @@ Access labels describe XYRON's command-level gate. Administrative operations add
 | `/filters` | List saved response filters | `/filters` | any member |
 | `/stop <phrase>` | Remove a saved filter | `/stop hello` | group admin |
 
-## Fun
-
-| Command | Description | Example | Access |
-| --- | --- | --- | --- |
-| `/riddle` | Start a local riddle | `/riddle` | any member |
-| `/riddleanswer <word>` | Answer the current riddle | `/riddleanswer crane` | any member |
-| `/quickmath` | Start a local arithmetic challenge | `/quickmath` | any member |
-| `/mathanswer <number>` | Answer the arithmetic challenge | `/mathanswer 42` | any member |
-| `/rps <rock\|paper\|scissors>` | Play non-wagering Rock Paper Scissors | `/rps rock` | any member |
-
 ## Games
 
 | Command | Description | Example | Access |
 | --- | --- | --- | --- |
-| `/hangman` | Start a local Hangman game | `/hangman` | any member |
-| `/letter <a-z>` | Guess a Hangman letter | `/letter a` | any member |
-| `/hangcancel` | Cancel Hangman | `/hangcancel` | any member |
-| `/numbergame` | Start a local number guessing game | `/numbergame` | any member |
-| `/numberguess <1-100>` | Submit a number guess | `/numberguess 42` | any member |
-| `/numbercancel` | Cancel Number Guess | `/numbercancel` | any member |
-| `/questioncancel <type>` | Cancel a question game | `/questioncancel trivia` | any member |
-| `/tictactoe` | Start Tic-Tac-Toe against XYRON | `/tictactoe` | any member |
-| `/tttmove <1-9>` | Play a Tic-Tac-Toe square | `/tttmove 5` | any member |
-| `/tttcancel` | Cancel Tic-Tac-Toe | `/tttcancel` | any member |
-| `/teamword` | Start a cooperative group word game | `/teamword` | any member |
-| `/teamguess <word>` | Contribute a team word guess | `/teamguess crane` | any member |
-| `/teamwordcancel` | Cancel the group Team Word game | `/teamwordcancel` | any member |
+| `/wordseek [4|5|6]` | Start a Word Seek game | `/wordseek 5` | any member |
+| `/new4`, `/new5`, `/new6` | Start a 4-, 5-, or 6-letter Word Seek game | `/new5` | any member |
+| `/guess <word>` | Submit a Word Seek guess | `/guess crane` | any member |
+| `/wordcancel` | Cancel your active Word Seek game | `/wordcancel` | starter or group admin |
+| `/wordrank` | Show the Word Seek leaderboard | `/wordrank` | any member |
+| `/tictactoe` | Start Tic-Tac-Toe | `/tictactoe` | any member |
+| `/tttmove <1-9>` | Make a Tic-Tac-Toe move | `/tttmove 5` | any member |
+| `/tttcancel` | Cancel Tic-Tac-Toe | `/tttcancel` | game participant |
+
+## Family Life
+
+| Command | Description | Example | Access |
+| --- | --- | --- | --- |
+| `/family`, `/familyinfo` | View a Family profile | `/family` | any member |
+| `/familytree` | View your Family connections | `/familytree` | any member |
+| `/familyrank`, `/familytop` | View Family leaderboards | `/familyrank` | any member |
+| `/familyhelp` | Show Family Life instructions | `/familyhelp` | any member |
+| `/wife`, `/husband` | Propose marriage to a replied-to member | Reply, then `/wife` | any member |
+| `/divorce` | Request a mutual divorce | Reply, then `/divorce` | any member |
+| `/son`, `/daughter`, `/father`, `/mother` | Create a parent/child relationship | Reply, then `/son` | any member |
+| `/brother`, `/sister`, `/friend` | Add a sibling or friend | Reply, then `/friend` | any member |
+| `/remove` | Remove a Family connection | Reply, then `/remove` | any member |
+| `/familyreset` | Reset your Family profile | `/familyreset` | profile owner |
 
 ## General
 
@@ -102,7 +108,7 @@ Access labels describe XYRON's command-level gate. Administrative operations add
 
 | Command | Description | Example | Access |
 | --- | --- | --- | --- |
-| `/help` | Browse commands by category | `/help` | any member |
+| `/help` | Browse commands by category in private chat | `/help` | channel member; private chat only |
 | `/about` | About XYRON | `/about` | any member |
 
 ## Kick and Restrict
@@ -160,15 +166,6 @@ Access labels describe XYRON's command-level gate. Administrative operations add
 | Command | Description | Example | Access |
 | --- | --- | --- | --- |
 | `/settings` | Inspect eligible groups and bot permissions | `/settings` | owner only |
-
-## Quiz Games
-
-| Command | Description | Example | Access |
-| --- | --- | --- | --- |
-| `/trivia` | Start a local trivia question | `/trivia` | any member |
-| `/triviaanswer <a\|b\|c>` | Answer the current trivia question | `/triviaanswer b` | any member |
-| `/truefalse` | Start a true/false question | `/truefalse` | any member |
-| `/tfanswer <true\|false>` | Answer true or false | `/tfanswer true` | any member |
 
 ## Reminders
 
