@@ -10,6 +10,7 @@ from sqlalchemy import BigInteger, ForeignKey, Integer, String, Text, UniqueCons
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import Forbidden, TelegramError
 from telegram.ext import ContextTypes
 
 from app.database.models import Base, UTCDateTime

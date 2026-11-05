@@ -49,6 +49,8 @@ _ALLOWED_RECOMMENDATIONS = {
     "deescalate",
     "notify_admins",
     "human_review",
+    # Advisory report triage only; never executed by the AI router.
+    "mute", "tmute", "ban", "tban", "kick", "warn",
 }
 
 _INCIDENT_CATEGORIES = {
@@ -351,6 +353,15 @@ class AIEventRouter:
             < now - self.settings.ai_activity_window_seconds
         ):
             activity.popleft()
+
+    def is_high_activity(self, chat_id: int) -> bool:
+        """Return whether recent message volume reached the configured threshold."""
+        activity = self.activity.get(chat_id, ())
+        now = time.time()
+        cutoff = now - self.settings.ai_activity_window_seconds
+        while activity and activity[0] < cutoff:
+            activity.popleft()
+        return len(activity) >= self.settings.ai_activity_threshold
 
     def recent_context(
         self,
@@ -676,12 +687,10 @@ class AIEventRouter:
                 ),
             )
 
-        # Only the configured owner can trigger AI replies or analyses.
+        # XYRON's conversational AI is owner-only in every chat.
+        # Mentioning/replying to the bot never grants another member access.
         if not settings.is_owner(user.id):
-            # Special configured users may chat with XYRON in private DMs,
-            # but only owners can trigger group analysis and owner controls.
-            if chat.type != "private" or user.id not in {8797066795, 8803598351, 8860754092}:
-                return
+            return
 
         if chat.type == "private":
             kind = (
@@ -719,8 +728,14 @@ class AIEventRouter:
         ):
             return
 
+        bot_username = (getattr(context.bot, "username", None) or "").casefold()
+        mentioned_usernames = {
+            name.casefold()
+            for name in re.findall(r"@([\w.-]{2,})", raw_text, re.IGNORECASE)
+            if name.casefold() != bot_username
+        }
         person_specific_history = bool(
-            re.search(r"@[\w.-]{2,}", raw_text, re.IGNORECASE)
+            mentioned_usernames
             or re.search(
                 r"\b(?:what did|messages from|msg from|chat by|what was said by|did)\s+@?[\w.-]{2,}",
                 raw_text,
@@ -952,8 +967,8 @@ class AIEventRouter:
 
         if result is None:
             await message.reply_text(
-                "AI service abhi unavailable hai ya request limit hit ho gayi. "
-                "Koi moderation action nahi liya gaya."
+                "AI service is temporarily unavailable or the request limit was reached. "
+                "No moderation action was taken."
             )
             return
 
@@ -977,12 +992,13 @@ class AIEventRouter:
                 f"Suggested next step: {analysis['recommendation']}\n"
                 f"Evidence: {analysis['evidence'][:1200]}\n"
                 f"Reasoning: {analysis['rationale'][:800]}\n\n"
-                "Yeh recommendation hai, automatic action nahi. "
-                "Final moderation existing permission-checked commands "
-                "se hi hogi, Malik."
+                "No automatic moderation action was taken. "
+                "This is advisory only; a human admin must decide."
             )
-
-            await message.reply_text(summary[:3500])
+            try:
+                await context.bot.send_message(settings.owner_id, summary[:3500])
+            except TelegramError:
+                logger.warning("Could not notify configured owner about moderation analysis")
             return
 
         await message.reply_text(result.text[:3500])
@@ -1009,9 +1025,6 @@ class AIEventRouter:
             or target is None
             or report_id in self.processed_reports
         ):
-            return
-
-        if not settings.is_owner(reporter.id):
             return
 
         if (
@@ -1102,6 +1115,7 @@ class AIEventRouter:
             await context.bot.send_message(
                 settings.owner_id,
                 f"XYRON report review for group {chat.id}\n"
+                f"context_available={bool(rows)}\n"
                 f"{summary}\n\n"
                 "Advisory only: no moderation action was executed.",
             )

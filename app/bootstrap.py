@@ -40,6 +40,8 @@ from app.handlers.common import (
 from app.handlers.errors import error_handler
 from app.modules.ai.assistant import AIEventRouter
 from app.modules.ai.owner_control import owner_natural_control
+from app.modules.broadcast import broadcast_command, broadcast_stop_command, track_private_recipient
+from app.modules.user_registry import track_global_chat_member, track_global_user
 from app.modules.appeals.handlers import (
     appeal_command,
     appeals_command,
@@ -82,12 +84,14 @@ from app.modules.community.message_tools import (
 )
 from app.modules.games.anagram_handlers import anagram_command, anagramanswer_command
 from app.modules.quote_generator import quote_command
+from app.modules.quote_commands import quote_random_command, quote_top_command, quote_recall_handler
 from app.modules.quote_features import quote_auto_match_handler, quote_vote_callback
 from app.modules.games.board_handlers import (
     rps_command,
     tictactoe_command,
     tttcancel_command,
     tttmove_command,
+    ttt_callback_handler,
 )
 from app.modules.games.casual_handlers import (
     gamerank_command,
@@ -105,6 +109,21 @@ from app.modules.games.chain_handlers import (
     chain_command,
     wordchain_command,
     wordchaincancel_command,
+)
+from app.modules.games.family_handlers import (
+    familyreset_command,
+    familyreset_callback,
+    family_relationship_command,
+    family_remove_command,
+    family_command,
+    familytree_command,
+    familyrank_command,
+    familytop_command,
+    familyhelp_command,
+    marriage_command,
+    divorce_command,
+    family_request_callback,
+    familyrank_callback,
 )
 from app.modules.games.handlers import (
     guess_command,
@@ -145,6 +164,7 @@ from app.modules.moderation.handlers import (
     set_warn_limit_command,
     track_known_user,
     unban_command,
+    unbanall_command,
     unmute_command,
     warn_command,
     warning_query_command,
@@ -152,7 +172,7 @@ from app.modules.moderation.handlers import (
 from app.modules.moderation.admin_roles import mass_ban_protector, mass_ban_restore_worker, promote_command
 from app.modules.moderation.reaction_guard import reaction_guard_handler
 from app.modules.moderation.smart_gc import smartgc_abuse_guard, smartgc_command
-from app.modules.moderation.media_cleaner import delayed_media_delete_handler, mediaclean_command
+from app.modules.moderation.media_cleaner import delayed_media_delete_handler
 from app.modules.reminders.handlers import (
     cancelreminder_command,
     remind_command,
@@ -392,16 +412,19 @@ async def plain_moderation_command(update: Update, context: ContextTypes.DEFAULT
 
 def _register_general(application: Application) -> None:
     for command, callback in (
+        ("broadcast", broadcast_command),
+        ("broadcast_stop", broadcast_stop_command),
         ("admin", admin_command),
         ("promote", promote_command),
         ("smartgc", smartgc_command),
-        ("mediaclean", mediaclean_command),
         ("verification", verification_command),
         ("unadmin", unadmin_command),
         ("botadminlist", botadminlist_command),
         ("pin", pin_command),
         ("start", start_command),
         ("q", quote_command),
+        ("qrand", quote_random_command),
+        ("qtop", quote_top_command),
         ("help", help_command),
         ("about", about_command),
         ("ping", ping_command),
@@ -426,6 +449,7 @@ def _register_general(application: Application) -> None:
         ("setwarnlimit", set_warn_limit_command),
         ("warn", warn_command),
         ("unban", unban_command),
+        ("unbanall", unbanall_command),
         ("unmute", unmute_command),
         ("mutelist", mutelist_command),
         ("kickme", kickme_command),
@@ -490,6 +514,24 @@ def _register_general(application: Application) -> None:
         ("teamword", teamword_command),
         ("teamguess", teamguess_command),
         ("teamwordcancel", teamwordcancel_command),
+        ("son", family_relationship_command),
+        ("daughter", family_relationship_command),
+        ("father", family_relationship_command),
+        ("mother", family_relationship_command),
+        ("brother", family_relationship_command),
+        ("sister", family_relationship_command),
+        ("friend", family_relationship_command),
+        ("remove", family_remove_command),
+        ("wife", marriage_command),
+        ("husband", marriage_command),
+        ("divorce", divorce_command),
+        ("familyinfo", family_command),
+        ("family", family_command),
+        ("familytree", familytree_command),
+        ("familyrank", familyrank_command),
+        ("familytop", familytop_command),
+        ("familyhelp", familyhelp_command),
+        ("familyreset", familyreset_command),
     ):
         application.add_handler(CommandHandler(command, callback))
 
@@ -563,6 +605,11 @@ def _register_general(application: Application) -> None:
     )
     application.add_handler(CallbackQueryHandler(quote_vote_callback, pattern=r"^qv:\d+:(?:up|down)$"), group=0)
     application.add_handler(CallbackQueryHandler(wordrank_callback, pattern=r"^wr:(?:p|s|l):"), group=0)
+    application.add_handler(CallbackQueryHandler(family_request_callback, pattern=r"^famreq:[ad]:[0-9]+$"), group=0)
+    application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
+    application.add_handler(CallbackQueryHandler(familyreset_callback, pattern=r"^famreset:(?:confirm|cancel):[0-9]+$"), group=0)
+    application.add_handler(CallbackQueryHandler(ttt_callback_handler, pattern=r"^ttt:(?:join|move):"), group=0)
+    application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
 
     # WordSeek accepts ordinary text guesses only while that user has an active game.
     application.add_handler(
@@ -571,6 +618,15 @@ def _register_general(application: Application) -> None:
             wordseek_text_handler,
         ),
         group=-3,
+    )
+
+    # Recall a saved quote in this same chat using /q_<id>.
+    application.add_handler(
+        MessageHandler(
+            filters.Regex(r"^/q_\\d+(?:@\\w+)?(?:\\s|$)"),
+            quote_recall_handler,
+        ),
+        group=0,
     )
 
     # Match saved group quotes against later conversational messages.
@@ -647,6 +703,26 @@ def _register_general(application: Application) -> None:
             track_known_user,
         ),
         group=10,
+    )
+
+    # Record all private-chat interactions for future owner broadcasts.
+    application.add_handler(
+        MessageHandler(filters.ChatType.PRIVATE & filters.ALL, track_private_recipient),
+        group=13,
+    )
+
+    # Maintain a single registry across private chats and groups. This runs
+    # after the feature handlers so commands and ordinary messages are included.
+    application.add_handler(
+        MessageHandler(filters.ALL, track_global_user),
+        group=14,
+    )
+    application.add_handler(
+        ChatMemberHandler(
+            track_global_chat_member,
+            ChatMemberHandler.CHAT_MEMBER,
+        ),
+        group=14,
     )
     application.add_handler(
         MessageHandler(filters.ALL, process_group_message),
