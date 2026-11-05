@@ -10,7 +10,6 @@ import asyncio
 import base64
 import io
 import logging
-import os
 import subprocess
 import tempfile
 from datetime import UTC, datetime, timedelta
@@ -18,11 +17,10 @@ from pathlib import Path
 
 import httpx
 from PIL import Image, UnidentifiedImageError
-from telegram import Chat, ChatMember, ChatPermissions, Update
+from telegram import ChatMember, ChatPermissions, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
-from app.core.permissions import bounded_permissions
 from app.services.group_policy import GroupPolicyRepository
 from app.services.moderation import ModerationRepository
 
@@ -268,7 +266,7 @@ async def _delete_and_maybe_mute(update, context, message, user) -> None:
             "smartgc_visual_mute",
             "Explicit adult media detected; 24-hour mute",
         )
-    except (TelegramError, Exception):
+    except Exception:
         if created_snapshot:
             await repository.forget_permissions(chat.id, user.id)
         logger.exception("Smart GC failed to apply the 24-hour media mute")
