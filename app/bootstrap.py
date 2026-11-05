@@ -621,6 +621,15 @@ def _register_general(application: Application) -> None:
         group=-3,
     )
 
+    # Recall a saved quote in this same chat using /q_<id>.
+    application.add_handler(
+        MessageHandler(
+            filters.Regex(r"^/q_\\d+(?:@\\w+)?(?:\\s|$)"),
+            quote_recall_handler,
+        ),
+        group=0,
+    )
+
     # Match saved group quotes against later conversational messages.
     application.add_handler(
         MessageHandler(filters.ChatType.GROUPS & (filters.TEXT | filters.CAPTION) & ~filters.COMMAND, quote_auto_match_handler),
