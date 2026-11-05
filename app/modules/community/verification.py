@@ -118,11 +118,19 @@ async def bot_added_as_admin(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         return
     actor = change.from_user
-    bot_permissions = (
-        "I have permission to restrict members."
-        if getattr(new_member, "can_restrict_members", False)
-        else "Please enable my Restrict Members permission if you want human verification and mute features."
-    )
+    permission_notes = []
+    if getattr(new_member, "can_restrict_members", False):
+        permission_notes.append("✓ Restrict Members is enabled.")
+    else:
+        permission_notes.append(
+            "⚠️ Please grant Restrict Members for human verification and mute features."
+        )
+    if getattr(new_member, "can_delete_messages", False):
+        permission_notes.append("✓ Delete Messages is enabled.")
+    else:
+        permission_notes.append(
+            "⚠️ Please grant Delete Messages for Smart GC cleanup and message removal."
+        )
     text = (
         f"Thanks for adding XYRON to <b>{escape(chat.title or 'your group')}</b>! 👋\n\n"
         "Here are the first commands:\n"
@@ -133,7 +141,7 @@ async def bot_added_as_admin(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "• /verification off — turn off the new-member human check for this group\n\n"
         "Human verification helps reduce automated bot-account joins. It is enabled by default. "
         "Use /verification off if your group does not want it.\n\n"
-        + bot_permissions
+        + "\n".join(permission_notes)
         + "\n\nUse /help in my private chat for the full command guide."
     )
     try:
