@@ -55,6 +55,7 @@ def _example(command: CommandInfo) -> str:
         "<user_id>": "123456789",
         "<reply>": "123456789",
         "<duration>": "30m",
+        "<seconds>": "5",
         "[duration]": "30m",
         "<message>": "drink water",
         "<text>": "Be respectful",
