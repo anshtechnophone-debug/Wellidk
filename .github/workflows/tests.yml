@@ -25,5 +25,7 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Check Python syntax
         run: python -m compileall -q app tests
+      - name: Verify database migrations
+        run: DATABASE_URL=sqlite+aiosqlite:///./ci.db alembic upgrade head
       - name: Run test suite
         run: pytest -q
