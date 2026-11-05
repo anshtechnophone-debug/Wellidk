@@ -560,9 +560,11 @@ async def _familytop_render(context, scope: str, chat_id: int | None, couples: b
             rank = medals[i - 1] if i <= 3 else f"<b>{i}.</b>"
             left_name = await _name(context, left, chat_id)
             right_name = await _name(context, right, chat_id)
+            # Keep names and scores on separate lines so long Telegram
+            # usernames cannot make the Couple Top leaderboard look crowded.
             lines.append(
-                f"{rank} {_link(left, left_name)}  ❤️  {_link(right, right_name)}  "
-                f"<b>{points:,} protection points</b>"
+                f"{rank} {_link(left, left_name)} ❤️ {_link(right, right_name)}"
+                f"\\n   🛡️ <b>{points:,} protection points</b>"
             )
         return "\n".join(lines)
 
