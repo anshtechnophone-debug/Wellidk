@@ -33,7 +33,7 @@ COMMANDS = (
     CommandInfo("id", "Show Telegram IDs", "/id [reply]", "User Tools"),
     CommandInfo("admin", "Appoint a XYRON bot admin for this group (group owner only)", "/admin @username or reply (numeric ID also supported)", "Admin Tools", admin=True),
     CommandInfo("promote", "Promote a member (group owner or Telegram admin with promotion permission)", "/promote @username [l|f] (numeric ID or reply also supported)", "Admin Tools", admin=True),
-    CommandInfo("smartgc", "Configure this group Smart GC protections", "/smartgc [on|off]", "Anti-Spam", admin=True),
+    CommandInfo("smartgc", "Configure Smart GC: abusive-language and NSFW checks, media cleanup, and approved-user exemptions", "/smartgc [on|off]", "Anti-Spam", admin=True),
     CommandInfo("verification", "Turn new-member human verification on or off", "/verification <on|off>", "Group Setup", admin=True),
     CommandInfo("unadmin", "Remove this group’s XYRON bot admin (group owner only)", "/unadmin @username or reply (numeric ID also supported)", "Admin Tools", admin=True),
     CommandInfo("botadminlist", "List this group’s XYRON bot admins (group owner only)", "/botadminlist", "Admin Tools", admin=True),
