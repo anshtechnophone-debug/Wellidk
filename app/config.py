@@ -45,6 +45,7 @@ class Settings:
     ai_activity_threshold: int = 5
     ai_activity_window_seconds: int = 120
     report_destination_id: int | None = None
+    visual_moderation_api_key: str = ""
 
     @property
     def owner_ids(self) -> frozenset[int]:
@@ -177,6 +178,7 @@ class Settings:
             ai_activity_threshold=ai_limits["AI_ACTIVITY_THRESHOLD"],
             ai_activity_window_seconds=ai_limits["AI_ACTIVITY_WINDOW_SECONDS"],
             report_destination_id=report_destination_id,
+            visual_moderation_api_key=os.getenv("OPENAI_MODERATION_API_KEY", "").strip(),
         )
 
 
