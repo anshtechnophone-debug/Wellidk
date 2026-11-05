@@ -51,15 +51,29 @@ def _is_member(member) -> bool:
     } or bool(getattr(member, "is_member", False))
 
 
-async def _send_manual_start_message(message) -> None:
-    """Send the original manual /start message after the community gate passes."""
+async def _send_public_welcome(message, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Explain how any channel member can use XYRON and add it to a group."""
+    me = await context.bot.get_me()
+    add_url = f"https://t.me/{me.username}?startgroup=true" if me.username else None
+    rows = []
+    if add_url:
+        rows.append([InlineKeyboardButton("➕ Add XYRON to a group", url=add_url)])
     await message.reply_text(
-        'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\n\n'
-        'Must join my Master\'s <a href="https://t.me/+75hmQ06GsjhjMTg9">Secret Society</a>♥️',
+        "<b>Welcome to XYRON!</b> 👋\n\n"
+        "I'm a public group-management and fun bot. You can use /help here in my DM "
+        "to browse commands and learn how each feature works.\n\n"
+        "<b>Popular group commands</b>\n"
+        "• /promote — promote a group member (with the right Telegram permissions)\n"
+        "• /q — create a quote sticker from a replied-to message\n"
+        "• /smartgc — configure Smart GC protections\n"
+        "• /wordseek — start Word Seek\n"
+        "• /family — open Family Life\n"
+        "• /tictactoe — play Tic-Tac-Toe\n\n"
+        "Add me to your group and make me an administrator to enable moderation and verification.",
         parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(rows) if rows else None,
         disable_web_page_preview=True,
     )
-
 
 def _community_join_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
@@ -69,124 +83,173 @@ def _community_join_keyboard() -> InlineKeyboardMarkup:
 
 
 async def _send_community_join_prompt(message) -> None:
-    """Ask non-owners to join XYRON ARMY before showing the master notice."""
+    """Ask users who are not in the official channel to join before using XYRON."""
     await message.reply_text(
-        "Before continuing, please join XYRON ARMY using the button below. "
-        "After joining, tap “I’ve Joined — Check”. I’ll confirm your membership first.",
+        "To use XYRON, first join our official channel using the button below. "
+        "Then tap “I've Joined — Check” and I'll verify your membership.",
         reply_markup=_community_join_keyboard(),
         disable_web_page_preview=True,
     )
 
 
+async def _is_community_member(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
+    community_id = _community_chat_id()
+    if community_id is None:
+        return False
+    try:
+        return _is_member(await context.bot.get_chat_member(community_id, user_id))
+    except TelegramError:
+        logger.exception("Could not check XYRON channel membership for user %s", user_id)
+        return False
+
+
+async def bot_added_as_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Welcome the person who promoted XYRON and explain the first setup steps."""
+    change = update.my_chat_member
+    if not change:
+        return
+    old_status = change.old_chat_member.status
+    new_member = change.new_chat_member
+    if new_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
+        return
+    if old_status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
+        return
+    chat = change.chat
+    if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        return
+    actor = change.from_user
+    bot_permissions = (
+        "I have permission to restrict members."
+        if getattr(new_member, "can_restrict_members", False)
+        else "Please enable my Restrict Members permission if you want human verification and mute features."
+    )
+    text = (
+        f"Thanks for adding XYRON to <b>{escape(chat.title or 'your group')}</b>! 👋\n\n"
+        "Here are the first commands:\n"
+        "• /promote — promote a member using Telegram admin permissions\n"
+        "• /q — create a quote sticker by replying to a message\n"
+        "• /smartgc — open Smart GC, the group-protection panel for abusive-language "
+        "protection, NSFW detection, media cleanup, and approved-user exemptions\n"
+        "• /verification off — turn off the new-member human check for this group\n\n"
+        "Human verification helps reduce automated bot-account joins. It is enabled by default. "
+        "Use /verification off if your group does not want it.\n\n"
+        + bot_permissions
+        + "\n\nUse /help in my private chat for the full command guide."
+    )
+    try:
+        await context.bot.send_message(actor.id, text, parse_mode="HTML", disable_web_page_preview=True)
+    except TelegramError:
+        try:
+            me = await context.bot.get_me()
+            start_url = f"https://t.me/{me.username}?start=welcome_{chat.id}" if me.username else None
+            markup = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Open XYRON in DM", url=start_url)]]
+            ) if start_url else None
+            await context.bot.send_message(
+                chat.id,
+                f"{actor.mention_html()}, XYRON is now an administrator. "
+                "Open my DM to see the setup guide and command list.",
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
+        except TelegramError:
+            logger.info("Could not deliver XYRON setup guide to inviter %s", actor.id)
+
 async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle group-verification deep links and gate manual starts on XYRON ARMY."""
+    """Handle deep links and require official-channel membership for public access."""
     message = update.effective_message
     user = update.effective_user
     if not message or not user:
         return
 
     payload = context.args[0] if context.args else ""
+    settings = context.application.bot_data.get("settings")
+    is_owner = bool(settings and settings.is_owner(user.id))
+    if not is_owner and not await _is_community_member(context, user.id):
+        await _send_community_join_prompt(message)
+        return
+
+    if not payload:
+        await _send_public_welcome(message, context)
+        return
+
     ttt_join_match = re.fullmatch(r"tttj_(\d{1,10})", payload)
     if ttt_join_match:
         from app.modules.games.board_handlers import join_ttt_from_start
-
         await join_ttt_from_start(update, context, int(ttt_join_match.group(1)))
         return
     family_match = re.fullmatch(r"fr_(\d{1,10})_(\d{1,15})_(-?\d{1,15})_(\d{1,10})", payload)
     if family_match:
         request_id, expected_user_id, group_id, message_id = map(int, family_match.groups())
         if user.id != expected_user_id:
-            await message.reply_text("This family request link belongs to another Telegram account.")
+            await message.reply_text("This Family request link belongs to another Telegram account.")
             return
         from app.modules.games.family import FamilyRepository
         repository = FamilyRepository(context.application.bot_data["sessions"])
         if not await repository.is_pending_request_for(request_id, user.id):
-            await message.reply_text("This family request has expired or was already answered.")
+            await message.reply_text("This Family request has expired or was already answered.")
             return
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Accept", callback_data=f"famreq:a:{request_id}"),
             InlineKeyboardButton("Decline", callback_data=f"famreq:d:{request_id}"),
         ]])
         try:
-            await context.bot.edit_message_reply_markup(
-                chat_id=group_id, message_id=message_id, reply_markup=keyboard
-            )
+            await context.bot.edit_message_reply_markup(chat_id=group_id, message_id=message_id, reply_markup=keyboard)
         except TelegramError:
-            await message.reply_text(
-                "You're connected, but I couldn't update the group buttons. "
-                "Please ask an admin to check that XYRON can edit its messages."
-            )
+            await message.reply_text("I couldn't update the group buttons. Please ask an admin to check my permissions.")
             return
-        await message.reply_text(
-            f"✅ XYRON is started! Request #{request_id} is ready. "
-            "Go back to the group and tap Accept or Decline."
-        )
+        await message.reply_text(f"✅ XYRON is ready! Return to the group and tap Accept or Decline for request #{request_id}.")
         return
     legacy_family_match = re.fullmatch(r"family_req_(\d{1,10})_(\d{1,15})", payload)
     if legacy_family_match:
         request_id, expected_user_id = map(int, legacy_family_match.groups())
         if user.id != expected_user_id:
-            await message.reply_text("This family request link belongs to another Telegram account.")
+            await message.reply_text("This Family request link belongs to another Telegram account.")
             return
-        await message.reply_text(
-            f"✅ XYRON is started for request #{request_id}. Please ask for a fresh request link in the group."
-        )
+        await message.reply_text(f"XYRON is ready for request #{request_id}. Please ask for a fresh request link in the group.")
         return
     if _QUOTE_REACT_PAYLOAD.fullmatch(payload):
-        await message.reply_text("You are all set! You can now react to quotes in groups. Return to the group and tap 👍 or 👎 again.")
+        await message.reply_text("You're all set! Return to the group and tap 👍 or 👎 on the quote again.")
         return
     giveaway_match = re.fullmatch(r"gw_(-?\d{1,15})", payload)
     if giveaway_match:
         group_id = int(giveaway_match.group(1))
         from app.modules.community.giveaway import _now, _parse_time, _repo, _rules_text
-
         try:
             policy = await _repo(context).get(group_id)
             state = policy.get("giveaway", {})
             if not isinstance(state, dict) or not state.get("active"):
-                await message.reply_text("🏁 This giveaway is no longer active. Check the group for the next one.")
+                await message.reply_text("This giveaway is no longer active. Check the group for the next one.")
                 return
             ends_at = _parse_time(state.get("ends_at"))
             if not ends_at or _now() >= ends_at:
                 state["active"] = False
                 state["ended_at"] = ends_at.isoformat() if ends_at else _now().isoformat()
                 await _repo(context).set_value(group_id, "giveaway", state)
-                await message.reply_text("🏁 This giveaway has ended.")
+                await message.reply_text("This giveaway has ended.")
                 return
             member = await context.bot.get_chat_member(group_id, user.id)
             if member.status not in {ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER} and not bool(getattr(member, "is_member", False)):
-                await message.reply_text("Please join the group first, then tap Join Giveaway again.")
+                await message.reply_text("Join the group first, then tap Join Giveaway again.")
                 return
             members = state.setdefault("members", {})
             key = str(user.id)
             if key not in members:
-                members[key] = {
-                    "name": user.full_name,
-                    "username": user.username,
-                    "score": 0.0,
-                    "joined_at": _now().isoformat(),
-                }
+                members[key] = {"name": user.full_name, "username": user.username, "score": 0.0, "joined_at": _now().isoformat()}
                 await _repo(context).set_value(group_id, "giveaway", state)
             group = await context.bot.get_chat(group_id)
             started = _parse_time(state.get("started_at"))
             await message.reply_text(
                 f"✅ <b>You're registered for {escape(group.title or 'the giveaway')}!</b>\n\n"
-                "Your credits start counting from now. Only text messages sent in the group after joining count.\n"
-                "• Reply: +1 credit\n"
-                "• Standalone text: +0.5 credit\n\n"
+                "Only text messages sent in the group after joining count.\n"
+                "• Reply: +1 credit\n• Standalone text: +0.5 credit\n\n"
                 "Use /prize in the group to check your rank.",
                 parse_mode="HTML",
                 disable_web_page_preview=True,
             )
-            await message.reply_text(
-                _rules_text(group.title or "Giveaway", started, ends_at),
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            )
+            await message.reply_text(_rules_text(group.title or "Giveaway", started, ends_at), parse_mode="HTML", disable_web_page_preview=True)
         except TelegramError:
-            await message.reply_text(
-                "I couldn't verify that you're in the giveaway's group. Join the group first, then tap Join Giveaway again."
-            )
+            await message.reply_text("I couldn't verify that you're in the giveaway group. Join it first, then try again.")
         except (TypeError, ValueError):
             await message.reply_text("This giveaway link is invalid or has expired.")
         return
@@ -196,13 +259,10 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         group_id = int(rules_match.group(1))
         try:
             from app.modules.community.handlers import _send_rules_dm
-
             await _send_rules_dm(context, user.id, group_id)
         except TelegramError:
             logger.exception("Could not deliver group rules to user %s for chat %s", user.id, group_id)
-            await message.reply_text(
-                "I couldn't load those group rules right now. Please request them again from the group."
-            )
+            await message.reply_text("I couldn't load those group rules right now. Please request them again from the group.")
         return
 
     admin_guide_match = _ADMIN_GUIDE_PAYLOAD.fullmatch(payload)
@@ -222,17 +282,9 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         await message.reply_text(
             "✅ You are now a XYRON bot admin!\n\n"
-            "Your moderation commands (use them in a group where XYRON is present):\n"
-            "• /mute — permanently mute a member (reply to their message or use their user ID)\n"
-            "• /mute 30m — temporary mute for 30 minutes\n"
-            "• /tmute 2h — temporary mute for 2 hours\n"
-            "• /unmute — restore a member's saved/default permissions\n"
-            "• /mutelist — view XYRON-tracked mutes\n\n"
-            "How to use: reply to the member's message with /mute, /tmute 30m, or /unmute. "
-            "You can also put their numeric Telegram user ID after the command.\n\n"
-            "Limits: bot admins can mute only one member per group every 10 minutes. "
-            "Ban and kick commands are reserved for the bot owner. "
-            "You do not need Telegram group-admin status to be a XYRON bot admin."
+            "Use /mute, /tmute 30m, /unmute, and /mutelist in groups where XYRON is present. "
+            "Bot admins can mute only one member per group every 10 minutes. "
+            "Ban and kick are reserved for the bot owner. Telegram group-admin status is not required."
         )
         return
 
@@ -240,111 +292,54 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if match:
         chat_id, expected_user_id = int(match.group(1)), int(match.group(2))
         if user.id != expected_user_id:
-            await message.reply_text(
-                "This verification link belongs to another Telegram account. "
-                "Please open your own link from the group."
-            )
+            await message.reply_text("This verification link belongs to another Telegram account. Open your own link from the group.")
             return
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("I am a human", callback_data=_verification_payload(chat_id, user.id))
         ]])
-        await message.reply_text(
-            "Please confirm that you are a human to unlock your group permissions.",
-            reply_markup=keyboard,
-        )
+        await message.reply_text("Please confirm that you're a human to restore your group permissions.", reply_markup=keyboard)
         return
 
-    settings = context.application.bot_data.get("settings")
-    if settings and settings.is_owner(user.id):
-        await _send_manual_start_message(message)
-        return
-
-    # Ask non-owners to join and confirm XYRON ARMY before showing the master notice.
-    await _send_community_join_prompt(message)
-
+    await _send_public_welcome(message, context)
 
 async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Allow only the configured owner to use XYRON's commands and features."""
-    user = update.effective_user
-    chat = update.effective_chat
+    """Require official-channel membership in private chats; keep group features public."""
+    user, chat = update.effective_user, update.effective_chat
     if not user or not chat:
         return
-
+    message, query = update.effective_message, update.callback_query
     settings = context.application.bot_data.get("settings")
     if settings and settings.is_owner(user.id):
         return
 
-    message = update.effective_message
-    query = update.callback_query
-
-    # Giveaway buttons are posted in groups, so allow these specific callbacks
-    # through BEFORE the group callback gate below. The giveaway handler performs
-    # its own active-giveaway and group-membership checks.
-    if query and query.data and re.fullmatch(r"giveaway:(?:join|rules):-?\d+", query.data):
-        return
-    if query and query.data and re.fullmatch(r"ttt:(?:join|move):\d+(?::\d+)?", query.data):
-        return
-    if query and query.data and re.fullmatch(r"qv:\d+:(?:up|down)", query.data):
-        return
-    if query and query.data and re.fullmatch(r"famreq:[ad]:\d{1,10}", query.data):
-        return
-
-    # This gate controls private-chat/community access, not group command
-    # authorization. Group commands must reach their handlers: public commands
-    # are usable by members, while sensitive commands enforce owner/admin and
-    # Telegram-permission checks themselves. Natural-language AI remains
-    # owner-only in owner_natural_control / AIEventRouter.
     if chat.type != Chat.PRIVATE:
-        if query:
-            await query.answer("Please message XYRON privately to continue.", show_alert=True)
+        if query and query.data and query.data.startswith("help:"):
+            await query.answer("Use /help in XYRON's private chat.", show_alert=True)
             raise ApplicationHandlerStop
         return
 
-    # Keep human-verification and the community membership-check callbacks working.
-    if query and query.data and (
-        _PAYLOAD.fullmatch(query.data)
-        or query.data == _COMMUNITY_CHECK
-        or re.fullmatch(r"giveaway:(?:join|rules):-?\d+", query.data)
-    ):
-        # Giveaway callbacks must reach their own handler; it performs the
-        # active-giveaway and group-membership checks itself.
-        return
+    # Let /start handle the join prompt and all supported deep links.
     if message and message.text:
-        parts = message.text.strip().split(maxsplit=1)
-        if parts and parts[0].split("@", 1)[0].lower() == "/start" and len(parts) > 1:
-            start_payload = parts[1].strip()
-            if _PAYLOAD.fullmatch(start_payload):
-                return
-            admin_guide_match = _ADMIN_GUIDE_PAYLOAD.fullmatch(start_payload)
-            if admin_guide_match and user.id == int(admin_guide_match.group(1)):
-                return
-            if _RULES_PAYLOAD.fullmatch(start_payload):
-                return
-            if re.fullmatch(r"gw_-?\d{1,15}", start_payload):
-                return
-            if re.fullmatch(r"tttj_\d{1,10}", start_payload):
-                return
-            if _QUOTE_REACT_PAYLOAD.fullmatch(start_payload):
-                return
-            if re.fullmatch(r"fr_\d{1,10}_\d{1,15}_-?\d{1,15}_\d{1,10}", start_payload):
-                return
+        first = message.text.strip().split(maxsplit=1)[0].split("@", 1)[0].lower()
+        if first == "/start":
+            return
 
-    if query:
-        await query.answer("XYRON is reserved for its Master.", show_alert=True)
-        await context.bot.send_message(
-            chat_id=user.id,
-            text=(
-                'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\n\n'
-                'Must join my Master\'s <a href="https://t.me/+75hmQ06GsjhjMTg9">Secret Society</a>♥️'
-            ),
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-        )
-    elif message:
-        await _send_community_join_prompt(message)
+    # The join button must reach its own membership-check callback.
+    if query and query.data == _COMMUNITY_CHECK:
+        return
 
-    raise ApplicationHandlerStop
-
+    # Human verification and other private deep-link callbacks are only usable
+    # after the user has joined the required channel.
+    if not await _is_community_member(context, user.id):
+        if query:
+            await query.answer("Join the official XYRON channel first.", show_alert=True)
+            try:
+                await context.bot.send_message(user.id, "Please join the official XYRON channel to continue.", reply_markup=_community_join_keyboard())
+            except TelegramError:
+                pass
+        elif message:
+            await _send_community_join_prompt(message)
+        raise ApplicationHandlerStop
 
 async def community_join_check_callback(
     update: Update,
@@ -386,15 +381,7 @@ async def community_join_check_callback(
         await query.edit_message_text("✓ XYRON ARMY membership confirmed.")
     except TelegramError:
         pass
-    await context.bot.send_message(
-        chat_id=user.id,
-        text=(
-            'I was built to serve my <a href="https://t.me/S1DH7">Master</a> only.\n\n'
-            'Must join my Master\'s <a href="https://t.me/+75hmQ06GsjhjMTg9">Secret Society</a>♥️'
-        ),
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+    await _send_public_welcome(update.effective_message, context)
 
 
 async def verify_human_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
