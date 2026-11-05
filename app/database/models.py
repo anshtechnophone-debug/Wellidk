@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import (
     BigInteger,
@@ -324,7 +324,7 @@ class CoupleProtection(Base):
     couple_right_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     protector_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     protected_partner_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    protection_date: Mapped[object] = mapped_column(Date, nullable=False)
+    protection_date: Mapped[date] = mapped_column(Date, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
 
 
