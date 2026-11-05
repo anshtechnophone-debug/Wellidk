@@ -18,6 +18,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_chat and update.effective_chat.type != Chat.PRIVATE:
+        return
     if update.effective_message:
         page = build_help_page()
         await update.effective_message.reply_text(page.text, reply_markup=page.keyboard)
@@ -26,6 +28,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if query is None or query.data is None:
+        return
+    if update.effective_chat and update.effective_chat.type != Chat.PRIVATE:
+        await query.answer("Use /help in XYRON's private chat.", show_alert=True)
         return
     if query.data == "help:close":
         try:
