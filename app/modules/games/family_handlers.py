@@ -564,7 +564,7 @@ async def _familytop_render(context, scope: str, chat_id: int | None, couples: b
             # usernames cannot make the Couple Top leaderboard look crowded.
             lines.append(
                 f"{rank} {_link(left, left_name)} ❤️ {_link(right, right_name)}"
-                f"\\n   🛡️ <b>{points:,} protection points</b>"
+                f"\n   🛡️ <b>{points:,} protection points</b>"
             )
         return "\n".join(lines)
 
