@@ -219,18 +219,3 @@ Access labels describe XYRON's command-level gate. `/help` is private-chat only 
 | `/setwelcome <template>` | Set or clear the member welcome | `/setwelcome Welcome {first_name}` | group admin |
 | `/setgoodbye <template>` | Set or clear the member goodbye | `/setgoodbye Welcome {first_name}` | group admin |
 
-## Word Games
-
-| Command | Description | Example | Access |
-| --- | --- | --- | --- |
-| `/wordseek [4\|5\|6]` | Start a local Word Seek game | `/wordseek 5` | any member |
-| `/guess <word>` | Submit a Word Seek guess | `/guess crane` | any member |
-| `/wordcancel` | Cancel your active Word Seek game | `/wordcancel` | any member |
-| `/scramble` | Start a scrambled word game | `/scramble` | any member |
-| `/unscramble <word>` | Submit a scrambled word answer | `/unscramble crane` | any member |
-| `/scramblecancel` | Cancel the scramble game | `/scramblecancel` | any member |
-| `/wordchain` | Start a local Word Chain game | `/wordchain` | any member |
-| `/chain <word>` | Submit the next Word Chain word | `/chain crane` | any member |
-| `/wordchaincancel` | Cancel Word Chain | `/wordchaincancel` | any member |
-| `/anagram` | Start a single-answer Anagram challenge | `/anagram` | any member |
-| `/anagramanswer <word>` | Submit the Anagram answer | `/anagramanswer crane` | any member |
