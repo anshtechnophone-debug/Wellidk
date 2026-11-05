@@ -39,8 +39,18 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         await message.reply_text("Use /promote in a group.")
         return
-    if not settings.is_owner(actor.id):
-        await message.reply_text("Only the configured XYRON owner can promote group admins.")
+    # Promotion is a Telegram-admin action, never a XYRON bot-admin privilege.
+    # The group owner can always promote; other Telegram admins need the
+    # explicit Telegram can_promote_members right. A configured XYRON owner
+    # or group-scoped bot admin receives no special promotion authority.
+    actor_member = await context.bot.get_chat_member(chat.id, actor.id)
+    if actor_member.status != ChatMember.OWNER and not (
+        actor_member.status == ChatMember.ADMINISTRATOR
+        and getattr(actor_member, "can_promote_members", False)
+    ):
+        await message.reply_text(
+            "Only the group owner or a Telegram admin with 'Add new admins' permission can promote members."
+        )
         return
     if not context.args:
         await message.reply_text(
