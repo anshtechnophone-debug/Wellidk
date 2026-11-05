@@ -171,7 +171,7 @@ from app.modules.moderation.handlers import (
 )
 from app.modules.moderation.admin_roles import mass_ban_protector, mass_ban_restore_worker, promote_command
 from app.modules.moderation.reaction_guard import reaction_guard_handler
-from app.modules.moderation.smart_gc import smartgc_abuse_guard, smartgc_command
+from app.modules.moderation.smart_gc import smartgc_abuse_guard, smartgc_callback, smartgc_command
 from app.modules.moderation.visual_moderation import visual_media_moderation_handler
 from app.modules.moderation.media_cleaner import delayed_media_delete_handler
 from app.modules.reminders.handlers import (
