@@ -1,8 +1,8 @@
 # XYRON - One Bot. Every Feature.
 
-XYRON is an asynchronous Telegram bot. This release provides live permission-checked moderation, restart-safe mute/ban expiration, report review, group policies (rules, notes, filters, locks, welcome/goodbye, and opt-in flood protection), categorized inline help, 13 local games, and an optional event-driven AI assistant.
+XYRON is an asynchronous Telegram bot. This release provides live permission-checked moderation, restart-safe mute/ban expiration, report review, group policies (rules, notes, filters, locks, welcome/goodbye, and opt-in flood protection), categorized private-chat help, Word Seek, Family Life, Tic-Tac-Toe, and an optional event-driven AI assistant.
 
-**This is not yet the full superbot described in the specification.** The feature-status matrix below is authoritative. The current catalogue contains 95 real registered commands in 26 categories, below the requested 150–200. The local game suite is implemented and needs no AI credits. Music playback, economy/progression, media processing, RSS/recurring reminders, and AI auto-enforcement remain incomplete.
+**This is not yet the full superbot described in the specification.** The feature-status matrix below is authoritative. The public game catalogue is intentionally limited to Word Seek, Family Life, and Tic-Tac-Toe. These games run locally and do not need AI credits. Music playback, economy/progression, media processing, RSS/recurring reminders, and AI auto-enforcement remain incomplete.
 
 ## Requirements
 
@@ -10,7 +10,7 @@ XYRON is an asynchronous Telegram bot. This release provides live permission-che
 - A Telegram bot created with BotFather and added to the target group.
 - The bot must be promoted to administrator. Grant `Ban users` for moderation, and `Delete messages` for `d*` and `s*` variants. Pinning is not implemented.
 - Set the numeric user ID of the primary owner in `OWNER_ID`. The username `@s1dh7` is not used for authorization.
-- Public DM access is gated by XYRON ARMY membership: users must join the official channel before using `/help` or other private-chat features. Set `XYRON_COMMUNITY_CHAT_ID` in the service environment to the channel's numeric Telegram chat ID (usually starts with `-100`) and add XYRON as a channel administrator so Telegram allows member checks. The invite URL shown to users is configured in `app/modules/community/verification.py`; an invite URL alone cannot verify membership. The configured bot owner is exempt from the membership gate.
+- Public DM access is gated by XYRON ARMY membership: users must join the official channel before using `/help` or other private-chat features. `/help` is available only in XYRON's private chat; group help commands are intentionally disabled. Set `XYRON_COMMUNITY_CHAT_ID` in the service environment to the channel's numeric Telegram chat ID (usually starts with `-100`) and add XYRON as a channel administrator so Telegram allows member checks. The invite URL shown to users is configured in `app/modules/community/verification.py`; an invite URL alone cannot verify membership. The configured bot owner is exempt from the membership gate.
 - Smart GC image/video NSFW detection requires `OPENAI_MODERATION_API_KEY` in the service environment. Without it, abusive-language protection and media cleanup can still work, but visual moderation stays inactive. The key is separate from `AI_API_KEY`.
 - SQLite is sufficient for a single-process small deployment. PostgreSQL is supported for a larger deployment; only run one XYRON poller against a given bot token/database because the temporary-action worker is not a distributed job-claim system.
 
@@ -126,7 +126,7 @@ All temporary durations accept `30s`, `4m`, `3h`, `6d`, or `5w`, with a maximum 
 | `/reminders` | List your pending reminders | Anyone; creator only |
 | `/cancelreminder <id>` | Cancel your own pending reminder | Anyone; creator only |
 
-The inline `/help` menu is the complete current command catalogue: **95 registered commands in 26 categories**. It includes 8-command pages, concrete examples, and permission labels. This remains below the requested 150–200 commands. Many requested feature families are intentionally not represented as commands until implemented.
+The inline `/help` menu is the current command catalogue. It includes paginated categories, concrete examples, and permission labels. Use `/help` in XYRON's private chat; it is not available in groups.
 
 The generated [full command reference](docs/command-reference.md) lists every currently registered command with its category, example, and access level.
 
@@ -227,9 +227,9 @@ AI is disabled by default. Set `AI_ENABLED=true`, `AI_GLOBAL_EMERGENCY_STOP=fals
 | Health check | Implemented; tested | Database SELECT and background worker task state |
 | `/settings` eligibility inspection | Implemented; not live-tested | Groups observed in messages; current owner and bot permissions fetched live |
 | Anti-spam, filters, locks | Partial; mocked tests | Explicit opt-in flood/repeat detection, link/type locks, saved responses and approvals; deletion only, no escalation |
-| Welcome, notes, rules | Implemented; database tested | Safe escaped templates, per-group rules/notes; CAPTCHA and verification are not implemented |
+| Welcome, notes, rules | Implemented; database tested | Safe escaped templates, per-group rules/notes, and configurable new-member human verification |
 | Word Seek | Implemented; unit/database tested | 4/5/6-letter pools, feedback, per-chat/player sessions, timeout/cancel, persistent scoring and leaderboard |
-| Local games | Implemented; unit/database tested | 13: Word Seek, Hangman, Scramble, Anagram, Word Chain, Trivia, True/False, Riddle, Quick Math, Number Guess, RPS, Tic-Tac-Toe, Team Word |
+| Local games | Implemented; unit/database tested | 3: Word Seek, Family Life, Tic-Tac-Toe |
 | XP/economy/reputation | Not implemented | No progression/economy privileges or reputation handlers |
 | Music/group-call playback | Not implemented | No fake `/play`; requires separate compatible worker and external credentials |
 | AI chat and incident analysis | Implemented; mocked tests; disabled by default | OpenAI-compatible Chat Completions, direct-address only, bounded memory, persistent usage budgets, report/incident summaries; advisory only |
