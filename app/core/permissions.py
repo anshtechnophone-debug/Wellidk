@@ -70,7 +70,7 @@ async def require_admin_access(update: Update, context: ContextTypes.DEFAULT_TYP
             f"Your Telegram administrator privileges do not allow {human}, and you are not a XYRON bot admin in this group."
         )
 
-    # When the member already has the Telegram right, treat them purely as a\n    # Telegram admin so bot-admin-only limits do not override their real role.\n    effective_bot_admin = is_bot_admin and not (is_real_admin and (\n        bot_permission is None or getattr(actor, bot_permission, False)\n    ))\n    return AdminAccess(actor=actor, bot=bot_member, is_bot_admin=effective_bot_admin)
+    # When the member already has the Telegram right, treat them purely as a\n    # Telegram admin so bot-admin-only limits do not override their real role.\n    effective_bot_admin = is_bot_admin and not (\n        is_real_admin and (bot_permission is None or getattr(actor, bot_permission, False))\n    )\n    return AdminAccess(actor=actor, bot=bot_member, is_bot_admin=effective_bot_admin)
 
 
 async def ensure_target_is_moderatable(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
