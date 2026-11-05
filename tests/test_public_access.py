@@ -20,6 +20,7 @@ def test_channel_member_statuses_are_recognized():
 async def test_joined_channel_member_can_use_private_help_without_prompt(monkeypatch):
     member_check = AsyncMock(return_value=True)
     join_prompt = AsyncMock()
+    monkeypatch.setattr(verification, "_community_chat_id", lambda: -1001234567890)
     monkeypatch.setattr(verification, "_is_community_member", member_check)
     monkeypatch.setattr(verification, "_send_community_join_prompt", join_prompt)
 
