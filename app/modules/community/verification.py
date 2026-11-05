@@ -166,6 +166,9 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
     payload = context.args[0] if context.args else ""
     settings = context.application.bot_data.get("settings")
     is_owner = bool(settings and settings.is_owner(user.id))
+    if not is_owner and _community_chat_id() is None:
+        await message.reply_text("Channel membership verification is not configured yet. Please contact the XYRON team.")
+        return
     if not is_owner and not await _is_community_member(context, user.id):
         await _send_community_join_prompt(message)
         return
@@ -329,8 +332,14 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
     if query and query.data == _COMMUNITY_CHECK:
         return
 
-    # Human verification and other private deep-link callbacks are only usable
-    # after the user has joined the required channel.
+    # Human verification and other private actions require a configured channel
+    # and confirmed membership.
+    if _community_chat_id() is None:
+        if query:
+            await query.answer("Channel membership verification is not configured yet.", show_alert=True)
+        elif message:
+            await message.reply_text("Channel membership verification is not configured yet. Please contact the XYRON team.")
+        raise ApplicationHandlerStop
     if not await _is_community_member(context, user.id):
         if query:
             await query.answer("Join the official XYRON channel first.", show_alert=True)
