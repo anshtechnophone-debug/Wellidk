@@ -1,32 +1,26 @@
-"""Fresh Telegram permission checks for administrative actions."""
-
+"""Fresh Telegram permission checks with group-scoped XYRON trust roles."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sqlalchemy import select
 from telegram import Chat, ChatMember, ChatPermissions, Update
 from telegram.ext import ContextTypes
 
-from sqlalchemy import select
-
 from app.config import Settings
-from app.database.models import BotAdmin
+from app.database.group_bot_admins import GroupBotAdmin
 
 
 class AuthorizationError(RuntimeError):
     """An administrative operation is not authorized or cannot be performed."""
 
 
-def bounded_permissions(
-    saved: dict[str, bool] | None, defaults: dict[str, bool]
-) -> ChatPermissions:
+def bounded_permissions(saved: dict[str, bool] | None, defaults: dict[str, bool]) -> ChatPermissions:
     """Restore saved rights only when current group defaults still permit them."""
-    return ChatPermissions(
-        **{
-            field: bool(saved and saved.get(field, False) and defaults.get(field, False))
-            for field in ChatPermissions.__slots__
-        }
-    )
+    return ChatPermissions(**{
+        field: bool(saved and saved.get(field, False) and defaults.get(field, False))
+        for field in ChatPermissions.__slots__
+    })
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,55 +36,29 @@ async def require_admin_access(
     settings: Settings,
     bot_permission: str | None,
 ) -> AdminAccess:
-    message = update.effective_message
-    chat = update.effective_chat
-    actor_user = update.effective_user
-    if (
-        message is None
-        or chat is None
-        or actor_user is None
-        or chat.type
-        not in {
-            Chat.GROUP,
-            Chat.SUPERGROUP,
-        }
-    ):
+    message, chat, actor_user = update.effective_message, update.effective_chat, update.effective_user
+    if not message or not chat or not actor_user or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         raise AuthorizationError("This command is available only in groups.")
 
     bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
-    owner_member = await context.bot.get_chat_member(chat.id, settings.owner_id)
-    if settings.owner_admin_required and owner_member.status not in {
-        ChatMember.ADMINISTRATOR,
-        ChatMember.OWNER,
-    }:
-        try:
-            await context.bot.send_message(
-                settings.owner_id,
-                f"Administrative operations are disabled in {chat.title or chat.id}: "
-                "you are no longer a group administrator.",
-            )
-        except Exception:
-            pass
-        raise AuthorizationError("The configured owner must be a group administrator.")
-
-    actor = await context.bot.get_chat_member(chat.id, actor_user.id)
-    # Resolve the internal XYRON role when the database is available. Lightweight
-    # contexts (and temporary DB outages) must not crash permission checks; in
-    # that case only Telegram group administrators and the configured owner pass.
-    is_bot_admin = settings.is_owner(actor_user.id)
-    application = getattr(context, "application", None)
-    bot_data = getattr(application, "bot_data", {}) if application else {}
-    sessions = bot_data.get("sessions")
-    if sessions is not None and not is_bot_admin:
-        async with sessions() as session:
-            is_bot_admin = bool(await session.get(BotAdmin, actor_user.id))
-    if not is_bot_admin and actor.status not in {
-        ChatMember.ADMINISTRATOR, ChatMember.OWNER
-    }:
-        raise AuthorizationError("You must be a group administrator or authorized XYRON bot admin.")
-
     if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
         raise AuthorizationError("XYRON must be a group administrator to do that.")
+
+    actor = await context.bot.get_chat_member(chat.id, actor_user.id)
+    is_real_admin = actor.status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}
+    is_bot_admin = settings.is_owner(actor_user.id)
+
+    sessions = context.application.bot_data.get("sessions")
+    if sessions is not None and not is_bot_admin:
+        async with sessions() as session:
+            is_bot_admin = await session.get(GroupBotAdmin, (chat.id, actor_user.id)) is not None
+
+    # Telegram group ownership/admin status is always sufficient for the role check.
+    # A group-scoped XYRON appointment fills missing Telegram rights; it never
+    # grants authority in any other group.
+    if not is_real_admin and not is_bot_admin:
+        raise AuthorizationError("You must be a group administrator or a XYRON bot admin in this group.")
+
     if bot_permission and not getattr(bot_member, bot_permission, False):
         human = {
             "can_restrict_members": "ban/restrict members",
@@ -99,11 +67,13 @@ async def require_admin_access(
         }.get(bot_permission, bot_permission.removeprefix("can_").replace("_", " "))
         raise AuthorizationError(f"XYRON is missing the permission to {human}.")
 
-    # Telegram admins cannot exercise rights they do not personally hold.
+    # Real Telegram rights take precedence. If the real admin lacks this
+    # permission, a group-scoped bot-admin appointment can supply the trust role.
     if (
         bot_permission
-        and actor.status == ChatMember.ADMINISTRATOR
+        and is_real_admin
         and not getattr(actor, bot_permission, False)
+        and not is_bot_admin
     ):
         human = {
             "can_restrict_members": "restrict members",
@@ -111,8 +81,9 @@ async def require_admin_access(
             "can_pin_messages": "pin messages",
         }.get(bot_permission, bot_permission.removeprefix("can_").replace("_", " "))
         raise AuthorizationError(
-            f"Your Telegram administrator privileges do not allow {human}."
+            f"Your Telegram administrator privileges do not allow {human}, and you are not a XYRON bot admin in this group."
         )
+
     return AdminAccess(actor=actor, bot=bot_member, is_bot_admin=is_bot_admin)
 
 
