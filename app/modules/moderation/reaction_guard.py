@@ -8,6 +8,8 @@ from telegram import Chat, ChatMember, ChatPermissions, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
+from app.services.group_policy import GroupPolicyRepository
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,6 +49,12 @@ async def reaction_guard_handler(
 
     sessions = context.application.bot_data.get("sessions")
     if sessions is None:
+        return
+    policy = await GroupPolicyRepository(sessions).get(chat.id)
+    smart_gc = policy.get("smart_gc", {})
+    if not isinstance(smart_gc, dict) or not smart_gc.get("enabled"):
+        return
+    if user.id in {int(value) for value in policy.get("approved_users", [])}:
         return
 
     # Leave group admins and the group owner alone.
