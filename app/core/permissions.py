@@ -41,10 +41,9 @@ async def require_admin_access(update: Update, context: ContextTypes.DEFAULT_TYP
 
     actor = await context.bot.get_chat_member(chat.id, actor_user.id)
     is_real_admin = actor.status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}
-    is_bot_admin = settings.is_owner(actor_user.id)
-
     sessions = context.application.bot_data.get("sessions")
-    if sessions is not None and not is_bot_admin:
+    is_bot_admin = False
+    if sessions is not None:
         async with sessions() as session:
             is_bot_admin = await session.get(GroupBotAdmin, (chat.id, actor_user.id)) is not None
 
@@ -71,7 +70,7 @@ async def require_admin_access(update: Update, context: ContextTypes.DEFAULT_TYP
             f"Your Telegram administrator privileges do not allow {human}, and you are not a XYRON bot admin in this group."
         )
 
-    return AdminAccess(actor=actor, bot=bot_member, is_bot_admin=is_bot_admin)
+    # When the member already has the Telegram right, treat them purely as a\n    # Telegram admin so bot-admin-only limits do not override their real role.\n    effective_bot_admin = is_bot_admin and not (is_real_admin and (\n        bot_permission is None or getattr(actor, bot_permission, False)\n    ))\n    return AdminAccess(actor=actor, bot=bot_member, is_bot_admin=effective_bot_admin)
 
 
 async def ensure_target_is_moderatable(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
