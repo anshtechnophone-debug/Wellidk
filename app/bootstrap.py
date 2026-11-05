@@ -91,7 +91,6 @@ from app.modules.quote_generator import quote_command
 from app.modules.quote_commands import quote_random_command, quote_top_command, quote_recall_handler
 from app.modules.quote_features import quote_auto_match_handler, quote_vote_callback
 from app.modules.games.board_handlers import (
-    rps_command,
     tictactoe_command,
     tttcancel_command,
     tttmove_command,
