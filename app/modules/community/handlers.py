@@ -544,16 +544,19 @@ async def _set_greeting(update: Update, context: ContextTypes.DEFAULT_TYPE, key:
 
 
 async def verification_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Allow this group's Telegram admins to control new-member verification."""
-    message, chat = update.effective_message, update.effective_chat
-    if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+    """Allow only this group's real Telegram admins to change human verification."""
+    message, chat, user = update.effective_message, update.effective_chat, update.effective_user
+    if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP} or not user:
         if message:
             await message.reply_text("Use /verification on or /verification off inside your group.")
         return
     try:
-        await _admin(update, context)
-    except AuthorizationError as exc:
-        await _respond(update, str(exc))
+        actor = await context.bot.get_chat_member(chat.id, user.id)
+    except TelegramError:
+        await _respond(update, "I couldn't verify your Telegram admin status. Please try again.")
+        return
+    if actor.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
+        await _respond(update, "Only this group's Telegram owner or administrators can change verification.")
         return
     if len(context.args) != 1 or context.args[0].casefold() not in {"on", "off"}:
         await _respond(update, "Usage: /verification on or /verification off")
