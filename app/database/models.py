@@ -8,6 +8,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     DateTime,
+    Date,
     ForeignKey,
     Index,
     Integer,
@@ -312,6 +313,18 @@ class FamilyRelationship(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     related_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     relation: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
+
+
+class CoupleProtection(Base):
+    __tablename__ = "couple_protections"
+    __table_args__ = (UniqueConstraint("couple_left_id", "couple_right_id", "protector_id", "protection_date", name="uq_couple_protection_daily"), Index("ix_couple_protection_pair", "couple_left_id", "couple_right_id"))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    couple_left_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    couple_right_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    protector_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    protected_partner_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    protection_date: Mapped[object] = mapped_column(Date, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
 
 
