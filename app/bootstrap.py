@@ -75,7 +75,12 @@ from app.modules.community.handlers import (
     unapprove_command,
     unlock_command,
 )
-from app.modules.community.verification import (\n    bot_added_as_admin,\n    community_access_gate,\n    community_join_check_callback,\n    verify_human_callback,\n)
+from app.modules.community.verification import (
+    bot_added_as_admin,
+    community_access_gate,
+    community_join_check_callback,
+    verify_human_callback,
+)
 from app.modules.community.message_tools import (
     delete_command,
     groupinfo_command,
@@ -450,7 +455,6 @@ def _register_general(application: Application) -> None:
         ("groupinfo", groupinfo_command),
         ("reports", reports_command),
         ("reviewreport", review_report_command),
-        ("rps", rps_command),
         ("tictactoe", tictactoe_command),
         ("tttmove", tttmove_command),
         ("tttcancel", tttcancel_command),
@@ -473,7 +477,10 @@ def _register_general(application: Application) -> None:
         ("familyhelp", familyhelp_command),
         ("familyreset", familyreset_command),
     ):
-        application.add_handler(\n            CommandHandler(command, callback, filters=filters.ChatType.PRIVATE)\n            if command == "help" else CommandHandler(command, callback)\n        )
+        application.add_handler(
+            CommandHandler(command, callback, filters=filters.ChatType.PRIVATE)
+            if command == "help" else CommandHandler(command, callback)
+        )
 
     for command in (
         "ban",
@@ -690,7 +697,11 @@ def _register_general(application: Application) -> None:
             group_member_event,
             ChatMemberHandler.CHAT_MEMBER,
         )
-    )\n    application.add_handler(\n        ChatMemberHandler(bot_added_as_admin, ChatMemberHandler.MY_CHAT_MEMBER),\n        group=11,\n    )
+    )
+    application.add_handler(
+        ChatMemberHandler(bot_added_as_admin, ChatMemberHandler.MY_CHAT_MEMBER),
+        group=11,
+    )
 
     application.bot_data["ai_router"] = AIEventRouter(
         application.bot_data["settings"]
