@@ -386,8 +386,7 @@ async def _couple_page(context, user_id: int):
     )
     button = "✅ Protected Today" if stats["protected_today"] else "🛡️ Protect Your Partner (+50)"
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(button, callback_data="cp:refresh" if stats["protected_today"] else "cp:protect")],
-        [InlineKeyboardButton("🔄 Refresh", callback_data="cp:refresh")],
+        [InlineKeyboardButton(button, callback_data="cp:done" if stats["protected_today"] else "cp:protect")],
     ])
     return text, keyboard
 
@@ -408,20 +407,15 @@ async def cp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     query, user = update.callback_query, update.effective_user
     if not query or not user or not query.data:
         return
-    if query.data == "cp:protect":
-        try:
-            await _repo(context).protect_partner(user.id)
-        except FamilyError as exc:
-            await query.answer(str(exc), show_alert=True)
-            return
-        await query.answer("🛡️ +50 protection points added!")
-    else:
-        try:
-            await _repo(context).couple_protection_stats(user.id)
-        except FamilyError as exc:
-            await query.answer(str(exc), show_alert=True)
-            return
-        await query.answer("Couple page refreshed.")
+    if query.data == "cp:done":
+        await query.answer("You have already protected your partner today.", show_alert=True)
+        return
+    try:
+        await _repo(context).protect_partner(user.id)
+    except FamilyError as exc:
+        await query.answer(str(exc), show_alert=True)
+        return
+    await query.answer("🛡️ +50 protection points added!")
     if query.message:
         text, keyboard = await _couple_page(context, user.id)
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard, disable_web_page_preview=True)
