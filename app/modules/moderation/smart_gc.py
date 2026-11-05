@@ -61,12 +61,13 @@ def _menu(features: dict[str, bool]) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 f"{'🟢' if state else '🔴'} {label}: {'ON' if state else 'OFF'}",
                 callback_data=f"sgc:toggle:{key}",
+                style="success" if state else "danger",
             )
         )
     return InlineKeyboardMarkup([
         buttons[:2],
         buttons[2:],
-        [InlineKeyboardButton("🟢 TURN ON SMART GC", callback_data="sgc:enable")],
+        [InlineKeyboardButton("🟢 TURN ON SMART GC", callback_data="sgc:enable", style="success")],
     ])
 
 
