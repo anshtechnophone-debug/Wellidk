@@ -19,6 +19,8 @@ _MEDIA_FIELDS = (
     "animation",
     "document",
     "audio",
+    "video_note",
+    "paid_media",
     "sticker",
 )
 
