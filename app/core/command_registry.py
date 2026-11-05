@@ -30,7 +30,7 @@ COMMANDS = (
     CommandInfo("health", "Check database and background workers", "/health", "General"),
     CommandInfo("id", "Show Telegram IDs", "/id [reply]", "User Tools"),
     CommandInfo("admin", "Appoint a XYRON bot admin for this group (group owner only)", "/admin @username or reply (numeric ID also supported)", "Admin Tools", admin=True),
-    CommandInfo("promote", "Promote a group member as a limited or full admin", "/promote @username [l|f] (numeric ID or reply also supported)", "Admin Tools", owner_only=True),
+    CommandInfo("promote", "Promote a member (group owner or Telegram admin with promotion permission)", "/promote @username [l|f] (numeric ID or reply also supported)", "Admin Tools", admin=True),
     CommandInfo("smartgc", "Toggle Smart GC protection for this group", "/smartgc <on|off>", "Anti-Spam", owner_only=True),
     CommandInfo("mediaclean", "Delete group media after three minutes", "/mediaclean <on|off>", "Message Management", True),
     CommandInfo("unadmin", "Remove this group’s XYRON bot admin (group owner only)", "/unadmin @username or reply (numeric ID also supported)", "Admin Tools", admin=True),
