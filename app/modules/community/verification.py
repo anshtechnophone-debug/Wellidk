@@ -52,26 +52,22 @@ def _is_member(member) -> bool:
 
 
 async def _send_public_welcome(message, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Explain how any channel member can use XYRON and add it to a group."""
+    """Show the simple private-chat welcome and its three main actions."""
     me = await context.bot.get_me()
     add_url = f"https://t.me/{me.username}?startgroup=true" if me.username else None
-    rows = []
+    rows = [[InlineKeyboardButton("Help", callback_data="help:home")]]
     if add_url:
-        rows.append([InlineKeyboardButton("➕ Add XYRON to a group", url=add_url)])
+        rows.append([InlineKeyboardButton("➕ Add to Group", url=add_url)])
+    rows.append([InlineKeyboardButton(
+        "XYRON Support Group",
+        url="https://t.me/Random_Group_ChatV",
+    )])
     await message.reply_text(
-        "<b>Welcome to XYRON!</b> 👋\n\n"
-        "I'm a public group-management and fun bot. You can use /help here in my DM "
-        "to browse commands and learn how each feature works.\n\n"
-        "<b>Popular group commands</b>\n"
-        "• /promote — promote a group member (with the right Telegram permissions)\n"
-        "• /q — create a quote sticker from a replied-to message\n"
-        "• /smartgc — configure Smart GC protections\n"
-        "• /wordseek — start Word Seek\n"
-        "• /family — open Family Life\n"
-        "• /tictactoe — play Tic-Tac-Toe\n\n"
-        "Add me to your group and make me an administrator to enable moderation and verification.",
+        "<b>Welcome to XYRON! 👋</b>\n\n"
+        "Thanks for stopping by. Explore the Help guide or add XYRON to your group "
+        "whenever you're ready.",
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(rows) if rows else None,
+        reply_markup=InlineKeyboardMarkup(rows),
         disable_web_page_preview=True,
     )
 
@@ -104,7 +100,7 @@ async def _is_community_member(context: ContextTypes.DEFAULT_TYPE, user_id: int)
 
 
 async def bot_added_as_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Welcome the person who promoted XYRON and explain the first setup steps."""
+    """Send one private setup note when XYRON first becomes a group administrator."""
     change = update.my_chat_member
     if not change:
         return
@@ -117,35 +113,66 @@ async def bot_added_as_admin(update: Update, context: ContextTypes.DEFAULT_TYPE)
     chat = change.chat
     if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         return
+
     actor = change.from_user
+    sessions = context.application.bot_data.get("sessions")
+    if sessions is None:
+        logger.warning("Cannot check one-time XYRON setup notice for group %s: database unavailable", chat.id)
+        return
+
+    from app.services.group_policy import GroupPolicyRepository
+
+    policies = GroupPolicyRepository(sessions)
+    try:
+        policy = await policies.get(chat.id)
+    except Exception:
+        logger.exception("Could not read setup-notice state for group %s", chat.id)
+        return
+    if policy.get("xyron_setup_dm_sent"):
+        return
+
     permission_notes = []
     if getattr(new_member, "can_restrict_members", False):
-        permission_notes.append("✓ Restrict Members is enabled.")
+        permission_notes.append("✓ Restrict Members permission is enabled.")
     else:
         permission_notes.append(
-            "⚠️ Please grant Restrict Members for human verification and mute features."
+            "⚠️ Please grant Restrict Members so XYRON can apply human verification and mutes."
         )
     if getattr(new_member, "can_delete_messages", False):
-        permission_notes.append("✓ Delete Messages is enabled.")
+        permission_notes.append("✓ Delete Messages permission is enabled.")
     else:
         permission_notes.append(
-            "⚠️ Please grant Delete Messages for Smart GC cleanup and message removal."
+            "⚠️ Please grant Delete Messages so XYRON can remove messages when needed."
         )
+
     text = (
-        f"Thanks for adding XYRON to <b>{escape(chat.title or 'your group')}</b>! 👋\n\n"
-        "Here are the first commands:\n"
-        "• /promote — promote a member using Telegram admin permissions\n"
-        "• /q — create a quote sticker by replying to a message\n"
-        "• /smartgc — open Smart GC, the group-protection panel for abusive-language "
-        "protection, NSFW detection, media cleanup, and approved-user exemptions\n"
-        "• /verification off — turn off the new-member human check for this group\n\n"
-        "Human verification helps reduce automated bot-account joins. It is enabled by default. "
-        "Use /verification off if your group does not want it.\n\n"
-        + "\n".join(permission_notes)
-        + "\n\nUse /help in my private chat for the full command guide."
+        f"Thanks for adding XYRON to <b>{escape(chat.title or 'your group')}</b>! 👋
+
+"
+        "<b>About human verification</b>
+"
+        "Human verification is enabled by default. It asks new members to complete a quick "
+        "check so automated accounts have a harder time joining your group.
+
+"
+        "You can turn it off at any time with /verification off. "
+        "Turn it back on with /verification on.
+
+"
+        + "
+".join(permission_notes)
+        + "
+
+Open Help in this chat with the Help button on XYRON's welcome screen "
+        "to see the command guide."
     )
     try:
-        await context.bot.send_message(actor.id, text, parse_mode="HTML", disable_web_page_preview=True)
+        await context.bot.send_message(
+            actor.id,
+            text,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
     except TelegramError:
         try:
             me = await context.bot.get_me()
@@ -156,12 +183,18 @@ async def bot_added_as_admin(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await context.bot.send_message(
                 chat.id,
                 f"{actor.mention_html()}, XYRON is now an administrator. "
-                "Open my DM to see the setup guide and command list.",
+                "Open XYRON in a private chat to read the one-time setup note.",
                 parse_mode="HTML",
                 reply_markup=markup,
             )
         except TelegramError:
-            logger.info("Could not deliver XYRON setup guide to inviter %s", actor.id)
+            logger.info("Could not deliver XYRON setup notice to inviter %s", actor.id)
+        return
+
+    try:
+        await policies.set_value(chat.id, "xyron_setup_dm_sent", True)
+    except Exception:
+        logger.exception("Setup note was sent, but its one-time marker could not be saved for group %s", chat.id)
 
 async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle deep links and require official-channel membership for public access."""
