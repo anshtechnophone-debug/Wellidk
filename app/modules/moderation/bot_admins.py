@@ -79,9 +79,15 @@ async def _require_group_owner(update, context) -> tuple[int, int]:
     user, chat = update.effective_user, update.effective_chat
     if not user or not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         raise ValueError("Use this command in the group where you want to manage bot admins.")
-    member = await context.bot.get_chat_member(chat.id, user.id)
-    if member.status != ChatMember.OWNER:
-        raise PermissionError("Only this group's Telegram owner can manage its XYRON bot admins.")
+    settings = context.application.bot_data["settings"]
+    # The configured XYRON bot owner is a global override; otherwise only this
+    # Telegram group's owner may manage this group's bot-admin appointments.
+    if not settings.is_owner(user.id):
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        if member.status != ChatMember.OWNER:
+            raise PermissionError(
+                "Only this group's Telegram owner or the XYRON bot owner can manage its bot admins."
+            )
     return chat.id, user.id
 
 
