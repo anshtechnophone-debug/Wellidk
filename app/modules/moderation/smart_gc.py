@@ -95,7 +95,7 @@ async def _can_manage_smart_gc(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def _show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user, chat, message = update.effective_user, update.effective_chat, update.effective_message
+    chat, message = update.effective_chat, update.effective_message
     if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         if message:
             await message.reply_text("Use this command inside the group you want to protect.")
