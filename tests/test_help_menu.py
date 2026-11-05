@@ -20,7 +20,7 @@ def test_help_category_shows_syntax_examples_and_permissions():
     page = build_help_page("mute_and_unmute")
     assert "/mute" in page.text
     assert "Example:" in page.text
-    assert "Permission: group admin" in page.text
+    assert "Who can use it: Group admins" in page.text
     assert "Example: /mute 123456789 30m spam" in page.text
     assert any(button.callback_data == "help:home" for button in page.keyboard.inline_keyboard[0])
 
