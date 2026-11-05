@@ -60,7 +60,8 @@ async def require_admin_access(update: Update, context: ContextTypes.DEFAULT_TYP
         }.get(bot_permission, bot_permission.removeprefix("can_").replace("_", " "))
         raise AuthorizationError(f"XYRON is missing the permission to {human}.")
 
-    if bot_permission and is_real_admin and not getattr(actor, bot_permission, False) and not is_bot_admin:
+    if (bot_permission and actor.status == ChatMember.ADMINISTRATOR
+            and not getattr(actor, bot_permission, False) and not is_bot_admin):
         human = {
             "can_restrict_members": "restrict members",
             "can_delete_messages": "delete messages",
@@ -72,7 +73,9 @@ async def require_admin_access(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # When the member already has the Telegram right, treat them purely as a
     # Telegram admin so bot-admin-only limits do not override their real role.
-    effective_bot_admin = is_bot_admin and not (
+    # Telegram group owners are the highest authority and must never be
+    # downgraded to the limited XYRON bot-admin role.
+    effective_bot_admin = is_bot_admin and actor.status != ChatMember.OWNER and not (
         is_real_admin and (bot_permission is None or getattr(actor, bot_permission, False))
     )
     return AdminAccess(actor=actor, bot=bot_member, is_bot_admin=effective_bot_admin)
