@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -270,7 +271,7 @@ class FamilyRepository:
         if partner_id is None:
             raise FamilyError("You are not married yet. Use /wife or /husband to create a couple first.")
         left_id, right_id = sorted((user_id, partner_id))
-        today = datetime.now(UTC).date()
+        today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
         async with self.sessions() as session:
             total = await session.scalar(select(func.count(CoupleProtection.id)).where(
                 CoupleProtection.couple_left_id == left_id,
