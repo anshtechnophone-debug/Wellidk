@@ -131,7 +131,7 @@ async def smartgc_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Open the feature menu; /smartgc off immediately disables all protection."""
     args = [arg.casefold() for arg in context.args]
     if args == ["off"]:
-        user, chat, message = update.effective_user, update.effective_chat, update.effective_message
+        chat, message = update.effective_chat, update.effective_message
         if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
             if message:
                 await message.reply_text("Use this command inside the group you want to protect.")
@@ -158,7 +158,7 @@ async def smartgc_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def smartgc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Owner-only inline editor for this group's Smart GC settings."""
+    """Group-admin inline editor for this group's Smart GC settings."""
     query = update.callback_query
     if not query:
         return
