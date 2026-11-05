@@ -30,23 +30,12 @@ _SPAM_PROTECTOR_THRESHOLD = 15
 _SPAM_PROTECTOR_WINDOW_SECONDS = 30
 _SPAM_PROTECTOR_MUTE_SECONDS = 600
 
-DEFAULT_GROUP_RULES = """🚫 1. No Advertising
-Do not advertise or promote anything.
-
-🔞 2. No NSFW Content
-Keep the group safe and appropriate.
-
-🔒 3. Respect Privacy
-Never share personal or sensitive information.
-
-🛑 4. No Spam
-Avoid spamming messages or reactions.
-
-📢 5. No Group Promotion
-Do not promote other groups or channels.
-
-💬 6. No Unsolicited DMs
-Always ask for permission before messaging someone privately."""
+DEFAULT_GROUP_RULES = """1. No ads or promotions. Do not advertise products, groups, or channels.
+2. Keep it appropriate. Do not post explicit or disturbing content.
+3. Respect everyone. No harassment, threats, or personal attacks.
+4. No spam. Do not flood the chat with repeated messages or reactions.
+5. Protect privacy. Do not share anyone's private information.
+6. Respect DMs. Ask before messaging members privately."""
 
 
 def _repository(context: ContextTypes.DEFAULT_TYPE) -> GroupPolicyRepository:
@@ -549,28 +538,28 @@ async def _set_greeting(update: Update, context: ContextTypes.DEFAULT_TYPE, key:
 
 
 async def verification_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Owner-only persistent switch for the new-member verification gate."""
-    user, chat = update.effective_user, update.effective_chat
-    message = update.effective_message
-    if not user or not context.application.bot_data["settings"].is_owner(user.id):
-        if message:
-            await message.reply_text("Only the configured owner can change this setting.")
-        return
+    """Allow this group's Telegram admins to control new-member verification."""
+    message, chat = update.effective_message, update.effective_chat
     if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         if message:
-            await message.reply_text("Use this command inside the group.")
+            await message.reply_text("Use /verification on or /verification off inside your group.")
+        return
+    try:
+        await _admin(update, context)
+    except AuthorizationError as exc:
+        await _respond(update, str(exc))
         return
     if len(context.args) != 1 or context.args[0].casefold() not in {"on", "off"}:
-        if message:
-            await message.reply_text("Usage: /verification on or /verification off")
+        await _respond(update, "Usage: /verification on or /verification off")
         return
     enabled = context.args[0].casefold() == "on"
     await _repository(context).set_value(chat.id, "verification", {"enabled": enabled})
-    if message:
-        await message.reply_text(
-            "New-member verification is ON." if enabled
-            else "New-member verification is OFF. New members will not be restricted for verification."
-        )
+    await _respond(
+        update,
+        "Human verification is ON. New members must confirm they're human."
+        if enabled
+        else "Human verification is OFF. New members will join without the verification check.",
+    )
 
 
 async def group_member_event(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
