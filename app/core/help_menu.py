@@ -106,7 +106,7 @@ def build_help_page(category_key: str | None = None, page_number: int = 0) -> He
         ]
         rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
         rows.append([InlineKeyboardButton("Close", callback_data="help:close")])
-        return HelpPage("XYRON Help\nChoose a command category:", InlineKeyboardMarkup(rows))
+        return HelpPage("XYRON Help\nChoose a section to see what its commands do and how to use them:", InlineKeyboardMarkup(rows))
 
     found = _find_category(category_key)
     if found is None:
