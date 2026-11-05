@@ -55,7 +55,7 @@ async def _send_public_welcome(message, context: ContextTypes.DEFAULT_TYPE) -> N
     """Show the simple private-chat welcome and its three main actions."""
     me = await context.bot.get_me()
     add_url = f"https://t.me/{me.username}?startgroup=true" if me.username else None
-    rows = [[InlineKeyboardButton("Help", callback_data="help:home")]]
+    rows = []
     if add_url:
         rows.append([InlineKeyboardButton("➕ Add to Group", url=add_url)])
     rows.append([InlineKeyboardButton(
@@ -63,9 +63,11 @@ async def _send_public_welcome(message, context: ContextTypes.DEFAULT_TYPE) -> N
         url="https://t.me/Random_Group_ChatV",
     )])
     await message.reply_text(
-        "<b>Welcome to XYRON! 👋</b>\n\n"
-        "Thanks for stopping by. Explore the Help guide or add XYRON to your group "
-        "whenever you're ready.",
+        "Hey there! I'm <b>XYRON</b> — your all-in-one assistant. ⚡\n\n"
+        "I'm here to keep your groups organized, secure, and running smoothly "
+        "with powerful moderation tools and smart features.\n\n"
+        "✦ Use /help to explore my commands and discover everything I can do.\n\n"
+        "<b>Let's make your group a better place with XYRON!</b> 🚀",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(rows),
         disable_web_page_preview=True,
