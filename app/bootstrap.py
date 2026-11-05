@@ -6,7 +6,14 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from telegram import BotCommandScopeAllPrivateChats, BotCommandScopeChat, Chat, Update
+from telegram import (
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeChat,
+    BotCommandScopeDefault,
+    Chat,
+    Update,
+)
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -742,8 +749,13 @@ async def _post_init(application: Application) -> None:
     # so initialize_schema can create the group history table as well.
     await initialize_schema(engine)
 
-    # Publish the public command list in private chats only. Owner-only
-    # commands remain visible only in the configured owner's private chat.
+    # Clear the fallback command list, then publish group-safe commands
+    # without /help. The full command catalogue is available in private chats.
+    await application.bot.set_my_commands([], scope=BotCommandScopeDefault())
+    await application.bot.set_my_commands(
+        [command for command in bot_commands() if command.command != "help"],
+        scope=BotCommandScopeAllGroupChats(),
+    )
     await application.bot.set_my_commands(
         bot_commands(),
         scope=BotCommandScopeAllPrivateChats(),
