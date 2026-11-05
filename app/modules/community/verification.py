@@ -146,24 +146,14 @@ async def bot_added_as_admin(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
     text = (
-        f"Thanks for adding XYRON to <b>{escape(chat.title or 'your group')}</b>! 👋
-
-"
-        "<b>About human verification</b>
-"
+        f"Thanks for adding XYRON to <b>{escape(chat.title or 'your group')}</b>! 👋\n\n"
+        "<b>About human verification</b>\n"
         "Human verification is enabled by default. It asks new members to complete a quick "
-        "check so automated accounts have a harder time joining your group.
-
-"
+        "check so automated accounts have a harder time joining your group.\n\n"
         "You can turn it off at any time with /verification off. "
-        "Turn it back on with /verification on.
-
-"
-        + "
-".join(permission_notes)
-        + "
-
-Open Help in this chat with the Help button on XYRON's welcome screen "
+        "Turn it back on with /verification on.\n\n"
+        + "\n".join(permission_notes)
+        + "\n\nOpen Help in this chat with the Help button on XYRON's welcome screen "
         "to see the command guide."
     )
     try:
