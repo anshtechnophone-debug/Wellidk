@@ -316,7 +316,8 @@ async def family_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     ranking = await _repo(context).leaderboard("total", limit=1000000)
     world_rank = next((index for index, row in enumerate(ranking, 1) if row[0] == target.id), None)
-    rank_text = f"🌍 World Rank: <b>#{world_rank:,}</b>" if world_rank else "🌍 World Rank: <b>Unranked</b>"
+    rank_text = (f"🌍 World Rank: <b>#{world_rank:,}</b>\\n" if world_rank
+                 else "🌍 World Rank: <b>Unranked</b>\\n")
 
     spouse_text = (
         f"💍 {_link(target.id, target.full_name)} ❤️ "
