@@ -789,7 +789,7 @@ class AIEventRouter:
             for row in rows[-context_limit:]
         ]
 
-        if re.search(r"\b(?:commands?|command list|what can you do|how do i use|which command|available commands)\\b", raw_text, re.I):
+        if re.search(r"\b(?:commands?|command list|what can you do|how do i use|which command|available commands)\b", raw_text, re.I):
             prompt_rows.append("REGISTERED COMMANDS:\n" + command_catalog())
 
         prompt = (
