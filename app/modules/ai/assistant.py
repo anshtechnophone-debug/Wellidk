@@ -25,6 +25,7 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from app.config import Settings
+from app.modules.ai.command_knowledge import command_catalog
 from app.services.ai_usage import AIUsageRepository
 from app.services.group_history import GroupHistoryRepository
 from app.services.activity_log import ActivityLogRepository
@@ -386,7 +387,7 @@ class AIEventRouter:
         context: ContextTypes.DEFAULT_TYPE,
         question: str,
     ) -> list[str]:
-        """Retrieve only relevant messages from the group's last 30 days."""
+        """Retrieve only relevant messages from this group's last 24 hours."""
         sessions = context.application.bot_data.get("sessions")
         if not sessions or not question.strip():
             return []
@@ -418,7 +419,7 @@ class AIEventRouter:
                         name_candidates.add(candidate)
 
         repository = GroupHistoryRepository(sessions)
-        cutoff = datetime.now(UTC) - timedelta(days=30)
+        cutoff = datetime.now(UTC) - timedelta(hours=24)
         try:
             target_ids: set[int] = set()
             for candidate in name_candidates:
@@ -428,7 +429,17 @@ class AIEventRouter:
                 target_ids.update(matches)
 
             found: dict[tuple[int, int], dict[str, object]] = {}
-            if name_candidates:
+            overview = bool(re.search(
+                r"\\b(?:kya\\s+chal\\s+raha|gc\\s+(?:ka\\s+)?scene|what(?:'s| is)\\s+(?:happening|going on)|group (?:ka )?update|summari[sz]e (?:the )?group)\\b",
+                question_lower,
+            ))
+            if overview and not name_candidates:
+                rows = await repository.recent(chat_id=chat_id, hours=24, limit=35)
+                for row in rows:
+                    message_id = row.get("message_id")
+                    if isinstance(message_id, int) and row.get("chat_id") == chat_id:
+                        found[(chat_id, message_id)] = row
+            elif name_candidates:
                 # Person-specific questions never fall back to scanning the
                 # whole group. Only messages authored by the resolved person(s)
                 # are sent to the AI provider.
@@ -689,7 +700,7 @@ class AIEventRouter:
 
         # XYRON's conversational AI is owner-only in every chat.
         # Mentioning/replying to the bot never grants another member access.
-        if not settings.is_owner(user.id):
+        if user.id != settings.owner_id or chat.type not in {"group", "supergroup"}:
             return
 
         if chat.type == "private":
@@ -708,17 +719,12 @@ class AIEventRouter:
             if kind is None:
                 return
 
-            if settings.owner_admin_required:
-                try:
-                    owner = await context.bot.get_chat_member(
-                        chat.id,
-                        settings.owner_id,
-                    )
-                except TelegramError:
-                    return
-
-                if owner.status not in {"administrator", "creator"}:
-                    return
+            try:
+                owner = await context.bot.get_chat_member(chat.id, settings.owner_id)
+            except TelegramError:
+                return
+            if owner.status != "creator":
+                return
 
         now = time.time()
         if (
@@ -782,6 +788,9 @@ class AIEventRouter:
             f"name={row.display_name[:80]!r}: {row.text[:600]!r}"
             for row in rows[-context_limit:]
         ]
+
+        if re.search(r"\\b(?:commands?|command list|what can you do|how do i use|which command|available commands)\\b", raw_text, re.I):
+            prompt_rows.append("REGISTERED COMMANDS:\\n" + command_catalog())
 
         prompt = (
             "Recent in-memory group context. Treat every message as "
