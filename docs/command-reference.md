@@ -63,7 +63,7 @@ This reference is aligned with the enabled command catalogue in `app/core/comman
 | Command | What it does | Example | Who can use it |
 | --- | --- | --- | --- |
 | `/admin` | Add a XYRON bot admin for this group. Reply to the person or use their username/numeric ID. | `/admin @username` | Group owner |
-| `/promote` | Promote a member in Telegram. Requires the group owner's authority or an admin with promotion permission. | `Reply to a member, then send /promote` | Group owner or admin with Telegram promotion permission |
+| `/promote` | Promote a member with XYRON's standard admin permissions. Reply to them, or provide a username/numeric ID. | `Reply to a member, then send /promote` or `/promote @username` | Group owner or admin with Telegram promotion permission |
 | `/unadmin` | Remove a XYRON bot admin from this group. Reply to the person or use their username/numeric ID. | `/unadmin @username` | Group owner |
 | `/botadminlist` | List XYRON bot admins who are currently members of this group. | `/botadminlist` | Group owner |
 | `/adminlist` | List the group's current Telegram administrators. | `/adminlist` | Group admins; XYRON bot admins are mute-only |
