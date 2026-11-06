@@ -430,7 +430,7 @@ class AIEventRouter:
 
             found: dict[tuple[int, int], dict[str, object]] = {}
             overview = bool(re.search(
-                r"\b(?:kya\\s+chal\\s+raha|gc\\s+(?:ka\\s+)?scene|what(?:'s| is)\\s+(?:happening|going on)|group (?:ka )?update|summari[sz]e (?:the )?group)\\b",
+                r"\b(?:kya\s+chal\s+raha|gc\s+(?:ka\s+)?scene|what(?:'s| is)\s+(?:happening|going on)|group (?:ka )?update|summari[sz]e (?:the )?group)\b",
                 question_lower,
             ))
             if overview and not name_candidates:
