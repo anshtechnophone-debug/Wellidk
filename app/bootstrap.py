@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from telegram import (
     BotCommandScopeAllGroupChats,
@@ -184,6 +185,23 @@ async def collect_group_message(
 
     user = message.from_user
     if not user:
+        return
+
+    # Persist history only in the GC owned by the configured primary owner.
+    settings = context.application.bot_data.get("settings")
+    if settings is None:
+        return
+    now = time.monotonic()
+    cache = context.application.bot_data.setdefault("_xyron_owner_gc_cache", {})
+    cached = cache.get(chat.id)
+    if cached is None or cached[0] <= now:
+        try:
+            owner_member = await context.bot.get_chat_member(chat.id, settings.owner_id)
+            eligible_gc = owner_member.status == "creator"
+        except TelegramError:
+            eligible_gc = False
+        cache[chat.id] = (now + 300, eligible_gc)
+    if not cache[chat.id][1]:
         return
 
     text = (message.text or message.caption or "").strip()
