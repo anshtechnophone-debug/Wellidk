@@ -18,6 +18,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_chat and update.effective_chat.type != Chat.PRIVATE:
+        return
     if update.effective_message:
         page = build_help_page()
         await update.effective_message.reply_text(page.text, reply_markup=page.keyboard)
@@ -26,6 +28,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if query is None or query.data is None:
+        return
+    if update.effective_chat and update.effective_chat.type != Chat.PRIVATE:
+        await query.answer("Use /help in XYRON's private chat.", show_alert=True)
         return
     if query.data == "help:close":
         try:
@@ -105,15 +110,11 @@ async def modules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not update.effective_message:
         return
     await update.effective_message.reply_text(
-        "Implemented: core, moderation, warnings, audit log, basic utilities.\n"
-        "Implemented local games: Word Seek, Hangman, Scramble, Anagram, Word Chain, "
-        "Trivia, True/False, Riddle, Quick Math, Number Guess, RPS, Tic-Tac-Toe, Team Word.\n"
-        "Optional AI: direct replies and advisory incident/report summaries; "
-        "disabled by default.\n"
-        "Implemented group tools: rules, notes, filters, locks, flood/repeat checks, "
-        "welcome/goodbye, reports/appeals, purge, group/user information, personal reminders.\n"
-        "Unavailable/not implemented: remaining games, economy, music playback, media processing, "
-        "recurring reminders/RSS, polls, verification, analytics, AI enforcement tools."
+        "Available games: Word Seek, Family Life, and Tic-Tac-Toe.\n"
+        "Group tools: moderation, Smart GC, human verification, rules, notes, filters, "
+        "locks, anti-flood, welcome/goodbye, reports, and group information.\n"
+        "Utilities: quotes, reminders, leaderboards, and basic user/group information.\n"
+        "Use /help in a private chat to browse the available commands."
     )
 
 

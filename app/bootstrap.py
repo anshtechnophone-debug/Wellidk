@@ -5,8 +5,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
-from telegram import BotCommandScopeChat, BotCommandScopeDefault, Chat, Update
+from telegram import (
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeChat,
+    BotCommandScopeDefault,
+    Chat,
+    Update,
+)
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -40,6 +48,8 @@ from app.handlers.common import (
 from app.handlers.errors import error_handler
 from app.modules.ai.assistant import AIEventRouter
 from app.modules.ai.owner_control import owner_natural_control
+from app.modules.broadcast import broadcast_command, broadcast_stop_command, track_private_recipient
+from app.modules.user_registry import track_global_chat_member, track_global_user
 from app.modules.appeals.handlers import (
     appeal_command,
     appeals_command,
@@ -73,60 +83,54 @@ from app.modules.community.handlers import (
     unapprove_command,
     unlock_command,
 )
-from app.modules.community.verification import community_access_gate, community_join_check_callback, verify_human_callback
+from app.modules.community.verification import (
+    bot_added_as_admin,
+    community_access_gate,
+    community_join_check_callback,
+    verify_human_callback,
+)
 from app.modules.community.message_tools import (
     delete_command,
     groupinfo_command,
     purge_command,
     userinfo_command,
 )
-from app.modules.games.anagram_handlers import anagram_command, anagramanswer_command
 from app.modules.quote_generator import quote_command
+from app.modules.quote_commands import quote_random_command, quote_top_command, quote_recall_handler
 from app.modules.quote_features import quote_auto_match_handler, quote_vote_callback
 from app.modules.games.board_handlers import (
-    rps_command,
     tictactoe_command,
     tttcancel_command,
     tttmove_command,
+    ttt_callback_handler,
 )
-from app.modules.games.casual_handlers import (
-    gamerank_command,
-    hangcancel_command,
-    hangman_command,
-    letter_command,
-    numbercancel_command,
-    numbergame_command,
-    numberguess_command,
-    scramble_command,
-    scramblecancel_command,
-    unscramble_command,
-)
-from app.modules.games.chain_handlers import (
-    chain_command,
-    wordchain_command,
-    wordchaincancel_command,
+from app.modules.games.family_handlers import (
+    familyreset_command,
+    familyreset_callback,
+    family_relationship_command,
+    family_remove_command,
+    family_command,
+    familytree_command,
+    familyrank_command,
+    familytop_command,
+    familyhelp_command,
+    marriage_command,
+    divorce_command,
+    family_request_callback,
+    familyrank_callback,
+    cp_command,
+    cp_callback,
 )
 from app.modules.games.handlers import (
     guess_command,
     wordcancel_command,
     wordrank_command,
+    wordrank_callback,
     wordseek_command,
-)
-from app.modules.games.question_handlers import (
-    mathanswer_command,
-    questioncancel_command,
-    quickmath_command,
-    riddle_command,
-    riddleanswer_command,
-    tfanswer_command,
-    trivia_command,
-    triviaanswer_command,
-    truefalse_command,
-)
-from app.modules.games.team_handlers import (
-    teamguess_command,
-    teamword_command,
-    teamwordcancel_command,
+    new4_command,
+    new5_command,
+    new6_command,
+    wordseek_text_handler,
 )
 from app.modules.moderation.bot_admins import admin_command, unadmin_command, botadminlist_command, demote_command, pin_command
 from app.modules.moderation.handlers import (
@@ -140,20 +144,23 @@ from app.modules.moderation.handlers import (
     set_warn_limit_command,
     track_known_user,
     unban_command,
+    unbanall_command,
     unmute_command,
     warn_command,
     warning_query_command,
 )
 from app.modules.moderation.admin_roles import mass_ban_protector, mass_ban_restore_worker, promote_command
 from app.modules.moderation.reaction_guard import reaction_guard_handler
-from app.modules.moderation.smart_gc import smartgc_abuse_guard, smartgc_command
-from app.modules.moderation.media_cleaner import delayed_media_delete_handler, mediaclean_command
+from app.modules.moderation.smart_gc import smartgc_abuse_guard, smartgc_callback, smartgc_command
+from app.modules.moderation.visual_moderation import visual_media_moderation_handler
+from app.modules.moderation.media_cleaner import delayed_media_delete_handler
 from app.modules.reminders.handlers import (
     cancelreminder_command,
     remind_command,
     reminders_command,
 )
 from app.services.group_history import GroupHistoryRepository, GroupMessage, group_history_retention_worker
+from app.services.message_milestones import MessageMilestoneRepository
 from app.services.activity_log import ActivityEvent, ActivityLogRepository, activity_retention_worker
 from app.services.reminder_worker import reminder_worker
 from app.services.scheduling import expiration_worker
@@ -178,6 +185,27 @@ async def collect_group_message(
 
     user = message.from_user
     if not user:
+        return
+
+    # Persist history only in groups where the primary owner is present and XYRON is an administrator.
+    settings = context.application.bot_data.get("settings")
+    if settings is None:
+        return
+    now = time.monotonic()
+    cache = context.application.bot_data.setdefault("_xyron_owner_gc_cache", {})
+    cached = cache.get(chat.id)
+    if cached is None or cached[0] <= now:
+        try:
+            owner_member = await context.bot.get_chat_member(chat.id, settings.owner_id)
+            bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
+            eligible_gc = (
+                owner_member.status in {"member", "administrator", "creator"}
+                and bot_member.status in {"administrator", "creator"}
+            )
+        except Exception:
+            eligible_gc = False
+        cache[chat.id] = (now + 300, eligible_gc)
+    if not cache[chat.id][1]:
         return
 
     text = (message.text or message.caption or "").strip()
@@ -217,7 +245,7 @@ async def collect_group_message(
 
     try:
         repository = GroupHistoryRepository(sessions)
-        await repository.save_message(
+        inserted = await repository.save_message(
             chat_id=chat.id,
             message_id=message.message_id,
             user_id=user.id,
@@ -226,6 +254,25 @@ async def collect_group_message(
             message_text=text,
             sent_at=message.date,
         )
+        # Count only newly received human messages. Edits and duplicate updates
+        # are ignored, and the lifetime counter survives history cleanup/restarts.
+        if inserted and not user.is_bot:
+            try:
+                count, reached = await MessageMilestoneRepository(sessions).increment(chat.id)
+                if reached:
+                    await context.bot.send_message(
+                        chat_id=chat.id,
+                        text=(
+                            f"🎉 {count:,} Messages Reached!\n\n"
+                            f"Congratulations! Your group has officially sent "
+                            f"{count:,} messages. Keep chatting and keep the group active! 🚀"
+                        ),
+                    )
+            except Exception:
+                logger.exception(
+                    "Failed to update or announce group message milestone: chat_id=%s",
+                    chat.id,
+                )
     except Exception:
         logger.exception(
             "Failed to save group message: chat_id=%s message_id=%s",
@@ -370,33 +417,43 @@ async def collect_chat_member_activity(
 
 
 async def plain_moderation_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle only exact standalone moderation words without a slash."""
+    """Handle plain-text moderation actions only for the primary bot owner."""
     message = update.effective_message
-    if not message or not message.text:
+    actor = update.effective_user
+    settings = context.application.bot_data.get("settings")
+    if (
+        not message
+        or not message.text
+        or actor is None
+        or settings is None
+        or actor.id != settings.owner_id
+    ):
+        # Non-owner plain-text moderation requests are intentionally ignored.
         return
-    action = message.text.strip().casefold()
+    action = message.text.strip().split(maxsplit=1)[0].casefold()
     if action == "unmute":
         await unmute_command(update, context)
     elif action == "unban":
         await unban_command(update, context)
     else:
-        # moderation_command derives the action from the exact message text;
-        # its target resolver uses the replied-to user's message.
         await moderation_command(update, context)
 
 
 def _register_general(application: Application) -> None:
     for command, callback in (
+        ("broadcast", broadcast_command),
+        ("broadcast_stop", broadcast_stop_command),
         ("admin", admin_command),
         ("promote", promote_command),
         ("smartgc", smartgc_command),
-        ("mediaclean", mediaclean_command),
         ("verification", verification_command),
         ("unadmin", unadmin_command),
         ("botadminlist", botadminlist_command),
         ("pin", pin_command),
         ("start", start_command),
         ("q", quote_command),
+        ("qrand", quote_random_command),
+        ("qtop", quote_top_command),
         ("help", help_command),
         ("about", about_command),
         ("ping", ping_command),
@@ -421,10 +478,14 @@ def _register_general(application: Application) -> None:
         ("setwarnlimit", set_warn_limit_command),
         ("warn", warn_command),
         ("unban", unban_command),
+        ("unbanall", unbanall_command),
         ("unmute", unmute_command),
         ("mutelist", mutelist_command),
         ("kickme", kickme_command),
         ("wordseek", wordseek_command),
+        ("new4", new4_command),
+        ("new5", new5_command),
+        ("new6", new6_command),
         ("guess", guess_command),
         ("wordcancel", wordcancel_command),
         ("wordrank", wordrank_command),
@@ -451,39 +512,33 @@ def _register_general(application: Application) -> None:
         ("groupinfo", groupinfo_command),
         ("reports", reports_command),
         ("reviewreport", review_report_command),
-        ("hangman", hangman_command),
-        ("letter", letter_command),
-        ("hangcancel", hangcancel_command),
-        ("scramble", scramble_command),
-        ("unscramble", unscramble_command),
-        ("scramblecancel", scramblecancel_command),
-        ("numbergame", numbergame_command),
-        ("numberguess", numberguess_command),
-        ("numbercancel", numbercancel_command),
-        ("gamerank", gamerank_command),
-        ("trivia", trivia_command),
-        ("triviaanswer", triviaanswer_command),
-        ("truefalse", truefalse_command),
-        ("tfanswer", tfanswer_command),
-        ("riddle", riddle_command),
-        ("riddleanswer", riddleanswer_command),
-        ("quickmath", quickmath_command),
-        ("mathanswer", mathanswer_command),
-        ("questioncancel", questioncancel_command),
-        ("rps", rps_command),
         ("tictactoe", tictactoe_command),
         ("tttmove", tttmove_command),
         ("tttcancel", tttcancel_command),
-        ("wordchain", wordchain_command),
-        ("chain", chain_command),
-        ("wordchaincancel", wordchaincancel_command),
-        ("anagram", anagram_command),
-        ("anagramanswer", anagramanswer_command),
-        ("teamword", teamword_command),
-        ("teamguess", teamguess_command),
-        ("teamwordcancel", teamwordcancel_command),
+        ("son", family_relationship_command),
+        ("daughter", family_relationship_command),
+        ("father", family_relationship_command),
+        ("mother", family_relationship_command),
+        ("brother", family_relationship_command),
+        ("sister", family_relationship_command),
+        ("friend", family_relationship_command),
+        ("remove", family_remove_command),
+        ("wife", marriage_command),
+        ("husband", marriage_command),
+        ("divorce", divorce_command),
+        ("familyinfo", family_command),
+        ("family", family_command),
+        ("familytree", familytree_command),
+        ("familyrank", familyrank_command),
+        ("familytop", familytop_command),
+        ("cp", cp_command),
+        ("familyhelp", familyhelp_command),
+        ("familyreset", familyreset_command),
     ):
-        application.add_handler(CommandHandler(command, callback))
+        application.add_handler(
+            CommandHandler(command, callback, filters=filters.ChatType.PRIVATE)
+            if command == "help" else CommandHandler(command, callback)
+        )
 
     for command in (
         "ban",
@@ -531,29 +586,46 @@ def _register_general(application: Application) -> None:
             filters.ChatType.GROUPS
             & filters.TEXT
             & ~filters.COMMAND
-            & filters.Regex(r"(?i)^\s*(mute|unmute|kick|ban|unban)\s*$"),
+            & filters.Regex(r"(?i)^\s*(?:mute|unmute|kick|ban|unban)(?:\s+.+)?\s*$"),
             plain_moderation_command,
         ),
         group=0,
     )
 
-    # Also accept plain-text "kick Name" as well as /kick Name.
     application.add_handler(
-        MessageHandler(
-            filters.ChatType.GROUPS
-            & filters.TEXT
-            & ~filters.COMMAND
-            & filters.Regex(r"(?i)^kick\s+.+$"),
-            moderation_command,
-        ),
+        CallbackQueryHandler(smartgc_callback, pattern=r"^sgc:(?:toggle:[a-z_]+|enable)$"),
         group=0,
     )
-
     application.add_handler(
         CallbackQueryHandler(giveaway_callback_handler, pattern=r"^giveaway:(?:join|rules):-?\d+$"),
         group=0,
     )
     application.add_handler(CallbackQueryHandler(quote_vote_callback, pattern=r"^qv:\d+:(?:up|down)$"), group=0)
+    application.add_handler(CallbackQueryHandler(wordrank_callback, pattern=r"^wr:(?:p|s|l):"), group=0)
+    application.add_handler(CallbackQueryHandler(family_request_callback, pattern=r"^famreq:[ad]:[0-9]+$"), group=0)
+    application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
+    application.add_handler(CallbackQueryHandler(cp_callback, pattern=r"^cp:(?:protect|done|close:-?\d+:-?\d+)$"), group=0)
+    application.add_handler(CallbackQueryHandler(familyreset_callback, pattern=r"^famreset:(?:confirm|cancel):[0-9]+$"), group=0)
+    application.add_handler(CallbackQueryHandler(ttt_callback_handler, pattern=r"^ttt:(?:join|move):"), group=0)
+    application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
+
+    # WordSeek accepts ordinary text guesses only while that user has an active game.
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND,
+            wordseek_text_handler,
+        ),
+        group=-3,
+    )
+
+    # Recall a saved quote in this same chat using /q_<id>.
+    application.add_handler(
+        MessageHandler(
+            filters.Regex(r"^/q_\\d+(?:@\\w+)?(?:\\s|$)"),
+            quote_recall_handler,
+        ),
+        group=0,
+    )
 
     # Match saved group quotes against later conversational messages.
     application.add_handler(
@@ -580,6 +652,12 @@ def _register_general(application: Application) -> None:
             plain_rules_request,
         ),
         group=0,
+    )
+
+    # Inspect actual image/video/sticker/gift content before delayed media cleanup.
+    application.add_handler(
+        MessageHandler(filters.ChatType.GROUPS & filters.ALL, visual_media_moderation_handler),
+        group=2,
     )
 
     application.add_handler(
@@ -630,6 +708,26 @@ def _register_general(application: Application) -> None:
         ),
         group=10,
     )
+
+    # Record all private-chat interactions for future owner broadcasts.
+    application.add_handler(
+        MessageHandler(filters.ChatType.PRIVATE & filters.ALL, track_private_recipient),
+        group=13,
+    )
+
+    # Maintain a single registry across private chats and groups. This runs
+    # after the feature handlers so commands and ordinary messages are included.
+    application.add_handler(
+        MessageHandler(filters.ALL, track_global_user),
+        group=14,
+    )
+    application.add_handler(
+        ChatMemberHandler(
+            track_global_chat_member,
+            ChatMemberHandler.CHAT_MEMBER,
+        ),
+        group=14,
+    )
     application.add_handler(
         MessageHandler(filters.ALL, process_group_message),
         group=9,
@@ -646,6 +744,10 @@ def _register_general(application: Application) -> None:
             group_member_event,
             ChatMemberHandler.CHAT_MEMBER,
         )
+    )
+    application.add_handler(
+        ChatMemberHandler(bot_added_as_admin, ChatMemberHandler.MY_CHAT_MEMBER),
+        group=11,
     )
 
     application.bot_data["ai_router"] = AIEventRouter(
@@ -688,12 +790,20 @@ async def _post_init(application: Application) -> None:
     # so initialize_schema can create the group history table as well.
     await initialize_schema(engine)
 
-    # Hide the slash-command menu from everyone by default; publish it only
-    # in the configured owner's private chat.
+    # Clear the fallback command list, then publish group-safe commands
+    # without /help. The full command catalogue is available in private chats.
     await application.bot.set_my_commands([], scope=BotCommandScopeDefault())
+    await application.bot.set_my_commands(
+        [command for command in bot_commands() if command.command not in {"help", "start"}],
+        scope=BotCommandScopeAllGroupChats(),
+    )
+    await application.bot.set_my_commands(
+        bot_commands(),
+        scope=BotCommandScopeAllPrivateChats(),
+    )
     for owner_id in settings.owner_ids:
         await application.bot.set_my_commands(
-            bot_commands(),
+            bot_commands(include_owner=True),
             scope=BotCommandScopeChat(chat_id=owner_id),
         )
 

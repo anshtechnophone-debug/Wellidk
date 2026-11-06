@@ -30,23 +30,12 @@ _SPAM_PROTECTOR_THRESHOLD = 15
 _SPAM_PROTECTOR_WINDOW_SECONDS = 30
 _SPAM_PROTECTOR_MUTE_SECONDS = 600
 
-DEFAULT_GROUP_RULES = """🚫 1. No Advertising
-Do not advertise or promote anything.
-
-🔞 2. No NSFW Content
-Keep the group safe and appropriate.
-
-🔒 3. Respect Privacy
-Never share personal or sensitive information.
-
-🛑 4. No Spam
-Avoid spamming messages or reactions.
-
-📢 5. No Group Promotion
-Do not promote other groups or channels.
-
-💬 6. No Unsolicited DMs
-Always ask for permission before messaging someone privately."""
+DEFAULT_GROUP_RULES = """1. No ads or promotions. Do not advertise products, groups, or channels.
+2. Keep it appropriate. Do not post explicit or disturbing content.
+3. Respect everyone. No harassment, threats, or personal attacks.
+4. No spam. Do not flood the chat with repeated messages or reactions.
+5. Protect privacy. Do not share anyone's private information.
+6. Respect DMs. Ask before messaging members privately."""
 
 
 def _repository(context: ContextTypes.DEFAULT_TYPE) -> GroupPolicyRepository:
@@ -76,9 +65,38 @@ async def _apply_saved_filter(message, text: str, filters: object) -> None:
         return
     folded = text.casefold()
     for phrase, response in filters.items():
-        if str(phrase).casefold() in folded:
+        if str(phrase).casefold() not in folded:
+            continue
+        if isinstance(response, dict) and response.get("type") and response.get("file_id"):
+            media_type, file_id = response["type"], response["file_id"]
+            sender = {
+                "photo": message.reply_photo,
+                "sticker": message.reply_sticker,
+                "video": message.reply_video,
+                "animation": message.reply_animation,
+            }.get(media_type)
+            if sender:
+                await sender(**{media_type: file_id})
+            else:
+                logger.warning("Unsupported saved filter media type: %s", media_type)
+        else:
             await message.reply_text(str(response)[:1000])
-            break
+        break
+
+
+def _filter_media(message):
+    """Return a reusable Telegram file_id for supported replied media."""
+    if not message:
+        return None
+    if message.photo:
+        return {"type": "photo", "file_id": message.photo[-1].file_id}
+    if message.sticker:
+        return {"type": "sticker", "file_id": message.sticker.file_id}
+    if message.video:
+        return {"type": "video", "file_id": message.video.file_id}
+    if message.animation:
+        return {"type": "animation", "file_id": message.animation.file_id}
+    return None
 
 
 def _formatted_rules(rules: str, group_title: str = "Group") -> str:
@@ -93,15 +111,21 @@ async def _send_rules_dm(
     group_id: int,
 ) -> bool:
     """Send the originating group's rules and name to a user's private chat."""
-    # These are the canonical rules requested for every group. Do not let
-    # stale per-group rules saved before this update override this exact text.
+    # Use this group's saved rules when available; otherwise show the clear defaults.
     rules = DEFAULT_GROUP_RULES
-    group_title = "Group"
+    try:
+        policy = await _repository(context).get(group_id)
+        saved_rules = policy.get('rules')
+        if isinstance(saved_rules, str) and saved_rules.strip():
+            rules = saved_rules
+    except Exception:
+        logger.exception('Could not load saved rules for chat %s', group_id)
+    group_title = 'Group'
     try:
         group = await context.bot.get_chat(group_id)
-        group_title = getattr(group, "title", None) or group_title
+        group_title = getattr(group, 'title', None) or group_title
     except TelegramError:
-        logger.warning("Could not fetch title for rules chat %s; using generic title", group_id)
+        logger.warning('Could not fetch title for rules chat %s; using generic title', group_id)
 
     await context.bot.send_message(
         chat_id=user_id,
@@ -281,19 +305,33 @@ async def notes_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def filter_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         await _admin(update, context)
-        if len(context.args) < 2:
-            raise ValueError("Usage: /filter <phrase> <response>")
+        message = update.effective_message
+        if not message or not update.effective_chat:
+            return
+        if not context.args:
+            raise ValueError("Usage: reply to a photo, sticker, video, or GIF with /filter <name>.")
         phrase = context.args[0].casefold()
-        response = " ".join(context.args[1:])
-        if not 2 <= len(phrase) <= 80 or len(response) > 1000:
-            raise ValueError("Phrase must be 2-80 characters and response at most 1000.")
+        if not re.fullmatch(r"[a-z0-9_-]{1,32}", phrase):
+            raise ValueError("Filter name must use 1-32 letters, numbers, underscores, or hyphens.")
+        media = _filter_media(message.reply_to_message)
+        if media:
+            if len(context.args) != 1:
+                raise ValueError("For a media filter, use only /filter <name>.")
+            response = media
+        else:
+            if len(context.args) < 2:
+                raise ValueError("Reply to supported media with /filter <name>, or use /filter <name> <text response>.")
+            response = " ".join(context.args[1:])
+            if len(response) > 1000:
+                raise ValueError("Text response must be at most 1000 characters.")
         policy = await _repository(context).get(update.effective_chat.id)
         filters = dict(policy.get("filters", {}))
         if len(filters) >= 50 and phrase not in filters:
             raise ValueError("This group already has 50 filters.")
         filters[phrase] = response
         await _repository(context).set_value(update.effective_chat.id, "filters", filters)
-        await _respond(update, f"Saved response filter for '{phrase}'.")
+        kind = f"{media['type']} filter" if media else "text filter"
+        await _respond(update, f"Saved {kind} '{phrase}'. Type the name in this group to trigger it.")
     except (AuthorizationError, ValueError) as exc:
         await _respond(update, str(exc))
 
@@ -549,28 +587,31 @@ async def _set_greeting(update: Update, context: ContextTypes.DEFAULT_TYPE, key:
 
 
 async def verification_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Owner-only persistent switch for the new-member verification gate."""
-    user, chat = update.effective_user, update.effective_chat
-    message = update.effective_message
-    if not user or not context.application.bot_data["settings"].is_owner(user.id):
+    """Allow only this group's real Telegram admins to change human verification."""
+    message, chat, user = update.effective_message, update.effective_chat, update.effective_user
+    if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP} or not user:
         if message:
-            await message.reply_text("Only the configured owner can change this setting.")
+            await message.reply_text("Use /verification on or /verification off inside your group.")
         return
-    if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
-        if message:
-            await message.reply_text("Use this command inside the group.")
+    try:
+        actor = await context.bot.get_chat_member(chat.id, user.id)
+    except TelegramError:
+        await _respond(update, "I couldn't verify your Telegram admin status. Please try again.")
+        return
+    if actor.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
+        await _respond(update, "Only this group's Telegram owner or administrators can change verification.")
         return
     if len(context.args) != 1 or context.args[0].casefold() not in {"on", "off"}:
-        if message:
-            await message.reply_text("Usage: /verification on or /verification off")
+        await _respond(update, "Usage: /verification on or /verification off")
         return
     enabled = context.args[0].casefold() == "on"
     await _repository(context).set_value(chat.id, "verification", {"enabled": enabled})
-    if message:
-        await message.reply_text(
-            "New-member verification is ON." if enabled
-            else "New-member verification is OFF. New members will not be restricted for verification."
-        )
+    await _respond(
+        update,
+        "Human verification is ON. New members must confirm they're human."
+        if enabled
+        else "Human verification is OFF. New members will join without the verification check.",
+    )
 
 
 async def group_member_event(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -700,9 +741,13 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
     spam_enabled = isinstance(spam_config, dict) and bool(spam_config.get("enabled"))
     approved = user.id in set(int(value) for value in policy.get("approved_users", []))
     text = message.text or message.caption or ""
+
+    # Filters are independent of moderation exemptions and must work for
+    # group admins/owners too. Do not let moderation early-returns bypass them.
+    if not user.is_bot and text and not text.lstrip().startswith("/"):
+        await _apply_saved_filter(message, text, policy.get("filters", {}))
+
     if not locks and not flood_enabled and not spam_enabled:
-        if not approved:
-            await _apply_saved_filter(message, text, policy.get("filters", {}))
         return
     if user.is_bot and "bots" not in locks:
         return
@@ -784,5 +829,4 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
             logger.info("Could not delete locked message in chat %s", chat.id)
         return
 
-    if not approved:
-        await _apply_saved_filter(message, text, policy.get("filters", {}))
+

@@ -23,6 +23,9 @@ def _categories() -> dict[str, list[CommandInfo]]:
     for command in COMMANDS:
         if command.enabled:
             grouped[command.category].append(command)
+            # The main Family Life leaderboard is listed in both relevant sections.
+            if command.name == "familytop":
+                grouped["Leaderboards"].append(command)
     return dict(sorted(grouped.items()))
 
 
@@ -42,6 +45,14 @@ def _find_category(key: str) -> tuple[str, list[CommandInfo]] | None:
 
 
 def _example(command: CommandInfo) -> str:
+    if command.name == "tictactoe":
+        return "/tictactoe"
+    if command.name == "tttcancel":
+        return "/tttcancel"
+    if command.name == "familyreset":
+        return "/familyreset"
+    if command.name == "mute":
+        return "/mute 123456789 30m spam"
     if command.name in {"dban", "dkick", "dmute"}:
         return f"Reply to the target's message, then send /{command.name} spam"
     if command.name == "report":
@@ -53,6 +64,7 @@ def _example(command: CommandInfo) -> str:
         "<user_id>": "123456789",
         "<reply>": "123456789",
         "<duration>": "30m",
+        "<seconds>": "5",
         "[duration]": "30m",
         "<message>": "drink water",
         "<text>": "Be respectful",
@@ -103,7 +115,7 @@ def build_help_page(category_key: str | None = None, page_number: int = 0) -> He
         ]
         rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
         rows.append([InlineKeyboardButton("Close", callback_data="help:close")])
-        return HelpPage("XYRON Help\nChoose a command category:", InlineKeyboardMarkup(rows))
+        return HelpPage("XYRON Help\nChoose a section to see what its commands do and how to use them:", InlineKeyboardMarkup(rows))
 
     found = _find_category(category_key)
     if found is None:
@@ -114,12 +126,25 @@ def build_help_page(category_key: str | None = None, page_number: int = 0) -> He
     selected = commands[page_number * PAGE_SIZE : (page_number + 1) * PAGE_SIZE]
     sections = []
     for command in selected:
-        permission = (
-            "owner only" if command.owner_only else "group admin" if command.admin else "everyone"
-        )
+        if command.name in {"admin", "unadmin", "botadminlist", "unbanall"}:
+            permission = "Group owner"
+        elif command.name == "promote":
+            permission = "Group owner or admin with promotion permission"
+        elif command.owner_only:
+            permission = "Only the XYRON owner"
+        elif command.admin:
+            permission = "Group admins; XYRON bot admins are mute-only"
+        elif command.name == "help":
+            permission = "Channel members (private chat only)"
+        elif command.name == "tttcancel":
+            permission = "Either Tic-Tac-Toe player"
+        elif command.name == "wordcancel":
+            permission = "The player who started the game"
+        else:
+            permission = "Everyone"
         sections.append(
             f"{command.usage}\n{command.description}\n"
-            f"Example: {_example(command)}\nPermission: {permission}"
+            f"Example: {_example(command)}\nWho can use it: {permission}"
         )
     rows = []
     navigation = []

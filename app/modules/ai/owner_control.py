@@ -102,7 +102,7 @@ def parse_owner_instruction(text: str, bot_username: str | None = None) -> tuple
 
     if re.fullmatch(r"(?:unmute|un-mute)(?:\s+(?:(?:kr|kar)\s+)?(?:him|her|this person|this user|that person|isko|ise|usko|use))?", value) or re.fullmatch(r"(?:isko|ise|usko|use)\s+(?:unmute|un-mute)(?:\s+(?:kr|kar|karo|karde|kardo|kar\s*do|kr\s*do))?", value) or re.fullmatch(r"(?:isko\s+)?unmute(?:\s+karo|\s+kar\s*do)?", value):
         return "unmute", None
-    match = re.fullmatch(r"(ban|kick)(?:\s+(?:him|her|this person|this user|that person|isko))?", value)
+    match = re.fullmatch(r"(ban|kick)(?:\s+(?:him|her|this person|this user|that person|isko|[1-9][0-9]{0,19}))?", value)
     if match:
         return match.group(1), None
     match = re.fullmatch(r"isko\s+(ban|kick)\s+(?:karo|kar\s*do|do)", value)
@@ -123,6 +123,24 @@ def parse_owner_instruction(text: str, bot_username: str | None = None) -> tuple
             return "mute", None
         unit = {"second": "s", "seconds": "s", "minute": "m", "minutes": "m",
                 "hour": "h", "hours": "h", "day": "d", "days": "d"}[unit_name]
+        return "mute", f"{amount}{unit}"
+    numeric_target_duration = re.fullmatch(
+        r"mute\s+[1-9][0-9]{0,19}\s+for\s+(\d+)\s*(seconds?|minutes?|hours?|days?)",
+        value,
+    )
+    if numeric_target_duration:
+        amount, unit_name = numeric_target_duration.groups()
+        unit = {"second": "s", "seconds": "s", "minute": "m", "minutes": "m",
+                "hour": "h", "hours": "h", "day": "d", "days": "d"}[unit_name]
+        return "mute", f"{amount}{unit}"
+    named_duration = re.fullmatch(
+        r"mute(?:\s+(?:this person|this user|that person|him|her))?\s+for\s+(ten|five|fifteen|twenty|thirty|one)\s+(seconds?|minutes?|hours?|days?)",
+        value,
+    )
+    if named_duration:
+        amount_name, unit_name = named_duration.groups()
+        amount = {"one": 1, "five": 5, "ten": 10, "fifteen": 15, "twenty": 20, "thirty": 30}[amount_name]
+        unit = {"second": "s", "seconds": "s", "minute": "m", "minutes": "m", "hour": "h", "hours": "h", "day": "d", "days": "d"}[unit_name]
         return "mute", f"{amount}{unit}"
     short = re.fullmatch(r"mute\s+(\d+)\s*(s|m|h|d)", value)
     if short:
@@ -199,7 +217,7 @@ async def _latest_persisted_moderation_event(
 async def _resolve_plan_target(update: Update, context: ContextTypes.DEFAULT_TYPE, target: Any) -> tuple[int, list[str]]:
     message = update.effective_message
     chat = update.effective_chat
-    if message and message.reply_to_message and message.reply_to_message.from_user and target in (None, "reply"):
+    if message and getattr(message, "reply_to_message", None) and message.reply_to_message.from_user and target in (None, "reply"):
         return await _resolve_target(update, context, [])
     if target in {"last", "last_mute", "last_unmute"}:
         # The database is authoritative; filter by action for specific references.
@@ -309,8 +327,9 @@ async def _dispatch_registered_command(
         "text": command_text,
         "entities": [{"type": "bot_command", "offset": 0, "length": command_length}],
     }
-    if message.reply_to_message:
-        payload["reply_to_message"] = message.reply_to_message.to_dict()
+    reply_to_message = getattr(message, "reply_to_message", None)
+    if reply_to_message:
+        payload["reply_to_message"] = reply_to_message.to_dict()
     synthetic_message = Message.de_json(payload, context.bot)
     synthetic_update = Update(update_id=update.update_id, message=synthetic_message)
     await context.application.process_update(synthetic_update)
@@ -319,14 +338,22 @@ async def _dispatch_registered_command(
 async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message, chat, actor = update.effective_message, update.effective_chat, update.effective_user
     settings = context.application.bot_data.get("settings")
-    if not message or not chat or not actor or not settings or not settings.is_owner(actor.id):
+    if not message or not chat or not actor or not settings or actor.id != settings.owner_id:
         return
+    reply_to_message = getattr(message, "reply_to_message", None)
     if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         return
     if getattr(message, "forward_origin", None) or getattr(message, "quote", None):
         return
     bot_username = getattr(context.bot, "username", None)
     text = (message.text or "").strip()
+    # Do not interpret a message explicitly addressed to a different bot as
+    # an instruction for XYRON, even when the message contains a known action.
+    leading_mention = re.match(r"^@([A-Za-z0-9_]+)\b", text)
+    if leading_mention and (
+        not bot_username or leading_mention.group(1).casefold() != bot_username.casefold()
+    ):
+        return
     request = _strip_address(text, bot_username)
 
     # Moderation history is read from the database, not volatile conversation memory.
@@ -618,7 +645,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         re.I,
     ))
     if bot_admin_request:
-        replied = message.reply_to_message
+        replied = reply_to_message
         if not replied or not replied.from_user:
             await message.reply_text("Reply to the person's message and say 'bot admin' to promote them.")
             context.chat_data["xyron_owner_control_message_id"] = message.message_id
@@ -640,8 +667,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
                         created_at=datetime.now(UTC),
                     ))
                     already_admin = False
-            label = ("@" + target_user.username) if target_user.username else target_user.full_name
-            safe_label = html.escape(label)
+            safe_label = user_mention(target_user.id, target_user.full_name)
             if already_admin:
                 await message.reply_text(f"{safe_label} is already a XYRON bot admin.", parse_mode="HTML")
             else:
@@ -662,6 +688,23 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
 
     # Deterministic handling for target-first Hinglish commands such as
     # "@username isko unmute karna" so they don't fall through to chat AI.
+    numeric_action = re.fullmatch(
+        r"(mute|ban|kick)\s+([1-9][0-9]{0,19})(?:\s+for\s+(\d+\s*(?:seconds?|minutes?|hours?|days?|[smhd])))?(?:\s+(.+))?",
+        request,
+        re.I,
+    )
+    if numeric_action:
+        numeric_name, numeric_id, numeric_duration, numeric_reason = numeric_action.groups()
+        proxy_args = [numeric_id]
+        if numeric_duration:
+            proxy_args.append(re.sub(r"\s+", "", numeric_duration))
+        if numeric_reason:
+            proxy_args.extend(numeric_reason.split())
+        proxy = SimpleNamespace(application=context.application, bot=context.bot, args=proxy_args)
+        await _moderate(update, proxy, numeric_name.casefold())
+        context.chat_data["xyron_owner_control_message_id"] = message.message_id
+        return
+
     target_first = re.match(
         r"^(@[A-Za-z0-9_]{5,32})\s+(?:(?:isko|ise)\s+)?"
         r"(unmute|un-mute|mute|ban|kick|remove)"
@@ -678,7 +721,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         if intent:
             action, duration = intent
             previous = context.chat_data.get("xyron_last_moderation_action")
-            if message.reply_to_message and message.reply_to_message.from_user:
+            if reply_to_message and reply_to_message.from_user:
                 inferred_target = "reply"
             elif action == "unmute" and re.search(
                 r"\b(?:ab\s+)?(?:jisko|jis\s+ko|the\s+one|the\s+person|whoever)\b"
@@ -707,12 +750,12 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
             # First preserve the focused moderation planner. If it does not
             # recognize an action, use the shared registry to route any other
             # explicit owner request to an existing command.
-            plan = await _ai_plan(request, context, chat.id)
+            plan = await _ai_plan(request, context, chat.id) if getattr(chat, "id", None) is not None else None
             if plan is None or plan.get("action") == "none":
                 context.chat_data["_xyron_router_reply_target"] = bool(
-                    message.reply_to_message
-                    and message.reply_to_message.from_user
-                    and not message.reply_to_message.from_user.is_bot
+                    reply_to_message
+                    and reply_to_message.from_user
+                    and not reply_to_message.from_user.is_bot
                 )
                 command_plan = await _ai_command_plan(request, context)
                 context.chat_data.pop("_xyron_router_reply_target", None)

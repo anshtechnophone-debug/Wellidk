@@ -30,8 +30,10 @@ def test_word_check_and_duplicate_letter_feedback():
     assert is_valid_word("game", 4)
     assert is_valid_word("about", 5)
     assert is_valid_word("across", 6)
+    assert is_valid_word("leery", 5)
+    assert is_valid_word("bright", 6)
     assert not is_valid_word("zzzz", 4)
-    assert score_guess("game", "name") == "⬛🟩🟩🟩"
+    assert score_guess("game", "name") == "🟥🟩🟩🟩"
     assert score_guess("else", "eels") == "🟩🟨🟨🟨"
 
 
@@ -49,11 +51,13 @@ async def test_game_win_scores_once_and_persists_across_sessions(games):
     await repository.start(-1001, 17, 4, answer="game")
     first = await repository.guess(-1001, 17, "name")
     assert first.state == "active"
-    assert first.guesses_left == 5
+    assert first.guesses_left == 29
     with pytest.raises(WordGameError, match="already tried"):
         await repository.guess(-1001, 17, "name")
     won = await repository.guess(-1001, 17, "game")
     assert (won.state, won.points, won.answer) == ("won", 60, "game")
+    assert won.guesses == ("name", "game")
+    assert won.feedbacks == ("🟥🟩🟩🟩", "🟩🟩🟩🟩")
     with pytest.raises(WordGameError, match="No active"):
         await repository.guess(-1001, 17, "game")
     async with sessions() as session:
@@ -64,22 +68,20 @@ async def test_game_win_scores_once_and_persists_across_sessions(games):
 
 
 @pytest.mark.asyncio
-async def test_games_are_isolated_by_chat_and_player(games):
+async def test_games_are_shared_by_chat_but_isolated_between_chats(games):
     repository, sessions = games
     await repository.start(-1001, 17, 4, answer="game")
     await repository.start(-1002, 17, 4, answer="game")
-    await repository.start(-1001, 18, 4, answer="game")
-    with pytest.raises(WordGameError, match="already have"):
-        await repository.start(-1001, 17, 4, answer="game")
-    result = await repository.guess(-1002, 17, "game")
+    with pytest.raises(WordGameError, match="already active"):
+        await repository.start(-1001, 18, 4, answer="able")
+    result = await repository.guess(-1001, 18, "game")
     assert result.state == "won"
+    assert result.guesses == ("game",)
     async with sessions() as session:
-        active = list(
-            await session.scalars(select(WordGameSession).where(WordGameSession.state == "active"))
-        )
-    assert {(game.chat_id, game.user_id) for game in active} == {(-1001, 17), (-1001, 18)}
-
-
+        scores = list(await session.scalars(select(WordGameScore)))
+        active = list(await session.scalars(select(WordGameSession).where(WordGameSession.state == "active")))
+    assert len(scores) == 1 and scores[0].user_id == 18
+    assert {(game.chat_id, game.user_id) for game in active} == {(-1002, 17)}
 @pytest.mark.asyncio
 async def test_game_timeout_and_cancellation(games):
     repository, sessions = games

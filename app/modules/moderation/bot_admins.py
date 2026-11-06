@@ -1,227 +1,190 @@
-"""Owner-only management of XYRON's independent bot-admin list."""
+"""Group-owner management of group-scoped XYRON bot admins."""
 from __future__ import annotations
+
 import html
 from datetime import UTC, datetime
-from sqlalchemy import select
-from telegram import Chat
+
+from sqlalchemy import func, select
+from telegram import Chat, ChatMember
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
+
 from app.config import Settings
-from app.database.models import BotAdmin, KnownUser
+from app.core.permissions import AuthorizationError
+from app.database.group_bot_admins import GroupBotAdmin
+from app.database.models import KnownUser
 from app.services.group_history import GroupMessage
 from app.services.activity_log import ActivityLogRepository
+from app.core.telegram_format import user_mention
+
 
 async def _reply(update, text: str, *, html_mode: bool = False) -> None:
     if update.effective_message:
-        await update.effective_message.reply_text(
-            text, parse_mode="HTML" if html_mode else None
-        )
+        await update.effective_message.reply_text(text, parse_mode="HTML" if html_mode else None)
 
 
 async def _user_label(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> str:
-    """Return a username or clickable display name, never a raw numeric ID."""
-    username = None
+    """Return the person's display name as a clickable Telegram mention."""
     display_name = None
     async with context.application.bot_data["sessions"]() as session:
-        known = await session.scalar(
-            select(KnownUser).where(KnownUser.user_id == user_id).limit(1)
-        )
+        known = await session.scalar(select(KnownUser).where(KnownUser.user_id == user_id).limit(1))
         if known:
-            username, display_name = known.username, known.first_name
+            display_name = known.first_name
         history = (await session.execute(
-            select(GroupMessage.username, GroupMessage.display_name)
+            select(GroupMessage.display_name)
             .where(GroupMessage.user_id == user_id)
             .order_by(GroupMessage.sent_at.desc()).limit(1)
         )).first()
-        if history:
-            username = username or history.username
-            display_name = display_name or history.display_name
-    if username:
-        return "@" + html.escape(username.lstrip("@"))
-    try:
-        user = await context.bot.get_chat(user_id)
-        display_name = display_name or getattr(user, "full_name", None)
-        username = getattr(user, "username", None) or username
-    except Exception:
-        pass
-    if username:
-        return "@" + html.escape(username.lstrip("@"))
-    name = html.escape(display_name or "Telegram user")
-    return f'<a href="tg://user?id={user_id}">{name}</a>'
+        if history and not display_name:
+            display_name = history[0]
+    if not display_name:
+        try:
+            user = await context.bot.get_chat(user_id)
+            display_name = getattr(user, "full_name", None)
+        except Exception:
+            pass
+    return user_mention(user_id, display_name or f"User {user_id}")
 
-async def notify_bot_admin(context: ContextTypes.DEFAULT_TYPE, target_id: int) -> tuple[bool, str | None]:
-    """DM a newly added bot admin, or return a deep link they can open themselves."""
+async def _resolve_target(context, chat_id: int, value: str) -> int:
+    value = value.strip()
+    if value.isdecimal():
+        target_id = int(value)
+        if target_id > 0:
+            return target_id
+        raise ValueError("Provide a valid positive Telegram user ID.")
+    username = value.lstrip("@").casefold()
+    if not username:
+        raise ValueError("Usage: /admin @username or reply to a user's message.")
+    async with context.application.bot_data["sessions"]() as session:
+        known = set((await session.scalars(
+            select(KnownUser.user_id).where(
+                KnownUser.chat_id == chat_id, func.lower(KnownUser.username) == username
+            ).distinct()
+        )).all())
+        history = set((await session.scalars(
+            select(GroupMessage.user_id).where(
+                GroupMessage.chat_id == chat_id, func.lower(GroupMessage.username) == username
+            ).distinct()
+        )).all())
+    matches = known | history
+    if len(matches) == 1:
+        return matches.pop()
+    if len(matches) > 1:
+        raise ValueError("That username matches multiple users. Use their numeric ID.")
+    raise ValueError("I haven't seen that username in this group. Use a numeric ID or reply to their message.")
+
+
+async def _require_group_owner(update, context) -> tuple[int, int]:
+    user, chat = update.effective_user, update.effective_chat
+    if not user or not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        raise ValueError("Use this command in the group where you want to manage bot admins.")
+    settings = context.application.bot_data["settings"]
+    # The configured XYRON bot owner is a global override; otherwise only this
+    # Telegram group's owner may manage this group's bot-admin appointments.
+    if not settings.is_owner(user.id):
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        if member.status != ChatMember.OWNER:
+            raise PermissionError(
+                "Only this group's Telegram owner or the XYRON bot owner can manage its bot admins."
+            )
+    return chat.id, user.id
+
+
+async def notify_bot_admin(context: ContextTypes.DEFAULT_TYPE, target_id: int, chat_id: int) -> None:
     try:
-        me = await context.bot.get_me()
-        guide_url = f"https://t.me/{me.username}?start=botadmin_guide_{target_id}"
-    except TelegramError:
-        guide_url = None
-    try:
+        chat = await context.bot.get_chat(chat_id)
         await context.bot.send_message(
-            chat_id=target_id,
-            text=(
-                "✅ You are now a XYRON bot admin!\n\n"
-                "Your moderation commands (use them in a group where XYRON is present):\n"
-                "• /mute — permanently mute a member (reply to their message or use their user ID)\n"
-                "• /mute 30m — temporary mute for 30 minutes (reply to the member first)\n"
-                "• /tmute 2h — temporary mute for 2 hours (reply to the member first)\n"
-                "• /unmute — restore a member's saved/default permissions\n"
-                "• /mutelist — view XYRON-tracked mutes\n\n"
-                "How to use: reply to the member's message with /mute, /tmute 30m, or /unmute. "
-                "You can also put their numeric Telegram user ID after the command.\n\n"
-                "Limits: bot admins can mute only one member per group every 10 minutes. "
-                "Ban and kick commands are reserved for the bot owner. "
-                "You do not need Telegram group-admin status to be a XYRON bot admin."
-            ),
+            target_id,
+            f"✅ You are now a XYRON bot admin in {html.escape(chat.title or 'a Telegram group')}.\n"
+            "Your bot-admin permission works only in that group. Real Telegram admin permissions always take priority.",
         )
-        return True, guide_url
     except TelegramError:
-        return False, guide_url
+        # The appointment is still valid; Telegram may require the user to start the bot first.
+        return
 
 
 async def admin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user, chat = update.effective_user, update.effective_chat
-    settings: Settings = context.application.bot_data["settings"]
-    if not user or not settings.is_owner(user.id) or not chat or chat.type != Chat.PRIVATE:
-        await _reply(update, "Only the owner can manage bot admins, in DM."); return
-    if len(context.args) != 1 or not context.args[0].isdecimal() or int(context.args[0]) <= 0:
-        await _reply(update, "Usage: /admin <numeric_user_id>"); return
-    target_id = int(context.args[0])
-    if settings.is_owner(target_id):
-        await _reply(update, "You are already the owner."); return
-    async with context.application.bot_data["sessions"].begin() as session:
-        if await session.get(BotAdmin, target_id):
-            await _reply(update, f"{await _user_label(context, target_id)} is already a XYRON bot admin.", html_mode=True); return
-        session.add(BotAdmin(user_id=target_id, added_by=user.id, created_at=datetime.now(UTC)))
+    try:
+        chat_id, actor_id = await _require_group_owner(update, context)
+        message = update.effective_message
+        target_user = message.reply_to_message.from_user if message and message.reply_to_message else None
+        if target_user:
+            target_id = target_user.id
+        elif len(context.args) == 1:
+            target_id = await _resolve_target(context, chat_id, context.args[0])
+        else:
+            raise ValueError("Usage: reply to a user's message with /admin, or use /admin @username /admin <numeric_id>.")
+        if target_id == actor_id:
+            raise ValueError("You are already the group owner.")
+        target = await context.bot.get_chat_member(chat_id, target_id)
+        if target.status in {ChatMember.LEFT, ChatMember.BANNED}:
+            raise ValueError("That user must be a member of this group before becoming a bot admin.")
+        async with context.application.bot_data["sessions"].begin() as session:
+            existing = await session.get(GroupBotAdmin, (chat_id, target_id))
+            if existing:
+                raise ValueError("That user is already a XYRON bot admin in this group.")
+            session.add(GroupBotAdmin(chat_id=chat_id, user_id=target_id, added_by=actor_id, created_at=datetime.now(UTC)))
+        await notify_bot_admin(context, target_id, chat_id)
+        await _reply(update, f"✅ Added {await _user_label(context, target_id)} as a XYRON bot admin in this group.", html_mode=True)
+    except (ValueError, PermissionError) as exc:
+        await _reply(update, str(exc))
+    except TelegramError as exc:
+        await _reply(update, f"Telegram could not verify that member: {exc}")
 
-    delivered, guide_url = await notify_bot_admin(context, target_id)
-    if delivered:
-        await _reply(
-            update,
-            f"Added {await _user_label(context, target_id)} as a XYRON bot admin. "
-            "I sent them their command guide in DM.",
-            html_mode=True,
-        )
-    elif guide_url:
-        await _reply(
-            update,
-            f"Added {await _user_label(context, target_id)} as a XYRON bot admin. "
-            f"Share this link with them to open their command guide: <a href=\"{guide_url}\">XYRON bot-admin commands</a>. "
-            "Telegram only lets me DM them after they start the bot.",
-            html_mode=True,
-        )
-    else:
-        await _reply(
-            update,
-            f"Added {await _user_label(context, target_id)} as a XYRON bot admin, "
-            "but I couldn't DM them or create a guide link. Please ask them to open XYRON and send /start.",
-            html_mode=True,
-        )
 
 async def unadmin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user, chat = update.effective_user, update.effective_chat
-    settings: Settings = context.application.bot_data["settings"]
-    if not user or user.id != settings.owner_id or not chat or chat.type != Chat.PRIVATE:
-        await _reply(update, "Only the owner can manage bot admins, in DM."); return
-    if len(context.args) != 1 or not context.args[0].isdecimal():
-        await _reply(update, "Usage: /unadmin <numeric_user_id>"); return
-    target_id = int(context.args[0])
-    async with context.application.bot_data["sessions"].begin() as session:
-        existing = await session.get(BotAdmin, target_id)
-        if not existing:
-            await _reply(update, "That user is not a XYRON bot admin."); return
-        await session.delete(existing)
-    await _reply(update, f"Removed {await _user_label(context, target_id)} from XYRON bot admins.", html_mode=True)
+    try:
+        chat_id, _actor_id = await _require_group_owner(update, context)
+        message = update.effective_message
+        target_user = message.reply_to_message.from_user if message and message.reply_to_message else None
+        if target_user:
+            target_id = target_user.id
+        elif len(context.args) == 1:
+            target_id = await _resolve_target(context, chat_id, context.args[0])
+        else:
+            raise ValueError("Usage: reply to a bot admin with /unadmin, or use /unadmin <numeric_id>.")
+        async with context.application.bot_data["sessions"].begin() as session:
+            existing = await session.get(GroupBotAdmin, (chat_id, target_id))
+            if not existing:
+                raise ValueError("That user is not a XYRON bot admin in this group.")
+            await session.delete(existing)
+        await _reply(update, f"Removed {await _user_label(context, target_id)} from this group's XYRON bot admins.", html_mode=True)
+    except (ValueError, PermissionError) as exc:
+        await _reply(update, str(exc))
+    except TelegramError as exc:
+        await _reply(update, f"Telegram could not complete the request: {exc}")
+
 
 async def botadminlist_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user, chat = update.effective_user, update.effective_chat
-    settings: Settings = context.application.bot_data["settings"]
-    if not user or not settings.is_owner(user.id) or not chat:
-        await _reply(update, "Only the configured owner can view the XYRON bot-admin list.")
-        return
-    if chat.type not in {Chat.PRIVATE, Chat.GROUP, Chat.SUPERGROUP}:
-        await _reply(update, "Use /botadminlist in a private chat or a group.")
-        return
-
-    async with context.application.bot_data["sessions"]() as session:
-        rows = (await session.scalars(select(BotAdmin).order_by(BotAdmin.user_id))).all()
-
-    if chat.type == Chat.PRIVATE:
+    try:
+        chat_id, _actor_id = await _require_group_owner(update, context)
+        async with context.application.bot_data["sessions"]() as session:
+            rows = (await session.scalars(
+                select(GroupBotAdmin).where(GroupBotAdmin.chat_id == chat_id).order_by(GroupBotAdmin.user_id)
+            )).all()
         labels = [await _user_label(context, row.user_id) for row in rows]
-        await _reply(
-            update,
-            "All XYRON bot admins:\n" + ("\n".join(labels) if labels else "No additional admins."),
-            html_mode=True,
-        )
-        return
-
-    # In a group, list only bot admins Telegram confirms are current members.
-    labels = []
-    unverified = 0
-    for row in rows:
-        try:
-            member = await context.bot.get_chat_member(chat.id, row.user_id)
-        except TelegramError:
-            unverified += 1
-            continue
-        status = getattr(member, "status", "")
-        is_member = status in {"creator", "administrator", "member"} or (
-            status == "restricted" and bool(getattr(member, "is_member", False))
-        )
-        if is_member:
-            labels.append(await _user_label(context, row.user_id))
-
-    heading = f"XYRON bot admins in this group ({len(labels)}):"
-    body = "\n".join(labels) if labels else "No XYRON bot admins from the bot-admin list are in this group."
-    if unverified:
-        body += f"\n\nNote: Telegram could not verify {unverified} account(s), so they were not included."
-    await _reply(update, heading + "\n" + body, html_mode=True)
+        body = "\n".join(labels) if labels else "No bot admins appointed in this group."
+        await _reply(update, f"XYRON bot admins in this group ({len(labels)}):\n{body}", html_mode=True)
+    except (ValueError, PermissionError) as exc:
+        await _reply(update, str(exc))
 
 
 async def demote_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Remove the replied-to user from XYRON's independent bot-admin list."""
-    message = update.effective_message
-    user = update.effective_user
-    chat = update.effective_chat
-    settings: Settings = context.application.bot_data["settings"]
+    await unadmin_command(update, context)
 
-    if not message or not user or not settings.is_owner(user.id):
-        await _reply(update, "Only the configured owner can demote XYRON bot admins.")
-        return
-    if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
-        await _reply(update, "Reply to that user's message in a group and send: demote")
-        return
-    target_message = message.reply_to_message
-    target = target_message.from_user if target_message else None
-    if not target:
-        await _reply(update, "Reply directly to the user's message, then send: demote")
-        return
-    if settings.is_owner(target.id):
-        await _reply(update, "The configured owner cannot be demoted.")
-        return
-
-    async with context.application.bot_data["sessions"].begin() as session:
-        existing = await session.get(BotAdmin, target.id)
-        if not existing:
-            await _reply(update, "That user is not on XYRON's bot-admin list.")
-            return
-        await session.delete(existing)
-
-    await _reply(
-        update,
-        f"Removed {await _user_label(context, target.id)} from XYRON bot admins.",
-        html_mode=True,
-    )
 
 async def pin_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     from telegram import Chat
     from telegram.error import TelegramError
     from app.core.permissions import AuthorizationError, require_admin_access
+
     message, chat = update.effective_message, update.effective_chat
     if not message or not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
-        await _reply(update, "Use /pin by replying to a group message."); return
+        await _reply(update, "Use /pin by replying to a group message.")
+        return
     if not message.reply_to_message:
-        await _reply(update, "Reply to the message you want to pin, then use /pin."); return
+        await _reply(update, "Reply to the message you want to pin, then use /pin.")
+        return
     try:
         await require_admin_access(update, context, context.application.bot_data["settings"], "can_pin_messages")
         await context.bot.pin_chat_message(chat.id, message.reply_to_message.message_id)

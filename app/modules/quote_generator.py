@@ -12,7 +12,7 @@ from telegram import Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
-from app.modules.quote_features import quote_keyboard, save_group_quote
+from app.modules.quote_features import quote_delete_command, quote_keyboard, save_group_quote, save_quote_sticker
 
 logger = logging.getLogger(__name__)
 WIDTH = 512
@@ -184,7 +184,8 @@ def _render_sticker(quote: str, author: str, username: str | None, avatar_data, 
     line_height = message_font.size + 7
     bubble_height = max(88, 13 + name_height + 5 + len(lines) * line_height + 13)
     bubble_height = min(250, bubble_height)
-    image = Image.new("RGBA", (WIDTH, bubble_height + 20), (0, 0, 0, 0))
+    # Leave a transparent footer so Telegram's media timestamp does not cover the final quote line.
+    image = Image.new("RGBA", (WIDTH, bubble_height + 64), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
     top, bottom = 8, 8 + bubble_height
     draw.rounded_rectangle((bubble_left, top, bubble_right, bottom), radius=29, fill=bubble_color + (255,), outline=(91, 73, 91, 210), width=2)
@@ -210,6 +211,9 @@ def _render_sticker(quote: str, author: str, username: str | None, avatar_data, 
 async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     command_message = update.effective_message
     if not command_message:
+        return
+    if context.args and context.args[0].casefold() == "delete":
+        await quote_delete_command(update, context)
         return
     source = command_message.reply_to_message
     if not source:
@@ -248,8 +252,9 @@ async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     avatar_data = await _user_avatar(context, user.id)
     reply_markup = None
+    quote_id = None
+    sessions = context.application.bot_data.get("sessions")
     if command_message.chat.type in {"group", "supergroup"}:
-        sessions = context.application.bot_data.get("sessions")
         if sessions:
             quote_id = await save_group_quote(
                 sessions,
@@ -264,7 +269,7 @@ async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     try:
         sticker = _render_sticker(quote_text, user.full_name, user.username, avatar_data, theme_index)
-        await command_message.reply_sticker(
+        sent_sticker = await command_message.reply_sticker(
             sticker=sticker,
             reply_markup=reply_markup,
             read_timeout=30,
@@ -272,6 +277,8 @@ async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             connect_timeout=15,
             pool_timeout=15,
         )
+        if quote_id is not None and sessions is not None:
+            await save_quote_sticker(sessions, quote_id=quote_id, chat_id=command_message.chat_id, message_id=sent_sticker.message_id)
     except (OSError, TelegramError):
         logger.exception("Quote sticker generation failed")
         await command_message.reply_text("I couldn't generate that quote sticker. Please try again.")

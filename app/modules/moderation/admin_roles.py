@@ -39,22 +39,26 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         await message.reply_text("Use /promote in a group.")
         return
-    if not settings.is_owner(actor.id):
-        await message.reply_text("Only the configured XYRON owner can promote group admins.")
-        return
-    if not context.args or context.args[0].casefold() not in {"l", "f"}:
+    # Promotion is a Telegram-admin action, never a XYRON bot-admin privilege.
+    # The group owner can always promote; other Telegram admins need the
+    # explicit Telegram can_promote_members right. A configured XYRON owner
+    # or group-scoped bot admin receives no special promotion authority.
+    actor_member = await context.bot.get_chat_member(chat.id, actor.id)
+    if actor_member.status != ChatMember.OWNER and not (
+        actor_member.status == ChatMember.ADMINISTRATOR
+        and getattr(actor_member, "can_promote_members", False)
+    ):
         await message.reply_text(
-            "Reply to a member with /promote l or /promote f.\n"
-            "l = limited admin (no member-removal permission).\n"
-            "f = full admin (member-removal permission enabled).\n"
-            "Neither mode can promote other admins or act anonymously."
+            "Only the group owner or a Telegram admin with 'Add new admins' permission can promote members."
         )
         return
-    mode = context.args[0].casefold()
     try:
-        target_id, rest = await _resolve_target(update, context, context.args[1:], allow_name=True)
+        # One standard promotion level. Reply to a member, or provide
+        # @username / numeric ID: /promote @username
+        args = list(context.args)
+        target_id, rest = await _resolve_target(update, context, args, allow_name=True)
         if rest:
-            raise TargetError("Usage: /promote l or /promote f")
+            raise TargetError("Usage: reply to a member with /promote, or use /promote @username.")
         bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
         if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
             raise AuthorizationError("XYRON must be a group administrator.")
@@ -65,25 +69,53 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             raise AuthorizationError("The group owner cannot be promoted.")
         if target.status == ChatMember.ADMINISTRATOR:
             raise AuthorizationError("That member is already an administrator.")
-        rights = {name: False for name in RIGHTS}
-        for name in RIGHTS:
-            if name not in {"can_restrict_members", "can_promote_members"}:
-                rights[name] = True
-        rights["can_restrict_members"] = mode == "f"
-        await context.bot.promote_chat_member(chat.id, target_id, **rights)
+        # Telegram only allows a bot to grant administrator rights that the
+        # bot itself currently has. Build the grant from Telegram's live
+        # ChatMemberAdministrator object instead of requesting every right.
+        # Keep moderation and further-promotion powers disabled for this level.
+        rights = {
+            name: bool(getattr(bot_member, name, False))
+            for name in RIGHTS
+        }
+        rights["can_restrict_members"] = False
+        rights["can_promote_members"] = False
+        logger.info(
+            "Promoting user %s in chat %s with grantable rights: %s",
+            target_id,
+            chat.id,
+            sorted(name for name, enabled in rights.items() if enabled),
+        )
+        try:
+            await context.bot.promote_chat_member(chat.id, target_id, **rights)
+        except TelegramError as exc:
+            logger.warning(
+                "Telegram rejected promotion: chat_id=%s target_id=%s "
+                "bot_status=%s bot_can_promote=%s requested_rights=%s error=%s",
+                chat.id,
+                target_id,
+                bot_member.status,
+                getattr(bot_member, "can_promote_members", False),
+                sorted(name for name, enabled in rights.items() if enabled),
+                exc,
+            )
+            raise
         policies = GroupPolicyRepository(context.application.bot_data["sessions"])
         policy = await policies.get(chat.id)
         promoted = dict(policy.get("xyron_promoted_admins", {}))
-        promoted[str(target_id)] = {"mode": mode, "promoted_by": actor.id}
+        promoted[str(target_id)] = {"mode": "l", "promoted_by": actor.id}
         await policies.set_value(chat.id, "xyron_promoted_admins", promoted)
         await message.reply_text(
-            f"Promoted {await _user_label(context, chat.id, target_id)} as "
-            f"{'limited' if mode == 'l' else 'full'} admin.",
+            f"Promoted {await _user_label(context, chat.id, target_id)} as an admin.",
             parse_mode="HTML",
         )
     except (AuthorizationError, TargetError) as exc:
         await message.reply_text(str(exc))
     except TelegramError as exc:
+        logger.exception(
+            "Promotion failed: chat_id=%s actor_id=%s",
+            chat.id,
+            actor.id,
+        )
         await message.reply_text(f"Telegram could not promote that member: {exc}")
 
 

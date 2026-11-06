@@ -20,7 +20,7 @@ def test_help_category_shows_syntax_examples_and_permissions():
     page = build_help_page("mute_and_unmute")
     assert "/mute" in page.text
     assert "Example:" in page.text
-    assert "Permission: group admin" in page.text
+    assert "Who can use it: Group admins" in page.text
     assert "Example: /mute 123456789 30m spam" in page.text
     assert any(button.callback_data == "help:home" for button in page.keyboard.inline_keyboard[0])
 
@@ -41,16 +41,18 @@ def test_category_page_size_is_bounded():
 
 
 def test_large_category_has_next_and_previous_navigation():
-    page = build_help_page("games", 0)
+    # Family Life is the largest retained game category after the public game
+    # selection was reduced to Word Seek, Family Life, and Tic-Tac-Toe.
+    page = build_help_page("family", 0)
     first_callbacks = [
         button.callback_data for row in page.keyboard.inline_keyboard for button in row
     ]
-    assert "help:cat:games:1" in first_callbacks
-    second_page = build_help_page("games", 1)
+    assert "help:cat:family:1" in first_callbacks
+    second_page = build_help_page("family", 1)
     second_callbacks = [
         button.callback_data for row in second_page.keyboard.inline_keyboard for button in row
     ]
-    assert "help:cat:games:0" in second_callbacks
+    assert "help:cat:family:0" in second_callbacks
 
 
 def test_every_registered_command_has_a_concrete_example():

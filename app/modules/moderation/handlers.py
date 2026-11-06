@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import re
@@ -9,9 +10,9 @@ import unicodedata
 from difflib import SequenceMatcher
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from telegram import Chat, ChatMember, ChatPermissions, Update
-from telegram.error import BadRequest, Forbidden, TelegramError
+from telegram.error import BadRequest, Forbidden, RetryAfter, TelegramError
 from telegram.ext import ContextTypes
 
 from app.config import Settings
@@ -23,10 +24,11 @@ from app.core.permissions import (
     ensure_target_is_moderatable,
     require_admin_access,
 )
-from app.database.models import Group, KnownUser, ModerationEvent
+from app.database.models import GlobalUser, Group, KnownUser, ModerationEvent
 from app.services.group_history import GroupMessage
 from app.services.activity_log import ActivityLogRepository
 from app.services.moderation import ModerationRepository
+from app.core.telegram_format import user_mention
 
 logger = logging.getLogger(__name__)
 PERMISSION_NAMES = tuple(name for name in ChatPermissions.__slots__ if name.startswith("can_"))
@@ -41,8 +43,7 @@ def _repository(context: ContextTypes.DEFAULT_TYPE) -> ModerationRepository:
 
 
 async def _user_label(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int) -> str:
-    """Use a username or clickable display name instead of numeric IDs."""
-    username = None
+    """Return the member's display name as a clickable Telegram mention."""
     display_name = None
     async with context.application.bot_data["sessions"]() as session:
         known = await session.scalar(
@@ -51,21 +52,22 @@ async def _user_label(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id:
             ).limit(1)
         )
         if known:
-            username, display_name = known.username, known.first_name
-        if not username or not display_name:
+            display_name = known.first_name
+        if not display_name:
             history = (await session.execute(
-                select(GroupMessage.username, GroupMessage.display_name)
+                select(GroupMessage.display_name)
                 .where(GroupMessage.chat_id == chat_id, GroupMessage.user_id == user_id)
                 .order_by(GroupMessage.sent_at.desc()).limit(1)
             )).first()
             if history:
-                username = username or history.username
-                display_name = display_name or history.display_name
-    if username:
-        return "@" + html.escape(username.lstrip("@"))
-    name = html.escape(display_name or "Telegram user")
-    return f'<a href="tg://user?id={user_id}">{name}</a>'
-
+                display_name = history[0]
+    if not display_name:
+        try:
+            user = await context.bot.get_chat(user_id)
+            display_name = getattr(user, "full_name", None)
+        except Exception:
+            pass
+    return user_mention(user_id, display_name or f"User {user_id}")
 
 async def _reply_html(update: Update, text: str) -> None:
     if update.effective_message:
@@ -163,7 +165,7 @@ async def _resolve_name_target(
         )
     raise TargetError(
         "I couldn't match that name to anyone XYRON has seen in this group. "
-        "Try @username, numeric ID, or reply to their message."
+        "Try @username or reply to their message."
     )
 
 
@@ -196,27 +198,51 @@ async def _resolve_target(
                     KnownUser.username == value[1:].casefold(),
                 )
             )
-            history_user_id = await session.scalar(
-                select(GroupMessage.user_id)
-                .where(
+            history_ids = set((await session.scalars(
+                select(GroupMessage.user_id).where(
                     GroupMessage.chat_id == chat.id,
-                    GroupMessage.username == value[1:],
-                )
-                .limit(1)
-            )
+                    func.lower(GroupMessage.username) == value[1:].casefold(),
+                ).distinct()
+            )).all())
         if known:
             return known.user_id, args[1:]
-        if history_user_id:
-            return history_user_id, args[1:]
+        if len(history_ids) == 1:
+            return history_ids.pop(), args[1:]
+        if len(history_ids) > 1:
+            raise TargetError("That username matches multiple saved users. Reply to the correct member's message.")
+
+        # A username may belong to someone who spoke in a different group
+        # where XYRON is present. Use the central registry as a fallback so
+        # admins can moderate that user in this group without local history.
+        async with context.application.bot_data["sessions"]() as session:
+            global_matches = list(
+                (
+                    await session.scalars(
+                        select(GlobalUser).where(
+                            func.lower(GlobalUser.username) == value[1:].casefold(),
+                            GlobalUser.seen_in_groups.is_(True),
+                            GlobalUser.is_bot.is_(False),
+                        )
+                    )
+                ).all()
+            )
+        if len(global_matches) == 1:
+            return global_matches[0].user_id, args[1:]
+        if len(global_matches) > 1:
+            raise TargetError(
+                "That username matches multiple users in XYRON's global registry. "
+                "Use the user's numeric Telegram ID."
+            )
         if allow_name:
             return await _resolve_name_target(context, chat.id, value), args[1:]
         raise TargetError(
-            "That username is not known to XYRON yet. Try a name match, numeric ID, "
-            "or reply to the user's message."
+            "XYRON hasn't seen this username in any group yet. "
+            "Ask the user to send a message in a group where XYRON is present, "
+            "or use their numeric Telegram ID."
         )
     if allow_name:
         return await _resolve_name_target(context, chat.id, " ".join(args)), []
-    raise TargetError("Use a username or numeric ID, or reply to the user's message.")
+    raise TargetError("Use @username or reply to the user's message. Numeric IDs are also supported.")
 
 
 def _permissions_dict(permissions: ChatPermissions | None) -> dict[str, bool] | None:
@@ -320,12 +346,16 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
     if delete_target_message and message.reply_to_message is None:
         raise TargetError("Reply to the message to delete before using this command.")
 
-    # XYRON bot admins are mute-only. The configured owner keeps full moderation
-    # access, while each non-owner bot admin may mute at most one member per
-    # group every ten minutes. Check durable moderation history so restarts do
-    # not reset the cooldown.
+    # Resolve Telegram and XYRON permissions first. Telegram group owners are
+    # always full moderators; ordinary XYRON bot admins remain mute-only.
     settings: Settings = context.application.bot_data["settings"]
-    if not settings.is_owner(actor_user.id):
+    access = await require_admin_access(
+        update, context, settings, "can_restrict_members"
+    )
+    if silent or delete_target_message:
+        await _check_additional_permission(access, "can_delete_messages")
+
+    if access.is_bot_admin:
         if normalized in {"ban", "tban", "kick"}:
             raise AuthorizationError(
                 "XYRON bot admins can mute members only. Ban and kick are owner-only."
@@ -354,15 +384,6 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
                     "Cooldown active: XYRON bot admins may mute only one member "
                     f"every 10 minutes. Try again in about {minutes_left} minute(s)."
                 )
-    if silent or delete_target_message:
-        access = await require_admin_access(
-            update, context, context.application.bot_data["settings"], "can_restrict_members"
-        )
-        await _check_additional_permission(access, "can_delete_messages")
-    else:
-        access = await require_admin_access(
-            update, context, context.application.bot_data["settings"], "can_restrict_members"
-        )
     target_id, remaining = await _resolve_target(
         update, context, command, allow_name=True
     )
@@ -443,7 +464,7 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
             action=normalized,
             status="success",
             details={"reason": reason, "duration": str(duration) if duration else None},
-            created_at=message.date,
+            created_at=getattr(message, "date", None) or datetime.now(UTC),
         )
     except Exception:
         logger.exception("Could not write temporary moderation audit event")
@@ -896,10 +917,7 @@ async def adminlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         admins = await context.bot.get_chat_administrators(update.effective_chat.id)
         names = []
         for member in admins:
-            if member.user.username:
-                names.append("@" + html.escape(member.user.username))
-            else:
-                names.append(f'<a href="tg://user?id={member.user.id}">{html.escape(member.user.full_name)}</a>')
+            names.append(user_mention(member.user.id, member.user.full_name))
         await _reply_html(update, "Group administrators:\n" + "\n".join(names))
     except (AuthorizationError, TelegramError) as exc:
         await _reply(update, str(exc))
@@ -939,3 +957,339 @@ async def track_known_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     last_seen=datetime.now(UTC),
                 )
             )
+
+
+# Imported allowlist: 255 IDs with no Cyrillic, Han, Hiragana, Katakana, or Hangul characters in their exported display names.
+# Script-based filtering only; this does not establish nationality. Restricted to the owner's specified supergroup.
+UNBANALL_CHAT_ID = -1002587093927
+UNBANALL_USER_IDS = (
+    6553160554,
+    7667546260,
+    6572441833,
+    8653202725,
+    8853763418,
+    8845063434,
+    7674533340,
+    1590084864,
+    8803700099,
+    8934333029,
+    6867869959,
+    9080266219,
+    8372103735,
+    8896868626,
+    8973251920,
+    5628638472,
+    8889053676,
+    8580492316,
+    8610835026,
+    6303361097,
+    8814922858,
+    8864040934,
+    8829287567,
+    8811971893,
+    8851917803,
+    8841503980,
+    7390718781,
+    8669582731,
+    7954494241,
+    8868347232,
+    9175812141,
+    8560741589,
+    8849943398,
+    7085170334,
+    8069683750,
+    7720648367,
+    8889349162,
+    8705062020,
+    8660512964,
+    8693281592,
+    8019302656,
+    8524242431,
+    8604036563,
+    8347990315,
+    8778115783,
+    8808973690,
+    5877727899,
+    8290992686,
+    8749583351,
+    8463285728,
+    8985909242,
+    1686411160,
+    8633813623,
+    8484706019,
+    8078543480,
+    8698050182,
+    8889340380,
+    8373821044,
+    8648785969,
+    7942706170,
+    8019157975,
+    8306013177,
+    692239090,
+    8168338346,
+    8865213399,
+    8650865487,
+    6009675121,
+    8542441463,
+    8636213510,
+    8734234468,
+    8630377825,
+    8695798246,
+    8872686957,
+    8761296221,
+    8264608438,
+    8979549811,
+    8679969947,
+    7008957043,
+    8312473496,
+    8172176251,
+    7620470916,
+    903340691,
+    5896462900,
+    8948139592,
+    8707714131,
+    8934014710,
+    6630093375,
+    8391276136,
+    7953700771,
+    8340103728,
+    8548858903,
+    7984605339,
+    8700186399,
+    5472881108,
+    7960480411,
+    8862011121,
+    8513924588,
+    8625219003,
+    8608219456,
+    8704138969,
+    8848159227,
+    8658862097,
+    6998615566,
+    8417952236,
+    8861208190,
+    8378080124,
+    8937230984,
+    8980326573,
+    8089632569,
+    8620429134,
+    8368790029,
+    1239298838,
+    8895634319,
+    7132017632,
+    8966462939,
+    1845315134,
+    8416915975,
+    8909090774,
+    8976018691,
+    8703502200,
+    8998988046,
+    8997455088,
+    8969351507,
+    1689074470,
+    8915847166,
+    6580231961,
+    8158598230,
+    8480644842,
+    5193689188,
+    8890098275,
+    8876216717,
+    6663941438,
+    7004260703,
+    8976907279,
+    5341891583,
+    5742547365,
+    7693591902,
+    1402987430,
+    8469024260,
+    8668444476,
+    8657070568,
+    8376683396,
+    7834286018,
+    8327262684,
+    8807168308,
+    6084615674,
+    8895879820,
+    8959129146,
+    8863028617,
+    8748054896,
+    8459423884,
+    8981557124,
+    8361878588,
+    6153916610,
+    7957849613,
+    508007139,
+    6368074418,
+    8897692116,
+    8858590004,
+    1953106135,
+    8761961363,
+    8703521221,
+    8879402380,
+    5296050031,
+    8938826048,
+    7833072366,
+    5401617102,
+    8858085168,
+    6774523267,
+    8417987069,
+    6440230978,
+    8859532356,
+    8815036255,
+    8711447508,
+    8809357684,
+    7907122838,
+    5684229654,
+    5208212254,
+    8971801882,
+    7055917260,
+    8729177185,
+    6053394372,
+    8083660515,
+    7901055017,
+    6430880509,
+    5268437296,
+    5969805105,
+    8989018848,
+    1594966362,
+    7092647672,
+    8975877704,
+    8989515267,
+    8749005412,
+    7782262930,
+    7903305458,
+    2145710367,
+    8498972665,
+    2035607918,
+    8739012475,
+    7915690236,
+    8968213421,
+    8818348044,
+    8853397125,
+    8872863488,
+    8617612053,
+    8269355407,
+    7601177717,
+    7974841147,
+    8827606759,
+    7217157035,
+    5793587706,
+    8959895241,
+    8502830754,
+    8239131169,
+    8795009226,
+    8204488959,
+    8756183738,
+    8806102046,
+    7965049286,
+    8844492275,
+    8009368450,
+    7329945802,
+    8160402632,
+    7999362121,
+    8750481091,
+    1721621331,
+    5648337382,
+    7964991936,
+    7810057542,
+    5701090679,
+    8998281617,
+    8282689234,
+    8604548205,
+    8848328906,
+    8840874987,
+    8668969423,
+    8915238507,
+    612900440,
+    8821040340,
+    8803865301,
+    7591769821,
+    6480484296,
+    7245442728,
+    7429313725,
+    5060064564,
+    1184457571,
+    8169704219,
+    8608700447,
+    8419177475,
+    8736633846,
+    7673815765,
+    8006200387,
+    8399940307,
+    6046861331,
+    987781270,
+)
+
+
+async def unbanall_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message, chat = update.effective_message, update.effective_chat
+    actor_user = update.effective_user
+    if not message or not chat or not actor_user:
+        return
+    if chat.id != UNBANALL_CHAT_ID:
+        await _reply(update, "This imported unban list is configured only for its designated group.")
+        return
+    try:
+        access = await require_admin_access(
+            update, context, context.application.bot_data["settings"], "can_restrict_members"
+        )
+        if access.actor.status != ChatMember.OWNER:
+            raise AuthorizationError("Only the Telegram group owner can run /unbanall.")
+        if context.args:
+            raise TargetError("Use /unbanall without arguments.")
+
+        total = len(UNBANALL_USER_IDS)
+        progress = await message.reply_text(
+            f"🔄 Starting imported unban list: {total} IDs\n\n"
+            f"Progress: 0/{total}\n✅ Unbanned: 0\n↪️ Already clear: 0\n❌ Failed: 0"
+        )
+        success = already_clear = failed = 0
+        for index, target_id in enumerate(UNBANALL_USER_IDS, start=1):
+            while True:
+                try:
+                    member = await context.bot.get_chat_member(chat.id, target_id)
+                    if member.status != ChatMember.BANNED:
+                        already_clear += 1
+                    else:
+                        await context.bot.unban_chat_member(chat.id, target_id, only_if_banned=True)
+                        success += 1
+                    break
+                except RetryAfter as exc:
+                    delay = exc.retry_after
+                    if hasattr(delay, "total_seconds"):
+                        delay = delay.total_seconds()
+                    delay = max(1, float(delay))
+                    try:
+                        await progress.edit_text(
+                            f"⏳ Rate limited; waiting {int(delay)}s\n"
+                            f"Progress: {index - 1}/{total}\n"
+                            f"✅ Unbanned: {success} | ↪️ Already clear: {already_clear} | ❌ Failed: {failed}"
+                        )
+                    except TelegramError:
+                        pass
+                    await asyncio.sleep(delay)
+                except TelegramError as exc:
+                    failed += 1
+                    logger.warning("Unbanall failed for %s in %s: %s", target_id, chat.id, exc)
+                    break
+                except Exception:
+                    failed += 1
+                    logger.exception("Unexpected unbanall failure for %s in %s", target_id, chat.id)
+                    break
+            if index % 10 == 0 or index == total:
+                try:
+                    await progress.edit_text(
+                        f"🔄 UNBANALL {index}/{total}\n"
+                        f"✅ Unbanned: {success}\n↪️ Already clear: {already_clear}\n❌ Failed: {failed}"
+                    )
+                except TelegramError:
+                    pass
+        await progress.edit_text(
+            f"✅ UNBANALL FINISHED\n\nIDs loaded: {total}\n"
+            f"Successfully unbanned: {success}\nAlready not banned: {already_clear}\n"
+            f"Failed: {failed}\nChecked: {success + already_clear + failed}/{total}"
+        )
+    except (AuthorizationError, TargetError) as exc:
+        await _reply(update, str(exc))
+    except TelegramError as exc:
+        await _reply(update, f"Telegram rejected the operation: {exc}")

@@ -18,28 +18,17 @@ def test_formatted_rules_names_the_group_and_escapes_html():
 
 
 def test_default_rules_match_the_supplied_rules_exactly():
-    assert handlers.DEFAULT_GROUP_RULES == """🚫 1. No Advertising
-Do not advertise or promote anything.
-
-🔞 2. No NSFW Content
-Keep the group safe and appropriate.
-
-🔒 3. Respect Privacy
-Never share personal or sensitive information.
-
-🛑 4. No Spam
-Avoid spamming messages or reactions.
-
-📢 5. No Group Promotion
-Do not promote other groups or channels.
-
-💬 6. No Unsolicited DMs
-Always ask for permission before messaging someone privately."""
+    assert handlers.DEFAULT_GROUP_RULES == """1. No ads or promotions. Do not advertise products, groups, or channels.
+2. Keep it appropriate. Do not post explicit or disturbing content.
+3. Respect everyone. No harassment, threats, or personal attacks.
+4. No spam. Do not flood the chat with repeated messages or reactions.
+5. Protect privacy. Do not share anyone's private information.
+6. Respect DMs. Ask before messaging members privately."""
 
 
 @pytest.mark.asyncio
-async def test_send_rules_dm_uses_default_rules_and_group_title(monkeypatch):
-    # Old saved rules must not override the exact canonical rules.
+async def test_send_rules_dm_uses_group_saved_rules_and_group_title(monkeypatch):
+    # Group-specific custom rules must remain intact when sent by DM.
     repository = SimpleNamespace(get=AsyncMock(return_value={"rules": "OLD RULES"}))
     monkeypatch.setattr(handlers, "_repository", lambda context: repository)
     bot = SimpleNamespace(
@@ -54,8 +43,8 @@ async def test_send_rules_dm_uses_default_rules_and_group_title(monkeypatch):
     sent = bot.send_message.await_args.kwargs
     assert sent["chat_id"] == 123
     assert "<b>📜 RULES OF Random GC</b>" in sent["text"]
-    assert handlers.DEFAULT_GROUP_RULES in sent["text"]
-    assert "OLD RULES" not in sent["text"]
+    assert "OLD RULES" in sent["text"]
+    assert handlers.DEFAULT_GROUP_RULES not in sent["text"]
 
 
 @pytest.mark.asyncio

@@ -31,7 +31,7 @@ class FakeProvider:
         return AIResult(self.text, input_tokens=10, output_tokens=4)
 
 
-def _message(text, *, message_id=1, user_id=23, reply=None, forward=None):
+def _message(text, *, message_id=1, user_id=10, reply=None, forward=None):
     user = SimpleNamespace(id=user_id, is_bot=False, full_name="Member")
     return SimpleNamespace(
         message_id=message_id,
@@ -88,6 +88,18 @@ def test_detect_event_requires_address_and_ignores_forwards():
     bot_user = SimpleNamespace(id=99)
     replied = _message("hello", reply=SimpleNamespace(from_user=bot_user))
     assert detect_event(replied, 99, "xyron_bot") == "conversation"
+
+
+@pytest.mark.asyncio
+async def test_non_owner_cannot_trigger_ai_even_when_mentioning_xyron():
+    provider = FakeProvider()
+    message = _message("@xyron_bot answer me", user_id=23)
+    router, update, context = _setup(_enabled_settings(), provider, message)
+
+    await router.handle(update, context)
+
+    assert provider.calls == []
+    message.reply_text.assert_not_awaited()
 
 
 @pytest.mark.asyncio

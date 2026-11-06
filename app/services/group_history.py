@@ -15,7 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.database.models import Base, UTCDateTime
 
 logger = logging.getLogger(__name__)
-HISTORY_RETENTION_DAYS = 30
+HISTORY_RETENTION_HOURS = 24
 
 
 class GroupMessage(Base):
@@ -76,12 +76,16 @@ class GroupHistoryRepository:
         display_name: str,
         message_text: str,
         sent_at: datetime,
-    ) -> None:
-        """Insert a message, updating its content if it was already stored."""
+    ) -> bool:
+        """Insert a message, updating its content if it was already stored.
+
+        Returns True only for a newly observed message, so callers can safely
+        count milestones without counting edits or duplicate updates.
+        """
 
         text = message_text.strip()
         if not text:
-            return
+            return False
 
         if sent_at.tzinfo is None or sent_at.utcoffset() is None:
             sent_at = sent_at.replace(tzinfo=UTC)
@@ -99,7 +103,7 @@ class GroupHistoryRepository:
                 existing.username = username
                 existing.display_name = display_name[:255]
                 existing.edited_at = datetime.now(UTC)
-                return
+                return False
 
             # SQLite does not auto-generate INTEGER PRIMARY KEY values for
             # a BIGINT primary-key column. Assign an ID explicitly so this
@@ -122,6 +126,7 @@ class GroupHistoryRepository:
                     edited_at=datetime.now(UTC),
                 )
             )
+            return True
 
     async def search(
         self,
@@ -197,7 +202,7 @@ class GroupHistoryRepository:
             select(GroupMessage.user_id)
             .where(
                 GroupMessage.chat_id == chat_id,
-                GroupMessage.sent_at >= datetime.now(UTC) - timedelta(days=HISTORY_RETENTION_DAYS),
+                GroupMessage.sent_at >= datetime.now(UTC) - timedelta(hours=HISTORY_RETENTION_HOURS),
                 (
                     GroupMessage.username.ilike(needle)
                     | GroupMessage.display_name.ilike(needle)
@@ -227,15 +232,11 @@ class GroupHistoryRepository:
             limit=limit,
         )
 
-    async def prune(
-        self,
-        *,
-        older_than_days: int = HISTORY_RETENTION_DAYS,
-    ) -> int:
-        """Delete archived messages older than the chosen retention period."""
+    async def prune(self, *, older_than_hours: int = HISTORY_RETENTION_HOURS) -> int:
+        """Delete archived messages older than the rolling 24-hour window."""
 
-        older_than_days = max(1, min(older_than_days, 3650))
-        cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
+        older_than_hours = max(1, min(older_than_hours, 24 * 90))
+        cutoff = datetime.now(UTC) - timedelta(hours=older_than_hours)
 
         async with self.sessions.begin() as session:
             result = await session.execute(
@@ -247,17 +248,17 @@ class GroupHistoryRepository:
 
 
 async def group_history_retention_worker(application, stop_event: asyncio.Event) -> None:
-    """Prune group message history to the most recent 30 days."""
+    """Prune group message history to the most recent 24 hours."""
     sessions = application.bot_data["sessions"]
     repository = GroupHistoryRepository(sessions)
     while not stop_event.is_set():
         try:
-            deleted = await repository.prune(older_than_days=HISTORY_RETENTION_DAYS)
+            deleted = await repository.prune(older_than_hours=HISTORY_RETENTION_HOURS)
             if deleted:
-                logger.info("Pruned %s group-history messages older than %s days", deleted, HISTORY_RETENTION_DAYS)
+                logger.info("Pruned %s group-history messages older than %s hours", deleted, HISTORY_RETENTION_HOURS)
         except Exception:
             logger.exception("Group-history retention worker failed")
         try:
-            await asyncio.wait_for(stop_event.wait(), timeout=3600)
+            await asyncio.wait_for(stop_event.wait(), timeout=900)
         except TimeoutError:
             continue
