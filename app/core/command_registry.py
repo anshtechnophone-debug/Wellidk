@@ -157,7 +157,7 @@ COMMANDS = (
     CommandInfo("get", "Retrieve a saved response", "/get <name>", "Notes"),
     CommandInfo("notes", "List saved response names", "/notes", "Notes"),
     CommandInfo(
-        "filter", "Reply when a phrase appears", "/filter <phrase> <response>", "Filters", True
+        "filter", "Save a text or media response for a trigger", "/filter <name> <response> or reply to media with /filter <name>", "Filters", True
     ),
     CommandInfo("filters", "List saved response filters", "/filters", "Filters"),
     CommandInfo("stop", "Remove a saved filter", "/stop <phrase>", "Filters", True),
