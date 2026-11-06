@@ -567,7 +567,7 @@ def _register_general(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(wordrank_callback, pattern=r"^wr:(?:p|s|l):"), group=0)
     application.add_handler(CallbackQueryHandler(family_request_callback, pattern=r"^famreq:[ad]:[0-9]+$"), group=0)
     application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
-    application.add_handler(CallbackQueryHandler(cp_callback, pattern=r"^cp:(?:protect|done)$"), group=0)
+    application.add_handler(CallbackQueryHandler(cp_callback, pattern=r"^cp:(?:protect|done|close:-?\d+:-?\d+)$"), group=0)
     application.add_handler(CallbackQueryHandler(familyreset_callback, pattern=r"^famreset:(?:confirm|cancel):[0-9]+$"), group=0)
     application.add_handler(CallbackQueryHandler(ttt_callback_handler, pattern=r"^ttt:(?:join|move):"), group=0)
     application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
