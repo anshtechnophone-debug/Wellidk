@@ -166,7 +166,7 @@ async def userinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if name and name.casefold() not in seen_names:
             seen_names.add(name.casefold())
             old_names.append(name)
-        if len(old_names) >= 10 and len(old_usernames) >= 10:
+        if len(old_names) >= 10:
             break
 
     def history_line(values: list[str]) -> str:
