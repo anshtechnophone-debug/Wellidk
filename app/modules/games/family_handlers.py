@@ -316,7 +316,7 @@ async def family_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     ranking = await _repo(context).leaderboard("total", limit=1000000)
     world_rank = next((index for index, row in enumerate(ranking, 1) if row[0] == target.id), None)
-    rank_text = (f"🌍 World Rank: <b>#{world_rank:,}</b>\\n" if world_rank
+    rank_text = (f"🌍 World Rank: <b>#{world_rank:,}</b>\n" if world_rank
                  else "🌍 World Rank: <b>Unranked</b>\\n")
 
     spouse_text = (
@@ -377,7 +377,7 @@ async def _couple_page(context, user_id: int):
     couple_key = tuple(sorted((user_id, partner_id)))
     world_rank = next((index for index, row in enumerate(couple_rows, 1)
                        if tuple(sorted((row[0], row[1]))) == couple_key), None)
-    rank_text = f"🌍 World Rank: <b>#{world_rank:,}</b>\\n" if world_rank else "🌍 World Rank: <b>Unranked</b>\\n"
+    rank_text = f"🌍 World Rank: <b>#{world_rank:,}</b>\n" if world_rank else "🌍 World Rank: <b>Unranked</b>\\n"
     status = "✅ Already protected today" if stats["protected_today"] else "🟢 Available today"
     text = (
         "🛡️ <b>COUPLE PROTECTION</b>\n"
