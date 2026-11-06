@@ -667,8 +667,7 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
                         created_at=datetime.now(UTC),
                     ))
                     already_admin = False
-            label = ("@" + target_user.username) if target_user.username else target_user.full_name
-            safe_label = html.escape(label)
+            safe_label = user_mention(target_user.id, target_user.full_name)
             if already_admin:
                 await message.reply_text(f"{safe_label} is already a XYRON bot admin.", parse_mode="HTML")
             else:
