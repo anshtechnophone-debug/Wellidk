@@ -24,7 +24,7 @@ from app.core.permissions import (
     ensure_target_is_moderatable,
     require_admin_access,
 )
-from app.database.models import Group, KnownUser, ModerationEvent
+from app.database.models import GlobalUser, Group, KnownUser, ModerationEvent
 from app.services.group_history import GroupMessage
 from app.services.activity_log import ActivityLogRepository
 from app.services.moderation import ModerationRepository
@@ -209,11 +209,35 @@ async def _resolve_target(
             return history_ids.pop(), args[1:]
         if len(history_ids) > 1:
             raise TargetError("That username matches multiple saved users. Reply to the correct member's message.")
+
+        # A username may belong to someone who spoke in a different group
+        # where XYRON is present. Use the central registry as a fallback so
+        # admins can moderate that user in this group without local history.
+        async with context.application.bot_data["sessions"]() as session:
+            global_matches = list(
+                (
+                    await session.scalars(
+                        select(GlobalUser).where(
+                            func.lower(GlobalUser.username) == value[1:].casefold(),
+                            GlobalUser.seen_in_groups.is_(True),
+                            GlobalUser.is_bot.is_(False),
+                        )
+                    )
+                ).all()
+            )
+        if len(global_matches) == 1:
+            return global_matches[0].user_id, args[1:]
+        if len(global_matches) > 1:
+            raise TargetError(
+                "That username matches multiple users in XYRON's global registry. "
+                "Use the user's numeric Telegram ID."
+            )
         if allow_name:
             return await _resolve_name_target(context, chat.id, value), args[1:]
         raise TargetError(
-            "That username is not known to XYRON yet. Try a name match, numeric ID, "
-            "or reply to the user's message."
+            "XYRON hasn't seen this username in any group yet. "
+            "Ask the user to send a message in a group where XYRON is present, "
+            "or use their numeric Telegram ID."
         )
     if allow_name:
         return await _resolve_name_target(context, chat.id, " ".join(args)), []
