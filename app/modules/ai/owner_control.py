@@ -338,7 +338,7 @@ async def _dispatch_registered_command(
 async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message, chat, actor = update.effective_message, update.effective_chat, update.effective_user
     settings = context.application.bot_data.get("settings")
-    if not message or not chat or not actor or not settings or not settings.is_owner(actor.id):
+    if not message or not chat or not actor or not settings or actor.id != settings.owner_id:
         return
     reply_to_message = getattr(message, "reply_to_message", None)
     if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
