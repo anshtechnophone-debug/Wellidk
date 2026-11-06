@@ -917,10 +917,7 @@ async def adminlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         admins = await context.bot.get_chat_administrators(update.effective_chat.id)
         names = []
         for member in admins:
-            if member.user.username:
-                names.append("@" + html.escape(member.user.username))
-            else:
-                names.append(f'<a href="tg://user?id={member.user.id}">{html.escape(member.user.full_name)}</a>')
+            names.append(user_mention(member.user.id, member.user.full_name))
         await _reply_html(update, "Group administrators:\n" + "\n".join(names))
     except (AuthorizationError, TelegramError) as exc:
         await _reply(update, str(exc))
