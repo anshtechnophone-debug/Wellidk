@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes
 from app.core.permissions import AuthorizationError, require_admin_access
 from app.services.activity_log import ActivityLogRepository
 from app.services.group_history import GroupMessage
+from app.core.telegram_format import user_mention
 
 
 async def _reply(update: Update, text: str) -> None:
@@ -157,20 +158,14 @@ async def userinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             ).all()
 
     current_name = target_user.full_name.strip() or "Unavailable"
-    current_username = f"@{target_user.username}" if target_user.username else "Unavailable"
     old_names: list[str] = []
-    old_usernames: list[str] = []
     seen_names = {current_name.casefold()}
-    seen_usernames = {target_user.username.casefold()} if target_user.username else set()
 
     for display_name, username in rows:
         name = (display_name or "").strip()
         if name and name.casefold() not in seen_names:
             seen_names.add(name.casefold())
             old_names.append(name)
-        if username and username.casefold() not in seen_usernames:
-            seen_usernames.add(username.casefold())
-            old_usernames.append("@" + username.lstrip("@"))
         if len(old_names) >= 10 and len(old_usernames) >= 10:
             break
 
@@ -185,10 +180,8 @@ async def userinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     text = (
         f"<b>UID:</b> <code>{target_user.id}</code>\n"
-        f"<b>Name:</b> {html.escape(current_name)}\n"
+        f"<b>Name:</b> {user_mention(target_user.id, current_name)}\n"
         f"Status: {html.escape(member_status)}\n"
-        f"<b>Username:</b> {html.escape(current_username)}\n"
-        f"<b>Old names:</b> {history_line(old_names)}\n"
-        f"<b>Old usernames:</b> {history_line(old_usernames)}"
+        f"<b>Old names:</b> {history_line(old_names)}"
     )
     await message.reply_text(text, parse_mode="HTML")
