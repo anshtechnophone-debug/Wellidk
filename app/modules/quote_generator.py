@@ -212,6 +212,9 @@ async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     command_message = update.effective_message
     if not command_message:
         return
+    if context.args and context.args[0].casefold() == "delete":
+        await quote_delete_command(update, context)
+        return
     source = command_message.reply_to_message
     if not source:
         await command_message.reply_text("Reply to a message and use /q. Try /q 2 or /q 3 for another style.")
@@ -249,8 +252,9 @@ async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     avatar_data = await _user_avatar(context, user.id)
     reply_markup = None
+    quote_id = None
+    sessions = context.application.bot_data.get("sessions")
     if command_message.chat.type in {"group", "supergroup"}:
-        sessions = context.application.bot_data.get("sessions")
         if sessions:
             quote_id = await save_group_quote(
                 sessions,
@@ -265,7 +269,7 @@ async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     try:
         sticker = _render_sticker(quote_text, user.full_name, user.username, avatar_data, theme_index)
-        await command_message.reply_sticker(
+        sent_sticker = await command_message.reply_sticker(
             sticker=sticker,
             reply_markup=reply_markup,
             read_timeout=30,
@@ -273,6 +277,8 @@ async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             connect_timeout=15,
             pool_timeout=15,
         )
+        if quote_id is not None and sessions is not None:
+            await save_quote_sticker(sessions, quote_id=quote_id, chat_id=command_message.chat_id, message_id=sent_sticker.message_id)
     except (OSError, TelegramError):
         logger.exception("Quote sticker generation failed")
         await command_message.reply_text("I couldn't generate that quote sticker. Please try again.")
