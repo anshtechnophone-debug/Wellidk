@@ -6,7 +6,7 @@ import logging
 import re
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, String, Text, UniqueConstraint, func, select
+from sqlalchemy import BigInteger, ForeignKey, Integer, String, Text, UniqueConstraint, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
