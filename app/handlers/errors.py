@@ -61,5 +61,19 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     for owner_id in owner_ids:
         try:
             await context.bot.send_message(chat_id=owner_id, text=report)
-        except TelegramError:
-            logger.exception("Could not DM XYRON error report to owner_id=%s", owner_id)
+        except TelegramError as exc:
+            # An owner may have deleted/deactivated their Telegram account or
+            # blocked the bot. A failed diagnostic DM must not raise a second
+            # traceback or obscure the original update error.
+            if "user is deactivated" in str(exc).casefold():
+                logger.warning(
+                    "Skipping error DM: configured owner account is deactivated "
+                    "(owner_id=%s)",
+                    owner_id,
+                )
+            else:
+                logger.warning(
+                    "Could not DM XYRON error report to owner_id=%s: %s",
+                    owner_id,
+                    exc,
+                )
