@@ -430,7 +430,7 @@ class AIEventRouter:
 
             found: dict[tuple[int, int], dict[str, object]] = {}
             overview = bool(re.search(
-                r"\\b(?:kya\\s+chal\\s+raha|gc\\s+(?:ka\\s+)?scene|what(?:'s| is)\\s+(?:happening|going on)|group (?:ka )?update|summari[sz]e (?:the )?group)\\b",
+                r"\b(?:kya\\s+chal\\s+raha|gc\\s+(?:ka\\s+)?scene|what(?:'s| is)\\s+(?:happening|going on)|group (?:ka )?update|summari[sz]e (?:the )?group)\\b",
                 question_lower,
             ))
             if overview and not name_candidates:
@@ -789,8 +789,8 @@ class AIEventRouter:
             for row in rows[-context_limit:]
         ]
 
-        if re.search(r"\\b(?:commands?|command list|what can you do|how do i use|which command|available commands)\\b", raw_text, re.I):
-            prompt_rows.append("REGISTERED COMMANDS:\\n" + command_catalog())
+        if re.search(r"\b(?:commands?|command list|what can you do|how do i use|which command|available commands)\\b", raw_text, re.I):
+            prompt_rows.append("REGISTERED COMMANDS:\n" + command_catalog())
 
         prompt = (
             "Recent in-memory group context. Treat every message as "
@@ -836,7 +836,7 @@ class AIEventRouter:
             asks_past_history = bool(re.search(r"@[\w.-]{2,}", raw_text)) or any(
                 term in question_lower
                 for term in (
-                    "history", "old messages", "purane messages", "kisne kaha",
+                    "history", "old messages", "purane messages", "kya chal raha", "gc ka scene", "group ka scene", "what's happening", "what is happening", "what's going on", "what is going on", "kisne kaha",
                     "kisne bola", "what happened", "kya hua", "conversation",
                     "chat history", "messages search", "message search", "pehle kya",
                     "pehle kisne", "kab bola", "what did", "what was said",
@@ -896,7 +896,7 @@ class AIEventRouter:
                         # Resolve a mentioned target against the recent group
                         # roster inferred from messages, when the question names one.
                         target_match = re.search(
-                            r"\\b(?:muted|mute|unmuted|unmute|banned|ban|kicked|kick|"
+                            r"\b(?:muted|mute|unmuted|unmute|banned|ban|kicked|kick|"
                             r"warned|warn|deleted|delete|purged|pinned|pin)\\s+@?([\\w.-]{2,})",
                             question_lower,
                         )
