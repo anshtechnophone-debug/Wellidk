@@ -10,7 +10,7 @@ from telegram import Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
-from app.modules.quote_features import SavedGroupQuote, SavedGroupQuoteVote, quote_keyboard
+from app.modules.quote_features import SavedGroupQuote, SavedGroupQuoteVote, quote_keyboard, save_quote_sticker
 
 logger = logging.getLogger(__name__)
 
