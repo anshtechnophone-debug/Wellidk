@@ -140,6 +140,7 @@ COMMANDS = (
     CommandInfo("familytop", "Show the global Family leaderboard ranked by couple protection points", "/familytop", "Family"),
     CommandInfo("cp", "Open your couple page and protect your partner for 50 daily points", "/cp", "Family"),
     CommandInfo("familyhelp", "Explain Family commands", "/familyhelp", "Family"),
+    CommandInfo("familyreset", "Reset all Family relationships (XYRON owner only)", "/familyreset", "Family", owner_only=True),
     CommandInfo("familyinfo", "Show a replied-to member's Family profile", "/familyinfo (reply)", "Family"),
     CommandInfo("wife", "Propose marriage to a replied-to member", "/wife (reply)", "Family"),
     CommandInfo("husband", "Propose marriage to a replied-to member", "/husband (reply)", "Family"),
@@ -228,8 +229,7 @@ COMMANDS = (
         "Reports",
         True,
     ),
-    CommandInfo("tictactoe", "Start Tic-Tac-Toe against XYRON", "/tictactoe", "Games"),
-    CommandInfo("tttmove", "Play a Tic-Tac-Toe square", "/tttmove <1-9>", "Games"),
+    CommandInfo("tictactoe", "Start a two-player Tic-Tac-Toe challenge in this group", "/tictactoe", "Games"),
     CommandInfo("tttcancel", "Cancel Tic-Tac-Toe", "/tttcancel", "Games"),
     CommandInfo(
         "banlist", "List bans tracked by moderation history", "/banlist", "Ban and Unban", True
