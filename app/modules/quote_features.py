@@ -44,6 +44,20 @@ class SavedGroupQuoteVote(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
+class SavedGroupQuoteSticker(Base):
+    __tablename__ = "saved_group_quote_stickers"
+    __table_args__ = (UniqueConstraint("chat_id", "message_id", name="uq_group_quote_sticker_message"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    quote_id: Mapped[int] = mapped_column(ForeignKey("saved_group_quotes.id", ondelete="CASCADE"), nullable=False, index=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+async def save_quote_sticker(sessions: async_sessionmaker[AsyncSession], *, quote_id: int, chat_id: int, message_id: int) -> None:
+    async with sessions.begin() as session:
+        session.add(SavedGroupQuoteSticker(quote_id=quote_id, chat_id=chat_id, message_id=message_id))
+
+
 def quote_keyboard(quote_id: int, likes: int = 0, dislikes: int = 0, start_url: str | None = None) -> InlineKeyboardMarkup:
     rows = [[
         InlineKeyboardButton(f"👍 {likes}", callback_data=f"qv:{quote_id}:up"),
@@ -114,6 +128,58 @@ async def quote_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception:
         logger.debug("Could not refresh quote vote buttons", exc_info=True)
     await query.answer("Vote updated.")
+
+
+async def quote_delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message, chat, user = update.effective_message, update.effective_chat, update.effective_user
+    if not message or not chat or not user:
+        return
+    if chat.type not in {"group", "supergroup"}:
+        await message.reply_text("Use /q delete in the group where the quote was created.")
+        return
+    target = message.reply_to_message
+    if not target or not target.sticker:
+        await message.reply_text("Reply to the generated quote sticker with /q delete.")
+        return
+    sessions = context.application.bot_data.get("sessions")
+    if sessions is None:
+        await message.reply_text("Quote storage is temporarily unavailable.")
+        return
+    async with sessions() as session:
+        sticker_row = await session.scalar(select(SavedGroupQuoteSticker).where(
+            SavedGroupQuoteSticker.chat_id == chat.id,
+            SavedGroupQuoteSticker.message_id == target.message_id,
+        ))
+        quote = await session.get(SavedGroupQuote, sticker_row.quote_id) if sticker_row else None
+        if not quote or quote.chat_id != chat.id:
+            await message.reply_text("That sticker isn't a saved XYRON quote.")
+            return
+        quote_id, author_id = quote.id, quote.author_id
+
+    allowed = user.id == author_id
+    if not allowed:
+        try:
+            member = await context.bot.get_chat_member(chat.id, user.id)
+            allowed = member.status == "creator"
+        except TelegramError:
+            allowed = False
+    if not allowed:
+        await message.reply_text("Only the quote's author or the group owner can delete it.")
+        return
+
+    async with sessions.begin() as session:
+        current = await session.get(SavedGroupQuote, quote_id)
+        if not current:
+            await message.reply_text("That quote has already been deleted.")
+            return
+        await session.execute(delete(SavedGroupQuoteVote).where(SavedGroupQuoteVote.quote_id == quote_id))
+        await session.execute(delete(SavedGroupQuoteSticker).where(SavedGroupQuoteSticker.quote_id == quote_id))
+        await session.delete(current)
+    try:
+        await context.bot.delete_message(chat_id=chat.id, message_id=target.message_id)
+    except TelegramError:
+        logger.info("Quote %s removed from storage but sticker deletion failed", quote_id, exc_info=True)
+    await message.reply_text("🗑️ Quote deleted. It has been removed from the group's saved quotes.")
 
 
 def _tokens(text: str) -> set[str]:
