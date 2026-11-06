@@ -372,12 +372,18 @@ async def _couple_page(context, user_id: int):
     stats = await repo.couple_protection_stats(user_id)
     partner_id = stats["partner_id"]
     partner_name = await _name(context, partner_id)
+    couple_rows = await repo.top_couples(limit=1000000)
+    couple_key = tuple(sorted((user_id, partner_id)))
+    world_rank = next((index for index, row in enumerate(couple_rows, 1)
+                       if tuple(sorted((row[0], row[1]))) == couple_key), None)
+    rank_text = f"🌍 World Rank: <b>#{world_rank:,}</b>\\n" if world_rank else "🌍 World Rank: <b>Unranked</b>\\n"
     status = "✅ Already protected today" if stats["protected_today"] else "🟢 Available today"
     text = (
         "🛡️ <b>COUPLE PROTECTION</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
         f"❤️ {_link(user_id, await _name(context, user_id))}  ×  {_link(partner_id, partner_name)}\n\n"
         f"🏆 <b>{stats['total_points']:,}</b> protection points\n"
+        f"{rank_text}"
         f"🙋 Your contribution: <b>{stats['your_points']:,}</b> points\n"
         f"💗 Partner's contribution: <b>{stats['partner_points']:,}</b> points\n\n"
         f"🛡️ Your daily protection: <b>{status}</b>\n"
@@ -387,6 +393,7 @@ async def _couple_page(context, user_id: int):
     button = "✅ Protected Today" if stats["protected_today"] else "🛡️ Protect Your Partner (+50)"
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(button, callback_data="cp:done" if stats["protected_today"] else "cp:protect")],
+        [InlineKeyboardButton("✖️ Close", callback_data="cp:close")],
     ])
     return text, keyboard
 
@@ -406,6 +413,14 @@ async def cp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def cp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query, user = update.callback_query, update.effective_user
     if not query or not user or not query.data:
+        return
+    if query.data == "cp:close":
+        await query.answer("Couple page closed.")
+        if query.message:
+            try:
+                await query.message.delete()
+            except Exception:
+                await query.edit_message_reply_markup(reply_markup=None)
         return
     if query.data == "cp:done":
         await query.answer("You have already protected your partner today.", show_alert=True)
