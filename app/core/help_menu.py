@@ -42,6 +42,12 @@ def _find_category(key: str) -> tuple[str, list[CommandInfo]] | None:
 
 
 def _example(command: CommandInfo) -> str:
+    if command.name == "tictactoe":
+        return "/tictactoe"
+    if command.name == "tttcancel":
+        return "/tttcancel"
+    if command.name == "familyreset":
+        return "/familyreset"
     if command.name == "mute":
         return "/mute 123456789 30m spam"
     if command.name in {"dban", "dkick", "dmute"}:
@@ -117,9 +123,22 @@ def build_help_page(category_key: str | None = None, page_number: int = 0) -> He
     selected = commands[page_number * PAGE_SIZE : (page_number + 1) * PAGE_SIZE]
     sections = []
     for command in selected:
-        permission = (
-            "Only the XYRON owner" if command.owner_only else "Group admins" if command.admin else "Everyone"
-        )
+        if command.name in {"admin", "unadmin", "botadminlist", "unbanall"}:
+            permission = "Group owner"
+        elif command.name == "promote":
+            permission = "Group owner or admin with promotion permission"
+        elif command.owner_only:
+            permission = "Only the XYRON owner"
+        elif command.admin:
+            permission = "Group admins; XYRON bot admins are mute-only"
+        elif command.name == "help":
+            permission = "Channel members (private chat only)"
+        elif command.name == "tttcancel":
+            permission = "Either Tic-Tac-Toe player"
+        elif command.name == "wordcancel":
+            permission = "The player who started the game"
+        else:
+            permission = "Everyone"
         sections.append(
             f"{command.usage}\n{command.description}\n"
             f"Example: {_example(command)}\nWho can use it: {permission}"
