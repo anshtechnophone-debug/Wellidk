@@ -101,89 +101,101 @@ async def broadcast_command(
         await message.reply_text("A broadcast is already running. Please wait for it to finish.")
         return
 
-    async with lock:
-        sessions = context.application.bot_data.get("sessions")
-        if sessions is None:
-            await message.reply_text("Broadcast recipient storage is unavailable.")
-            return
-        async with sessions() as session:
-            recipient_ids = list((await session.scalars(
-                select(BroadcastRecipient.user_id).order_by(BroadcastRecipient.first_seen)
-            )).all())
-        recipient_ids = [uid for uid in recipient_ids if uid not in settings.owner_ids]
-        total = len(recipient_ids)
-        if not total:
-            await message.reply_text("No private-chat recipients have been recorded yet.")
-            return
+    await lock.acquire()
 
-        stop_event = asyncio.Event()
-        context.application.bot_data["broadcast_stop_event"] = stop_event
-        status = await message.reply_text(
-            f"Broadcast started.\nTotal: {total}\nSent: 0\nFailed: 0\nRemaining: {total}"
-        )
-        sent = 0
-        failed = 0
-        stopped = False
+    async def run_broadcast() -> None:
         try:
-            for index, recipient_id in enumerate(recipient_ids):
-                if stop_event.is_set():
-                    stopped = True
-                    break
-                try:
-                    try:
-                        await context.bot.copy_message(
-                            chat_id=recipient_id,
-                            from_chat_id=chat.id,
-                            message_id=source.message_id,
-                        )
-                    except RetryAfter as exc:
-                        wait_seconds = max(1, int(exc.retry_after))
-                        logger.warning("Telegram rate limit during broadcast; waiting %ss", wait_seconds)
-                        if await _wait_for_stop(stop_event, wait_seconds):
-                            stopped = True
-                            break
-                        await context.bot.copy_message(
-                            chat_id=recipient_id,
-                            from_chat_id=chat.id,
-                            message_id=source.message_id,
-                        )
-                    sent += 1
-                except TelegramError as exc:
-                    failed += 1
-                    logger.info("Broadcast delivery failed user_id=%s error=%s", recipient_id, exc)
-                except Exception:
-                    failed += 1
-                    logger.exception("Unexpected broadcast delivery failure user_id=%s", recipient_id)
+                    sessions = context.application.bot_data.get("sessions")
+                    if sessions is None:
+                        await message.reply_text("Broadcast recipient storage is unavailable.")
+                        return
+                    async with sessions() as session:
+                        recipient_ids = list((await session.scalars(
+                            select(BroadcastRecipient.user_id).order_by(BroadcastRecipient.first_seen)
+                        )).all())
+                    recipient_ids = [uid for uid in recipient_ids if uid not in settings.owner_ids]
+                    total = len(recipient_ids)
+                    if not total:
+                        await message.reply_text("No private-chat recipients have been recorded yet.")
+                        return
 
-                remaining = total - index - 1
-                if (index + 1) % 10 == 0 or remaining == 0 or stop_event.is_set():
+                    stop_event = asyncio.Event()
+                    context.application.bot_data["broadcast_stop_event"] = stop_event
+                    status = await message.reply_text(
+                        f"Broadcast started.\nTotal: {total}\nSent: 0\nFailed: 0\nRemaining: {total}"
+                    )
+                    sent = 0
+                    failed = 0
+                    stopped = False
                     try:
-                        await status.edit_text(
-                            f"Broadcast running.\nTotal: {total}\nSent: {sent}\n"
-                            f"Failed: {failed}\nRemaining: {remaining}"
-                        )
-                    except TelegramError:
-                        logger.debug("Could not update broadcast progress message", exc_info=True)
-                if stop_event.is_set():
-                    stopped = True
-                    break
-                if delay and remaining and await _wait_for_stop(stop_event, delay):
-                    stopped = True
-                    break
+                        for index, recipient_id in enumerate(recipient_ids):
+                            if stop_event.is_set():
+                                stopped = True
+                                break
+                            try:
+                                try:
+                                    await context.bot.copy_message(
+                                        chat_id=recipient_id,
+                                        from_chat_id=chat.id,
+                                        message_id=source.message_id,
+                                    )
+                                except RetryAfter as exc:
+                                    wait_seconds = max(1, int(exc.retry_after))
+                                    logger.warning("Telegram rate limit during broadcast; waiting %ss", wait_seconds)
+                                    if await _wait_for_stop(stop_event, wait_seconds):
+                                        stopped = True
+                                        break
+                                    await context.bot.copy_message(
+                                        chat_id=recipient_id,
+                                        from_chat_id=chat.id,
+                                        message_id=source.message_id,
+                                    )
+                                sent += 1
+                            except TelegramError as exc:
+                                failed += 1
+                                logger.info("Broadcast delivery failed user_id=%s error=%s", recipient_id, exc)
+                            except Exception:
+                                failed += 1
+                                logger.exception("Unexpected broadcast delivery failure user_id=%s", recipient_id)
 
-            state = "stopped" if stopped or stop_event.is_set() else "completed"
-            logger.info(
-                "Owner broadcast %s owner_id=%s total=%s sent=%s failed=%s delay=%s",
-                state, user.id, total, sent, failed, delay,
-            )
-            try:
-                await status.edit_text(
-                    f"Broadcast {state}.\nTotal: {total}\nSent: {sent}\n"
-                    f"Failed: {failed}\nRemaining: {max(0, total - sent - failed)}"
-                )
-            except TelegramError:
-                await message.reply_text(
-                    f"Broadcast {state}. Total: {total}; sent: {sent}; failed: {failed}."
-                )
+                            remaining = total - index - 1
+                            if (index + 1) % 10 == 0 or remaining == 0 or stop_event.is_set():
+                                try:
+                                    await status.edit_text(
+                                        f"Broadcast running.\nTotal: {total}\nSent: {sent}\n"
+                                        f"Failed: {failed}\nRemaining: {remaining}"
+                                    )
+                                except TelegramError:
+                                    logger.debug("Could not update broadcast progress message", exc_info=True)
+                            if stop_event.is_set():
+                                stopped = True
+                                break
+                            if delay and remaining and await _wait_for_stop(stop_event, delay):
+                                stopped = True
+                                break
+
+                        state = "stopped" if stopped or stop_event.is_set() else "completed"
+                        logger.info(
+                            "Owner broadcast %s owner_id=%s total=%s sent=%s failed=%s delay=%s",
+                            state, user.id, total, sent, failed, delay,
+                        )
+                        try:
+                            await status.edit_text(
+                                f"Broadcast {state}.\nTotal: {total}\nSent: {sent}\n"
+                                f"Failed: {failed}\nRemaining: {max(0, total - sent - failed)}"
+                            )
+                        except TelegramError:
+                            await message.reply_text(
+                                f"Broadcast {state}. Total: {total}; sent: {sent}; failed: {failed}."
+                            )
+                    finally:
+                        context.application.bot_data.pop("broadcast_stop_event", None)
+
         finally:
-            context.application.bot_data.pop("broadcast_stop_event", None)
+            lock.release()
+
+    context.application.create_task(
+        run_broadcast(),
+        name="xyron-broadcast-worker",
+    )
+    await message.reply_text("Broadcast started in the background. Other commands and replies will continue working.")
