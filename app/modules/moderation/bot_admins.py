@@ -15,6 +15,7 @@ from app.database.group_bot_admins import GroupBotAdmin
 from app.database.models import KnownUser
 from app.services.group_history import GroupMessage
 from app.services.activity_log import ActivityLogRepository
+from app.core.telegram_format import user_mention
 
 
 async def _reply(update, text: str, *, html_mode: bool = False) -> None:
@@ -23,28 +24,26 @@ async def _reply(update, text: str, *, html_mode: bool = False) -> None:
 
 
 async def _user_label(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> str:
-    username = display_name = None
+    """Return the person's display name as a clickable Telegram mention."""
+    display_name = None
     async with context.application.bot_data["sessions"]() as session:
         known = await session.scalar(select(KnownUser).where(KnownUser.user_id == user_id).limit(1))
         if known:
-            username, display_name = known.username, known.first_name
+            display_name = known.first_name
         history = (await session.execute(
-            select(GroupMessage.username, GroupMessage.display_name)
+            select(GroupMessage.display_name)
             .where(GroupMessage.user_id == user_id)
             .order_by(GroupMessage.sent_at.desc()).limit(1)
         )).first()
-        if history:
-            username = username or history.username
-            display_name = display_name or history.display_name
-    if username:
-        return "@" + html.escape(username.lstrip("@"))
-    try:
-        user = await context.bot.get_chat(user_id)
-        display_name = display_name or getattr(user, "full_name", None)
-    except Exception:
-        pass
-    return f'<a href="tg://user?id={user_id}">{html.escape(display_name or "Telegram user")}</a>'
-
+        if history and not display_name:
+            display_name = history[0]
+    if not display_name:
+        try:
+            user = await context.bot.get_chat(user_id)
+            display_name = getattr(user, "full_name", None)
+        except Exception:
+            pass
+    return user_mention(user_id, display_name or f"User {user_id}")
 
 async def _resolve_target(context, chat_id: int, value: str) -> int:
     value = value.strip()
