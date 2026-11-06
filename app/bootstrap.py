@@ -187,7 +187,7 @@ async def collect_group_message(
     if not user:
         return
 
-    # Persist history only in the GC owned by the configured primary owner.
+    # Persist history only in groups where the primary owner is present and XYRON is an administrator.
     settings = context.application.bot_data.get("settings")
     if settings is None:
         return
@@ -197,7 +197,11 @@ async def collect_group_message(
     if cached is None or cached[0] <= now:
         try:
             owner_member = await context.bot.get_chat_member(chat.id, settings.owner_id)
-            eligible_gc = owner_member.status == "creator"
+            bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
+            eligible_gc = (
+                owner_member.status in {"member", "administrator", "creator"}
+                and bot_member.status in {"administrator", "creator"}
+            )
         except Exception:
             eligible_gc = False
         cache[chat.id] = (now + 300, eligible_gc)
@@ -413,18 +417,25 @@ async def collect_chat_member_activity(
 
 
 async def plain_moderation_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle only exact standalone moderation words without a slash."""
+    """Handle plain-text moderation actions only for the primary bot owner."""
     message = update.effective_message
-    if not message or not message.text:
+    actor = update.effective_user
+    settings = context.application.bot_data.get("settings")
+    if (
+        not message
+        or not message.text
+        or actor is None
+        or settings is None
+        or actor.id != settings.owner_id
+    ):
+        # Non-owner plain-text moderation requests are intentionally ignored.
         return
-    action = message.text.strip().casefold()
+    action = message.text.strip().split(maxsplit=1)[0].casefold()
     if action == "unmute":
         await unmute_command(update, context)
     elif action == "unban":
         await unban_command(update, context)
     else:
-        # moderation_command derives the action from the exact message text;
-        # its target resolver uses the replied-to user's message.
         await moderation_command(update, context)
 
 
@@ -575,20 +586,8 @@ def _register_general(application: Application) -> None:
             filters.ChatType.GROUPS
             & filters.TEXT
             & ~filters.COMMAND
-            & filters.Regex(r"(?i)^\s*(mute|unmute|kick|ban|unban)\s*$"),
+            & filters.Regex(r"(?i)^\s*(?:mute|unmute|kick|ban|unban)(?:\s+.+)?\s*$"),
             plain_moderation_command,
-        ),
-        group=0,
-    )
-
-    # Also accept plain-text "kick Name" as well as /kick Name.
-    application.add_handler(
-        MessageHandler(
-            filters.ChatType.GROUPS
-            & filters.TEXT
-            & ~filters.COMMAND
-            & filters.Regex(r"(?i)^kick\s+.+$"),
-            moderation_command,
         ),
         group=0,
     )
