@@ -12,7 +12,7 @@ from telegram import Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
-from app.modules.quote_features import quote_keyboard, save_group_quote
+from app.modules.quote_features import quote_delete_command, quote_keyboard, save_group_quote, save_quote_sticker
 
 logger = logging.getLogger(__name__)
 WIDTH = 512
