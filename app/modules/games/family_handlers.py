@@ -9,6 +9,7 @@ from telegram.constants import ChatType
 from telegram.ext import ContextTypes
 
 from app.modules.games.family import FamilyError, FamilyRepository
+from app.core.telegram_format import user_mention
 
 
 def _repo(context):
@@ -34,7 +35,7 @@ async def _name(context, user_id: int, chat_id: int | None = None) -> str:
 def _link(user_id: int, name: str | None) -> str:
     # Telegram users may have no first/last name; never pass None to html.escape.
     safe_name = str(name or f"User {user_id}")
-    return f'<a href="tg://user?id={user_id}">{escape(safe_name)}</a>'
+    return user_mention(user_id, safe_name)
 
 
 async def family_remove_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -177,8 +178,8 @@ async def family_relationship_command(update: Update, context: ContextTypes.DEFA
         else:
             child, parent, child_role, parent_role = user, target, "daughter", "mother"
 
-        child_link = _link(child.id, child.username or child.full_name)
-        parent_link = _link(parent.id, parent.username or parent.full_name)
+        child_link = _link(child.id, child.full_name)
+        parent_link = _link(parent.id, parent.full_name)
         if result == "exists":
             confirmation = (
                 f"✅ {child_link} is already connected as your {child_role}. "
