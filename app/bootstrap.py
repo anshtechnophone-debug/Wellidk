@@ -159,6 +159,7 @@ from app.modules.reminders.handlers import (
     reminders_command,
 )
 from app.services.group_history import GroupHistoryRepository, GroupMessage, group_history_retention_worker
+from app.services.message_milestones import MessageMilestoneRepository
 from app.services.activity_log import ActivityEvent, ActivityLogRepository, activity_retention_worker
 from app.services.reminder_worker import reminder_worker
 from app.services.scheduling import expiration_worker
@@ -222,7 +223,7 @@ async def collect_group_message(
 
     try:
         repository = GroupHistoryRepository(sessions)
-        await repository.save_message(
+        inserted = await repository.save_message(
             chat_id=chat.id,
             message_id=message.message_id,
             user_id=user.id,
@@ -231,6 +232,25 @@ async def collect_group_message(
             message_text=text,
             sent_at=message.date,
         )
+        # Count only newly received human messages. Edits and duplicate updates
+        # are ignored, and the lifetime counter survives history cleanup/restarts.
+        if inserted and not user.is_bot:
+            try:
+                count, reached = await MessageMilestoneRepository(sessions).increment(chat.id)
+                if reached:
+                    await context.bot.send_message(
+                        chat_id=chat.id,
+                        text=(
+                            f"🎉 {count:,} Messages Reached!\n\n"
+                            f"Congratulations! Your group has officially sent "
+                            f"{count:,} messages. Keep chatting and keep the group active! 🚀"
+                        ),
+                    )
+            except Exception:
+                logger.exception(
+                    "Failed to update or announce group message milestone: chat_id=%s",
+                    chat.id,
+                )
     except Exception:
         logger.exception(
             "Failed to save group message: chat_id=%s message_id=%s",
