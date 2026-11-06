@@ -198,7 +198,7 @@ async def collect_group_message(
         try:
             owner_member = await context.bot.get_chat_member(chat.id, settings.owner_id)
             eligible_gc = owner_member.status == "creator"
-        except TelegramError:
+        except Exception:
             eligible_gc = False
         cache[chat.id] = (now + 300, eligible_gc)
     if not cache[chat.id][1]:
