@@ -50,6 +50,7 @@ This reference is aligned with the enabled command catalogue in `app/core/comman
 | --- | --- | --- | --- |
 | `/daily` | Show the ten most active chatters today. | `/daily` | Everyone |
 | `/wordrank` | Show this chat's Word Seek leaderboard | `/wordrank` | Everyone |
+| `/familytop` | Show the global Family Life leaderboard ranked by couple protection points. | `/familytop` | Everyone |
 
 ## User Tools
 
@@ -161,14 +162,13 @@ This reference is aligned with the enabled command catalogue in `app/core/comman
 | `/guess` | Submit a guess in your active Word Seek game. | `/guess crane` | Everyone |
 | `/wordcancel` | Cancel your own active Word Seek game. | `/wordcancel` | The player who started that game |
 
-## Family
+## Family Life
 
 | Command | What it does | Example | Who can use it |
 | --- | --- | --- | --- |
 | `/family` | View your Family profile. Reply to someone with /family to view theirs. | `/family` | Everyone |
 | `/familytree` | Show your family connections | `/familytree` | Everyone |
-| `/familyrank` | Open the interactive Family leaderboards. | `/familyrank` | Everyone |
-| `/familytop` | Open the Family Top leaderboard and its ranking options. | `/familytop` | Everyone |
+| `/familytop` | Open the main global Family Life leaderboard, ranked by couple protection points. | `/familytop` | Everyone |
 | `/cp` | Open your Couple page and use its protection action to earn daily protection points. | `/cp` | Everyone |
 | `/familyhelp` | Show instructions for Family Life commands and requests. | `/familyhelp` | Everyone |
 | `/familyinfo` | View the Family profile of the person whose message you reply to. | `Reply to a message, then send /familyinfo` | Everyone |
