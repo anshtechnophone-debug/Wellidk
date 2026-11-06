@@ -741,9 +741,13 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
     spam_enabled = isinstance(spam_config, dict) and bool(spam_config.get("enabled"))
     approved = user.id in set(int(value) for value in policy.get("approved_users", []))
     text = message.text or message.caption or ""
+
+    # Filters are independent of moderation exemptions and must work for
+    # group admins/owners too. Do not let moderation early-returns bypass them.
+    if not user.is_bot and text and not text.lstrip().startswith("/"):
+        await _apply_saved_filter(message, text, policy.get("filters", {}))
+
     if not locks and not flood_enabled and not spam_enabled:
-        if not approved:
-            await _apply_saved_filter(message, text, policy.get("filters", {}))
         return
     if user.is_bot and "bots" not in locks:
         return
@@ -825,5 +829,4 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
             logger.info("Could not delete locked message in chat %s", chat.id)
         return
 
-    if not approved:
-        await _apply_saved_filter(message, text, policy.get("filters", {}))
+
