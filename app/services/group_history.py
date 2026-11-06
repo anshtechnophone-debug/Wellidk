@@ -76,12 +76,16 @@ class GroupHistoryRepository:
         display_name: str,
         message_text: str,
         sent_at: datetime,
-    ) -> None:
-        """Insert a message, updating its content if it was already stored."""
+    ) -> bool:
+        """Insert a message, updating its content if it was already stored.
+
+        Returns True only for a newly observed message, so callers can safely
+        count milestones without counting edits or duplicate updates.
+        """
 
         text = message_text.strip()
         if not text:
-            return
+            return False
 
         if sent_at.tzinfo is None or sent_at.utcoffset() is None:
             sent_at = sent_at.replace(tzinfo=UTC)
@@ -99,7 +103,7 @@ class GroupHistoryRepository:
                 existing.username = username
                 existing.display_name = display_name[:255]
                 existing.edited_at = datetime.now(UTC)
-                return
+                return False
 
             # SQLite does not auto-generate INTEGER PRIMARY KEY values for
             # a BIGINT primary-key column. Assign an ID explicitly so this
@@ -122,6 +126,7 @@ class GroupHistoryRepository:
                     edited_at=datetime.now(UTC),
                 )
             )
+            return True
 
     async def search(
         self,
