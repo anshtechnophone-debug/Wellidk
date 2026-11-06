@@ -719,11 +719,16 @@ class AIEventRouter:
             if kind is None:
                 return
 
+            # AI is available in any group where the primary owner is a
+            # member and XYRON itself is an administrator.
             try:
                 owner = await context.bot.get_chat_member(chat.id, settings.owner_id)
+                bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
             except TelegramError:
                 return
-            if owner.status != "creator":
+            if owner.status not in {"member", "administrator", "creator"}:
+                return
+            if bot_member.status not in {"administrator", "creator"}:
                 return
 
         now = time.time()
