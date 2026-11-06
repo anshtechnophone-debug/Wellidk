@@ -394,7 +394,7 @@ async def _couple_page(context, user_id: int):
     button = "✅ Protected Today" if stats["protected_today"] else "🛡️ Protect Your Partner (+50)"
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(button, callback_data="cp:done" if stats["protected_today"] else "cp:protect")],
-        [InlineKeyboardButton("✖️ Close", callback_data="cp:close")],
+        [InlineKeyboardButton("✖️ Close", callback_data=f"cp:close:{user_id}:{partner_id}")],
     ])
     return text, keyboard
 
@@ -415,13 +415,28 @@ async def cp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     query, user = update.callback_query, update.effective_user
     if not query or not user or not query.data:
         return
-    if query.data == "cp:close":
+    if query.data.startswith("cp:close:"):
+        parts = query.data.split(":")
+        if len(parts) != 4:
+            await query.answer("Invalid close action.", show_alert=True)
+            return
+        try:
+            couple_ids = {int(parts[2]), int(parts[3])}
+        except ValueError:
+            await query.answer("Invalid close action.", show_alert=True)
+            return
+        if user.id not in couple_ids:
+            await query.answer("Only you or your partner can close this couple page.", show_alert=True)
+            return
         await query.answer("Couple page closed.")
         if query.message:
             try:
                 await query.message.delete()
             except Exception:
-                await query.edit_message_reply_markup(reply_markup=None)
+                try:
+                    await query.edit_message_reply_markup(reply_markup=None)
+                except Exception:
+                    pass
         return
     if query.data == "cp:done":
         await query.answer("You have already protected your partner today.", show_alert=True)
