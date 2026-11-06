@@ -28,6 +28,7 @@ from app.database.models import GlobalUser, Group, KnownUser, ModerationEvent
 from app.services.group_history import GroupMessage
 from app.services.activity_log import ActivityLogRepository
 from app.services.moderation import ModerationRepository
+from app.core.telegram_format import user_mention
 
 logger = logging.getLogger(__name__)
 PERMISSION_NAMES = tuple(name for name in ChatPermissions.__slots__ if name.startswith("can_"))
@@ -42,8 +43,7 @@ def _repository(context: ContextTypes.DEFAULT_TYPE) -> ModerationRepository:
 
 
 async def _user_label(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int) -> str:
-    """Use a username or clickable display name instead of numeric IDs."""
-    username = None
+    """Return the member's display name as a clickable Telegram mention."""
     display_name = None
     async with context.application.bot_data["sessions"]() as session:
         known = await session.scalar(
@@ -52,21 +52,22 @@ async def _user_label(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id:
             ).limit(1)
         )
         if known:
-            username, display_name = known.username, known.first_name
-        if not username or not display_name:
+            display_name = known.first_name
+        if not display_name:
             history = (await session.execute(
-                select(GroupMessage.username, GroupMessage.display_name)
+                select(GroupMessage.display_name)
                 .where(GroupMessage.chat_id == chat_id, GroupMessage.user_id == user_id)
                 .order_by(GroupMessage.sent_at.desc()).limit(1)
             )).first()
             if history:
-                username = username or history.username
-                display_name = display_name or history.display_name
-    if username:
-        return "@" + html.escape(username.lstrip("@"))
-    name = html.escape(display_name or f"user {user_id}")
-    return f'<a href="tg://user?id={user_id}">{name}</a>'
-
+                display_name = history[0]
+    if not display_name:
+        try:
+            user = await context.bot.get_chat(user_id)
+            display_name = getattr(user, "full_name", None)
+        except Exception:
+            pass
+    return user_mention(user_id, display_name or f"User {user_id}")
 
 async def _reply_html(update: Update, text: str) -> None:
     if update.effective_message:
