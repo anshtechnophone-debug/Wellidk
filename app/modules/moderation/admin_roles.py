@@ -52,23 +52,13 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "Only the group owner or a Telegram admin with 'Add new admins' permission can promote members."
         )
         return
-    if not context.args:
-        await message.reply_text(
-            "Usage: /promote @username [l|f] (numeric ID or reply also supported). "
-            "Default: l = limited admin; use f for full admin."
-        )
-        return
     try:
-        # Accept /promote @username [l|f] and legacy /promote l|f @username.
+        # One standard promotion level. Reply to a member, or provide
+        # @username / numeric ID: /promote @username
         args = list(context.args)
-        mode = "l"
-        if args[0].casefold() in {"l", "f"}:
-            mode = args.pop(0).casefold()
-        elif len(args) > 1 and args[-1].casefold() in {"l", "f"}:
-            mode = args.pop().casefold()
         target_id, rest = await _resolve_target(update, context, args, allow_name=True)
         if rest:
-            raise TargetError("Usage: /promote @username [l|f]")
+            raise TargetError("Usage: reply to a member with /promote, or use /promote @username.")
         bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
         if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
             raise AuthorizationError("XYRON must be a group administrator.")
@@ -83,16 +73,15 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         for name in RIGHTS:
             if name not in {"can_restrict_members", "can_promote_members"}:
                 rights[name] = True
-        rights["can_restrict_members"] = mode == "f"
+        rights["can_restrict_members"] = False
         await context.bot.promote_chat_member(chat.id, target_id, **rights)
         policies = GroupPolicyRepository(context.application.bot_data["sessions"])
         policy = await policies.get(chat.id)
         promoted = dict(policy.get("xyron_promoted_admins", {}))
-        promoted[str(target_id)] = {"mode": mode, "promoted_by": actor.id}
+        promoted[str(target_id)] = {"mode": "l", "promoted_by": actor.id}
         await policies.set_value(chat.id, "xyron_promoted_admins", promoted)
         await message.reply_text(
-            f"Promoted {await _user_label(context, chat.id, target_id)} as "
-            f"{'limited' if mode == 'l' else 'full'} admin.",
+            f"Promoted {await _user_label(context, chat.id, target_id)} as an admin.",
             parse_mode="HTML",
         )
     except (AuthorizationError, TargetError) as exc:
