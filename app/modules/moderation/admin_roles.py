@@ -69,12 +69,36 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             raise AuthorizationError("The group owner cannot be promoted.")
         if target.status == ChatMember.ADMINISTRATOR:
             raise AuthorizationError("That member is already an administrator.")
-        rights = {name: False for name in RIGHTS}
-        for name in RIGHTS:
-            if name not in {"can_restrict_members", "can_promote_members"}:
-                rights[name] = True
+        # Telegram only allows a bot to grant administrator rights that the
+        # bot itself currently has. Build the grant from Telegram's live
+        # ChatMemberAdministrator object instead of requesting every right.
+        # Keep moderation and further-promotion powers disabled for this level.
+        rights = {
+            name: bool(getattr(bot_member, name, False))
+            for name in RIGHTS
+        }
         rights["can_restrict_members"] = False
-        await context.bot.promote_chat_member(chat.id, target_id, **rights)
+        rights["can_promote_members"] = False
+        logger.info(
+            "Promoting user %s in chat %s with grantable rights: %s",
+            target_id,
+            chat.id,
+            sorted(name for name, enabled in rights.items() if enabled),
+        )
+        try:
+            await context.bot.promote_chat_member(chat.id, target_id, **rights)
+        except TelegramError as exc:
+            logger.warning(
+                "Telegram rejected promotion: chat_id=%s target_id=%s "
+                "bot_status=%s bot_can_promote=%s requested_rights=%s error=%s",
+                chat.id,
+                target_id,
+                bot_member.status,
+                getattr(bot_member, "can_promote_members", False),
+                sorted(name for name, enabled in rights.items() if enabled),
+                exc,
+            )
+            raise
         policies = GroupPolicyRepository(context.application.bot_data["sessions"])
         policy = await policies.get(chat.id)
         promoted = dict(policy.get("xyron_promoted_admins", {}))
@@ -87,6 +111,11 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     except (AuthorizationError, TargetError) as exc:
         await message.reply_text(str(exc))
     except TelegramError as exc:
+        logger.exception(
+            "Promotion failed: chat_id=%s actor_id=%s",
+            chat.id,
+            actor.id,
+        )
         await message.reply_text(f"Telegram could not promote that member: {exc}")
 
 
