@@ -23,6 +23,9 @@ def _categories() -> dict[str, list[CommandInfo]]:
     for command in COMMANDS:
         if command.enabled:
             grouped[command.category].append(command)
+            # The main Family Life leaderboard is listed in both relevant sections.
+            if command.name == "familytop":
+                grouped["Leaderboards"].append(command)
     return dict(sorted(grouped.items()))
 
 
