@@ -17,12 +17,13 @@ log = logging.getLogger("xyron.music.songsx")
 
 
 class SongsxSource:
-    def __init__(self, bot_username: str, cache_channel_id: int | str, media_dir: Path):
+    def __init__(self, bot_username: str, cache_channel_id: int | str, media_dir: Path, legacy_index: Path | None = None):
         self.bot_username = (bot_username or "Songsx_bot").lstrip("@")
         self.raw_cache_channel_id = int(cache_channel_id or 0)
         self.media_dir = Path(media_dir)
         self.media_dir.mkdir(parents=True, exist_ok=True)
         self.index_path = self.media_dir / "songsx_cache.json"
+        self.legacy_index = Path(legacy_index) if legacy_index else None
         self.index = self._load_index()
         self.pending: dict[str, dict] = {}
         self._lock = asyncio.Lock()
@@ -33,6 +34,15 @@ class SongsxSource:
             payload = json.loads(self.index_path.read_text(encoding="utf-8"))
             return payload if isinstance(payload, dict) else {}
         except (OSError, json.JSONDecodeError):
+            if self.legacy_index and self.legacy_index.is_file():
+                try:
+                    payload = json.loads(self.legacy_index.read_text(encoding="utf-8"))
+                    if isinstance(payload, dict):
+                        log.info("Loaded legacy Songsx cache index from %s", self.legacy_index)
+                        return payload
+                except (OSError, json.JSONDecodeError):
+                    log.exception("Could not read legacy Songsx cache index")
+                    raise
             log.warning("Songsx cache index is unavailable; starting with an empty index")
             return {}
 
