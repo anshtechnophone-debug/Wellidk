@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -80,6 +81,8 @@ def _example(command: CommandInfo) -> str:
         "<1-20>": "3",
         "<1-9>": "5",
         "<1-100>": "42",
+        "<1-200>": "80",
+        "<song name>": "Imagine",
         "[4|5|6]": "5",
         "<word>": "crane",
         "<five-letter word>": "crane",
@@ -90,6 +93,7 @@ def _example(command: CommandInfo) -> str:
         "<type>": "trivia",
         "<rock|paper|scissors>": "rock",
         "<on|off>": "on",
+        "<l|f>": "l",
         "<hangman|scramble|number>": "hangman",
         "<trivia|truefalse|riddle|quickmath>": "trivia",
         "<lock>": "links",
@@ -103,6 +107,7 @@ def _example(command: CommandInfo) -> str:
     }
     for placeholder, value in replacements.items():
         example = example.replace(placeholder, value)
+    example = re.sub(r"<[^>]+>", "value", example)
     return " ".join(example.split())
 
 
