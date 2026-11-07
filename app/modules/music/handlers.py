@@ -779,6 +779,22 @@ def register_music(application: Application):
     settings = application.bot_data["settings"]
     if not getattr(settings, "music_enabled", False):
         log.info("Music plugin is disabled; set MUSIC_ENABLED=true and configure MUSIC_API_ID/MUSIC_API_HASH to enable it")
+
+        async def unavailable(update, context):
+            if update.effective_message:
+                await update.effective_message.reply_text(
+                    "🎵 XYRON Music is not enabled yet. The owner must configure MUSIC_ENABLED, MUSIC_API_ID and MUSIC_API_HASH."
+                )
+
+        commands = {
+            "play": unavailable, "pause": unavailable, "resume": unavailable,
+            "skip": unavailable, "queue": unavailable, "np": unavailable,
+            "volume": unavailable, "musichelp": unavailable,
+            "addaccount": unavailable, "newaccount": unavailable,
+            "accounts": unavailable,
+        }
+        for name, callback in commands.items():
+            application.add_handler(CommandHandler(name, callback))
         return
     plugin = MusicPlugin(application, settings)
     application.bot_data["music_plugin"] = plugin
