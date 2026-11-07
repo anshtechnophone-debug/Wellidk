@@ -49,6 +49,7 @@ class Settings:
     music_api_id: int = 0
     music_api_hash: str = ""
     music_session_strings: tuple[str, ...] = ()
+    music_local_cache_max_mb: int = 512
     music_owner_id: int | None = None
     music_songsx_bot: str = "Songsx_bot"
     music_cache_channel_id: int = 4363096287
@@ -105,6 +106,12 @@ class Settings:
         )
         if len(music_session_strings) > 10 or len(set(music_session_strings)) != len(music_session_strings):
             raise ValueError("MUSIC_SESSION_STRINGS must contain at most 10 unique session strings")
+        try:
+            music_local_cache_max_mb = int(os.getenv("MUSIC_LOCAL_CACHE_MAX_MB", "512"))
+        except ValueError as exc:
+            raise ValueError("MUSIC_LOCAL_CACHE_MAX_MB must be an integer") from exc
+        if not 64 <= music_local_cache_max_mb <= 4096:
+            raise ValueError("MUSIC_LOCAL_CACHE_MAX_MB must be between 64 and 4096")
         if music_enabled and (music_api_id <= 0 or not music_api_hash):
             raise ValueError("MUSIC_API_ID and MUSIC_API_HASH are required when MUSIC_ENABLED=true")
         music_songsx_bot = os.getenv("MUSIC_SONGSX_BOT", os.getenv("SONGSX_BOT_USERNAME", "Songsx_bot")).strip().lstrip("@")
@@ -222,6 +229,7 @@ class Settings:
             music_api_id=music_api_id,
             music_api_hash=music_api_hash,
             music_session_strings=music_session_strings,
+            music_local_cache_max_mb=music_local_cache_max_mb,
             music_owner_id=music_owner_id,
             music_songsx_bot=music_songsx_bot,
             music_cache_channel_id=music_cache_channel_id,
