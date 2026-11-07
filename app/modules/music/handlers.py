@@ -147,6 +147,10 @@ class MusicPlugin:
             return False
 
     async def _require_membership(self, update: Update) -> bool:
+        if not self._started:
+            if update.effective_message:
+                await update.effective_message.reply_text("🎵 XYRON Music is not ready yet. Please check the bot status or try again shortly.")
+            return False
         user = update.effective_user
         message = update.effective_message
         if not user or not message:
