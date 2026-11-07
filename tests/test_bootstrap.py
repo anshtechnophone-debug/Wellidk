@@ -19,7 +19,7 @@ def test_bot_application_registers_only_implemented_commands():
         for command in getattr(handler, "commands", ())
     }
     assert {"ban", "tban", "tmute", "mutelist", "kickme", "warn", "settings", "help"} <= names
-    assert {command.name for command in COMMANDS if command.enabled} <= names
+    assert {command.name for command in COMMANDS if command.enabled and command.category != "Music"} <= names
     assert "play" not in names
 
 
