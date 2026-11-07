@@ -259,6 +259,7 @@ COMMANDS = (
     CommandInfo("volume", "Set music volume from 1 to 200", "/volume <1-200>", "Music", True),
     CommandInfo("musichelp", "Show music commands and setup", "/musichelp", "Music"),
     CommandInfo("addaccount", "Connect a voice-player account (owner only)", "/addaccount", "Music", owner_only=True),
+    CommandInfo("cancelaccount", "Cancel an active voice-player account login (owner only)", "/cancelaccount", "Music", owner_only=True),
     CommandInfo("accounts", "List connected voice-player accounts (owner only)", "/accounts", "Music", owner_only=True),
     CommandInfo("myid", "Show your Telegram numeric user ID", "/myid", "Music"),
 )

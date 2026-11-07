@@ -746,6 +746,7 @@ class MusicPlugin:
             "• /queue — show upcoming tracks\n• /np — show player card\n"
             "• /volume &lt;1-200&gt; — set volume\n"
             "• /addaccount — connect a voice-player account (owner only)\n"
+            "• /cancelaccount — cancel QR account linking (owner only)\n"
             "• /accounts — list connected accounts (owner only)\n\n"
             "Start the group's voice chat before using /play. The bot needs permission to invite its voice-player account.",
             parse_mode="HTML",
@@ -768,6 +769,13 @@ class MusicPlugin:
         if update.effective_chat.type != Chat.PRIVATE:
             return await update.effective_message.reply_text("For account security, use /addaccount in XYRON's private chat.")
         await self.accounts.handle_add_account(update, context)
+
+    async def cancel_account_command(self, update, context):
+        if update.effective_chat.type != Chat.PRIVATE:
+            return await update.effective_message.reply_text(
+                "For account security, use /cancelaccount in XYRON's private chat."
+            )
+        await self.accounts.handle_cancel_account(update, context)
 
     async def myid_command(self, update, context):
         user = update.effective_user
@@ -798,6 +806,7 @@ def register_music(application: Application):
         "musichelp": plugin.music_help_command,
         "addaccount": plugin.add_account_command,
         "newaccount": plugin.add_account_command,
+        "cancelaccount": plugin.cancel_account_command,
         "accounts": plugin.accounts_command,
         "myid": plugin.myid_command,
     }
