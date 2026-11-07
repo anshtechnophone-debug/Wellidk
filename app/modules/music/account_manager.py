@@ -56,6 +56,12 @@ class AccountManager:
                 if candidate != self.store_path:
                     log.info("Found legacy player-account store at %s; preserving its entries", candidate)
             except (OSError, json.JSONDecodeError, ValueError):
+                if candidate != self.store_path and self.store_path.is_file():
+                    log.warning(
+                        "Legacy account store %s is unavailable; using the copied current store",
+                        candidate,
+                    )
+                    continue
                 log.exception("Could not read player-account store: %s", candidate)
                 raise RuntimeError(f"Player-account store is unreadable: {candidate}")
         return merged
