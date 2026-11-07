@@ -16,12 +16,8 @@ from telegram.constants import ChatMemberStatus
 from telegram.ext import (
     Application, CallbackQueryHandler, CommandHandler, ContextTypes,
 )
-from pytgcalls import filters as call_filters
-from pytgcalls.types import StreamEnded
-
 from app.modules.music.account_manager import AccountManager
 from app.modules.music.player_art import make_player_cover
-from app.modules.music.player_pool import MultiCallPool
 from app.modules.music.songsx_source import SongsxSource
 
 log = logging.getLogger("xyron.music")
@@ -39,6 +35,10 @@ class MusicPlugin:
         self.data_dir = Path(getattr(settings, "music_data_dir", "./data/music"))
         self.media_dir = self.data_dir / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
+        from pytgcalls import filters as call_filters
+
+        from app.modules.music.player_pool import MultiCallPool
+
         self.calls = MultiCallPool()
         self.calls.set_handoff_handler(self._handle_player_handoff)
         self.accounts = AccountManager(
@@ -440,7 +440,7 @@ class MusicPlugin:
         except Exception:
             log.debug("Could not notify previous music group %s", old_chat_id, exc_info=True)
 
-    async def _on_stream_end(self, _, update: StreamEnded):
+    async def _on_stream_end(self, _, update):
         chat_id = update.chat_id
         await self._stop_progress(chat_id)
         self.players.pop(chat_id, None)
