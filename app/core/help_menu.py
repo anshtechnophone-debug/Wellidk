@@ -68,6 +68,8 @@ def _example(command: CommandInfo) -> str:
         "<1-20>": "3",
         "<1-9>": "5",
         "<1-100>": "42",
+        "<1-200>": "80",
+        "<song name>": "Imagine",
         "[4|5|6]": "5",
         "<word>": "crane",
         "<five-letter word>": "crane",
