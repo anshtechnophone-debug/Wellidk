@@ -146,6 +146,7 @@ COMMANDS = (
     CommandInfo("musichelp", "Show music commands and setup", "/musichelp", "Music"),
     CommandInfo("addaccount", "Connect a voice-player account (owner only)", "/addaccount", "Music", owner_only=True),
     CommandInfo("accounts", "List connected voice-player accounts (owner only)", "/accounts", "Music", owner_only=True),
+    CommandInfo("myid", "Show your Telegram numeric user ID", "/myid", "Music"),
     CommandInfo(
         "lock",
         "Enable a supported message lock",
