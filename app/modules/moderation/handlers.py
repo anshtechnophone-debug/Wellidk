@@ -436,7 +436,8 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
     if is_temporary:
         if not remaining:
             raise TargetError("A duration is required, for example 2h or 6d.")
-        duration = parse_duration(remaining[0])        remaining = remaining[1:]
+        duration = parse_duration(remaining[0])
+        remaining = remaining[1:]
     temporary_mute = normalized == "tmute" or (normalized == "mute" and duration is not None)
     reason = " ".join(remaining).strip() or None
     settings: Settings = context.application.bot_data["settings"]
