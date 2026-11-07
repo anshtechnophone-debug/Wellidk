@@ -28,7 +28,7 @@ MUSIC_LEGACY_ACCOUNTS_FILE=/opt/wellidkmusic/data/player_accounts.json
 MUSIC_LEGACY_CACHE_INDEX=/opt/wellidkmusic/media/songsx_cache.json
 ```
 
-Use the same API ID/hash and cache channel ID as the old music bot. Never commit credentials to Git.
+Use the same API ID/hash and cache channel ID as the old music bot. If the old bot used SESSION_STRINGS in its environment instead of /newaccount, copy those values into MUSIC_SESSION_STRINGS as a comma-separated list. Never commit session strings or API credentials to Git.
 
 ## Preserve existing accounts
 
