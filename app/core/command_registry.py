@@ -27,7 +27,7 @@ COMMANDS = (
     CommandInfo("daily", "Show the top 10 group chatters today", "/daily", "Leaderboards"),
     CommandInfo("health", "Check database and background workers", "/health", "General"),
     CommandInfo("id", "Show Telegram IDs", "/id [reply]", "User Tools"),
-    CommandInfo("admin", "Add a XYRON bot admin (owner only)", "/admin <numeric_user_id>", "Owner Tools", owner_only=True),
+    CommandInfo("admin", "Add a XYRON bot admin (owner only)", "/admin 123456789", "Owner Tools", owner_only=True),
     CommandInfo("promote", "Promote a group member as a limited or full admin", "/promote <l|f> (reply to member)", "Admin Tools", owner_only=True),
     CommandInfo("smartgc", "Toggle Smart GC protection for this group", "/smartgc <on|off>", "Anti-Spam", owner_only=True),
     CommandInfo("mediaclean", "Delete group media after three minutes", "/mediaclean <on|off>", "Message Management", True),
