@@ -6,12 +6,13 @@ import asyncio
 
 from telethon.errors import UserAlreadyParticipantError
 from telethon.tl.functions.messages import ImportChatInviteRequest
-from pytgcalls import PyTgCalls
-from pytgcalls.types import AudioQuality, MediaStream
 
 
 class MultiCallPool:
     def __init__(self, clients=None):
+        from pytgcalls import PyTgCalls
+
+        self._py_tg_calls = PyTgCalls
         self.clients = list(clients or [])
         self.instances = [PyTgCalls(client) for client in self.clients]
         self.chat_to_slot = {}
@@ -42,7 +43,7 @@ class MultiCallPool:
         async with self._client_lock:
             if client in self.clients:
                 return self.instances[self.clients.index(client)]
-            instance = PyTgCalls(client)
+            instance = self._py_tg_calls(client)
             for update_filter, handler in self._update_handlers:
                 self._register_update_handler(instance, update_filter, handler)
             if self._started:
@@ -161,6 +162,8 @@ class MultiCallPool:
         return me
 
     async def play(self, chat_id, source):
+        from pytgcalls.types import AudioQuality, MediaStream
+
         instance = await self._instance_for(chat_id, allocate=True)
         try:
             await instance.play(chat_id, MediaStream(source, AudioQuality.STUDIO))
