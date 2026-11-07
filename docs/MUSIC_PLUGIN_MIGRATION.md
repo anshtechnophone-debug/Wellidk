@@ -69,3 +69,4 @@ If /accounts shows zero accounts, do not delete the old store or add duplicate a
 On first selection, Songsx supplies the audio; XYRON downloads it, plays it, stores a copy in the configured cache channel and indexes the search query, title and artist. Later matching searches consult the local index first and restore the Telegram-channel copy if the local file is missing. This avoids another Songsx round trip for indexed tracks. First-time searches still depend on Songsx response time and Telegram transfer speed.
 
 The plugin reuses one HTTP connection pool for player cards and refreshes the progress display every three seconds.
+
