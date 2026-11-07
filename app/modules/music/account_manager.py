@@ -178,6 +178,7 @@ class AccountManager:
             except Exception:
                 self.accounts.pop(account_id, None)
                 self.clients.remove(player)
+                await self.call_pool.remove_client(player)
                 await player.disconnect()
                 raise
             display = f"@{me.username}" if me.username else (me.first_name or account_id)
