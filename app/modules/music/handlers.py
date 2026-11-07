@@ -53,6 +53,7 @@ class MusicPlugin:
             bot_username=settings.music_songsx_bot,
             cache_channel_id=self.cache_channel_id,
             media_dir=self.media_dir,
+            legacy_index=Path(settings.music_legacy_cache_index),
         )
         self.queues = defaultdict(deque)
         self.players = {}
@@ -469,7 +470,6 @@ class MusicPlugin:
 
     async def choose_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        await query.answer()
         if not await self._is_channel_member(query.from_user.id):
             await query.answer("Join @xyronschannel before selecting tracks.", show_alert=True)
             try:
@@ -488,6 +488,7 @@ class MusicPlugin:
             return await query.answer("Search expired. Run /play again.", show_alert=True)
         if not await self._can_control(query.message.chat, query.from_user):
             return await query.answer("Only group admins or the bot owner can select music.", show_alert=True)
+        await query.answer()
         self.queues[chat_id].append(track)
         await query.answer("Added to queue")
         if chat_id not in self.players:
@@ -502,13 +503,13 @@ class MusicPlugin:
 
     async def player_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        await query.answer()
         if not await self._is_channel_member(query.from_user.id):
             return await query.answer("Join @xyronschannel before using music controls.", show_alert=True)
         chat = query.message.chat
         chat_id = chat.id
         if not await self._can_control(chat, query.from_user):
             return await query.answer("Only group admins or the bot owner can control playback.", show_alert=True)
+        await query.answer()
         action = query.data.rsplit(":", 1)[-1]
         try:
             if action == "queue":
