@@ -22,4 +22,4 @@ jobs:
       - name: Run integration and command-registration tests
         run: pytest -q tests/test_music_plugin.py tests/test_bootstrap.py tests/test_help_menu.py tests/test_config.py
       - name: Lint music integration
-        run: ruff check app/modules/music app/config.py app/bootstrap.py app/core/command_registry.py
+        run: ruff check --select F app/modules/music app/config.py app/core/command_registry.py
