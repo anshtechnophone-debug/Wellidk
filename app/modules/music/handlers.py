@@ -55,6 +55,7 @@ class MusicPlugin:
             cache_channel_id=self.cache_channel_id,
             media_dir=self.media_dir,
             legacy_index=Path(settings.music_legacy_cache_index),
+            local_cache_max_mb=settings.music_local_cache_max_mb,
         )
         self.queues = defaultdict(deque)
         self.players = {}
@@ -362,6 +363,9 @@ class MusicPlugin:
             "paused": False,
             "paused_elapsed": 0,
         }
+        self.source.prune_local_cache(
+            protected_paths=[item.get("path") for item in self.players.values()]
+        )
         cover = make_player_cover(
             title=self.players[chat_id]["title"],
             artist=self.players[chat_id]["artist"],
