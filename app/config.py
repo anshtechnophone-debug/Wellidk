@@ -99,8 +99,8 @@ class Settings:
         music_api_hash = os.getenv("MUSIC_API_HASH", os.getenv("API_HASH", "")).strip()
         if music_enabled and (music_api_id <= 0 or not music_api_hash):
             raise ValueError("MUSIC_API_ID and MUSIC_API_HASH are required when MUSIC_ENABLED=true")
-        music_songsx_bot = os.getenv("MUSIC_SONGSX_BOT", "Songsx_bot").strip().lstrip("@")
-        music_channel = os.getenv("MUSIC_CHANNEL", "@xyronschannel").strip()
+        music_songsx_bot = os.getenv("MUSIC_SONGSX_BOT", os.getenv("SONGSX_BOT_USERNAME", "Songsx_bot")).strip().lstrip("@")
+        music_channel = os.getenv("MUSIC_CHANNEL", os.getenv("XYRON_CHANNEL", "@xyronschannel")).strip()
         music_data_dir = os.getenv("MUSIC_DATA_DIR", "./data/music").strip()
         music_legacy_accounts_file = os.getenv(
             "MUSIC_LEGACY_ACCOUNTS_FILE", "/opt/wellidkmusic/data/player_accounts.json"
