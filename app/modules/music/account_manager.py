@@ -42,14 +42,20 @@ class AccountManager:
         if self.legacy_store:
             candidates.append(self.legacy_store)
         for candidate in candidates:
-            if not candidate.is_file():
-                continue
             try:
+                if not candidate.is_file():
+                    continue
                 payload = json.loads(candidate.read_text(encoding="utf-8"))
                 if isinstance(payload, dict):
                     if candidate != self.store_path:
                         log.warning("Found legacy player-account store at %s; migrating a copy", candidate)
                     return payload
+            except PermissionError:
+                if candidate == self.legacy_store:
+                    log.warning("Skipping inaccessible legacy player-account store: %s", candidate)
+                    continue
+                log.exception("Could not access player-account store: %s", candidate)
+                raise RuntimeError(f"Player-account store is unreadable: {candidate}")
             except (OSError, json.JSONDecodeError):
                 log.exception("Could not read player-account store: %s", candidate)
                 raise RuntimeError(f"Player-account store is unreadable: {candidate}")
@@ -95,9 +101,17 @@ class AccountManager:
             except Exception:
                 failed.append(str(account_id))
                 log.exception("Could not load saved music player account %s", account_id)
-        if self.accounts and not failed and self.legacy_store and self.legacy_store.is_file() and not self.store_path.exists():
-            self._write_store()
-            log.info("Migrated %s existing player account(s) without deleting the legacy file", len(self.accounts))
+        # Check the active store first. If it already exists, there is no reason
+        # to inspect the retired service's legacy path (which may be inaccessible).
+        if self.accounts and not failed and self.legacy_store and not self.store_path.exists():
+            try:
+                legacy_exists = self.legacy_store.is_file()
+            except OSError as exc:
+                log.warning("Skipping inaccessible legacy player-account store %s: %s", self.legacy_store, exc)
+                legacy_exists = False
+            if legacy_exists:
+                self._write_store()
+                log.info("Migrated %s existing player account(s) without deleting the legacy file", len(self.accounts))
         if failed:
             log.error("Failed to load %s saved player account(s); source store was preserved", len(failed))
         return len(self.clients)
