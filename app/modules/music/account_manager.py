@@ -94,7 +94,7 @@ class AccountManager:
             except Exception:
                 failed.append(str(account_id))
                 log.exception("Could not load saved music player account %s", account_id)
-        if self.accounts and self.legacy_store and self.legacy_store.is_file() and not self.store_path.exists():
+        if self.accounts and not failed and self.legacy_store and self.legacy_store.is_file() and not self.store_path.exists():
             self._write_store()
             log.info("Migrated %s existing player account(s) without deleting the legacy file", len(self.accounts))
         if failed:
