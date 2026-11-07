@@ -279,7 +279,7 @@ async def _resolve_target(
                 try:
                     return await _resolve_name_target(context, chat.id, value), args[1:]
                 except TargetError:
-                    raise lookup_error
+                    raise lookup_error from None
         raise TargetError(
             "That username is not known to XYRON yet. Try a name match, numeric ID, "
             "or reply to the user's message."
@@ -452,6 +452,13 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
     reason = " ".join(remaining).strip() or None
     settings: Settings = context.application.bot_data["settings"]
     await ensure_target_is_moderatable(context, chat.id, target_id, access.actor, settings)
+    if normalized in {"mute", "tmute"}:
+        target_member = await context.bot.get_chat_member(chat.id, target_id)
+        if target_member.status in {ChatMember.LEFT, ChatMember.KICKED}:
+            raise TargetError(
+                "Mute requires the target to be a current group member. "
+                "Use /ban to block a user who is not in the group."
+            )
 
     repository = _repository(context)
     previous_permissions: dict[str, bool] | None = None
