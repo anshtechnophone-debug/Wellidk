@@ -75,7 +75,7 @@ Administrative commands only work in groups/supergroups. On each execution, XYRO
 
 `/kickme` uses only the invoking user's ID. It does not accept a target argument. It is available to regular members but requires the configured owner to remain an admin and XYRON to have `Ban users`.
 
-Username resolution is deliberately limited. A username can only resolve after XYRON observed that user speaking in that group. Otherwise reply to the user's message or use their numeric ID. Usernames are mutable and Telegram does not provide a general username-to-ID lookup through the Bot API.
+For moderation targets, XYRON first checks its saved group history and then resolves public @usernames through a connected music MTProto account (or the optional TELEGRAM_API_ID, TELEGRAM_API_HASH and TELETHON_SESSION userbot session). This also works for users XYRON has never seen in the group. If no userbot session can resolve the username, use a numeric Telegram ID. Usernames are mutable, so a changed or private username may not resolve. Telegram can ban/unban a user by ID even when they are absent; mute/unmute requires Telegram to accept a restriction change for that account in the group.
 
 ## Command Reference
 
