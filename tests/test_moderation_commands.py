@@ -88,7 +88,7 @@ async def test_mute_api_success_records_and_saves_pre_mute_baseline(bot_context)
     assert baseline["can_send_messages"] is True
     assert baseline["can_send_photos"] is False
     assert "Muted " in message.reply_text.await_args.args[0]
-    assert "user 22</a>" in message.reply_text.await_args.args[0]
+    assert "User 22</a>" in message.reply_text.await_args.args[0]
     assert "tg://user?id=22" in message.reply_text.await_args.args[0]
 
 
@@ -121,7 +121,7 @@ async def test_mute_duration_creates_restart_safe_expiration(bot_context):
     assert action.action == "unmute"
     assert datetime.now(UTC) < action.expires_at < datetime.now(UTC) + timedelta(minutes=11)
     assert "Temporarily muted " in message.reply_text.await_args.args[0]
-    assert "user 22</a>" in message.reply_text.await_args.args[0]
+    assert "User 22</a>" in message.reply_text.await_args.args[0]
     assert "tg://user?id=22" in message.reply_text.await_args.args[0]
 
 
