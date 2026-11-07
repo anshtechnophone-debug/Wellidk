@@ -38,11 +38,16 @@ Run this once from an administrative shell after backing up the old file:
 
 ```bash
 systemctl stop wellidkmusic
-mkdir -p /opt/xyron/data/music
+mkdir -p /opt/xyron/data/music/media
 if [ -f /opt/wellidkmusic/data/player_accounts.json ]; then
   cp -n /opt/wellidkmusic/data/player_accounts.json /opt/xyron/data/music/player_accounts.json
   chown xyron:xyron /opt/xyron/data/music/player_accounts.json
   chmod 600 /opt/xyron/data/music/player_accounts.json
+fi
+if [ -f /opt/wellidkmusic/media/songsx_cache.json ]; then
+  cp -n /opt/wellidkmusic/media/songsx_cache.json /opt/xyron/data/music/media/songsx_cache.json
+  chown xyron:xyron /opt/xyron/data/music/media/songsx_cache.json
+  chmod 600 /opt/xyron/data/music/media/songsx_cache.json
 fi
 chown -R xyron:xyron /opt/xyron/data/music
 chmod 700 /opt/xyron/data/music
@@ -50,7 +55,7 @@ chmod 700 /opt/xyron/data/music
 
 The cp -n command will not overwrite an existing destination. Keep the old account file as a backup. The plugin can also read the legacy file if the new store is absent and the XYRON service user has permission to read it.
 
-The legacy Songsx index is read from MUSIC_LEGACY_CACHE_INDEX. If a local audio file is unavailable, the plugin can restore it from the configured Telegram cache channel using the saved message ID. At least one connected player account must be able to read and post audio in that channel.
+The legacy Songsx index is read from MUSIC_LEGACY_CACHE_INDEX; the copy command above preserves the index in the new data directory too. If a local audio file is unavailable, the plugin can restore it from the configured Telegram cache channel using the saved message ID. At least one connected player account must be able to read and post audio in that channel.
 
 ## Deploy and verify
 
