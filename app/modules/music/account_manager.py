@@ -84,7 +84,7 @@ class AccountManager:
         user = update.effective_user
         return bool(self.owner_id and user and user.id == self.owner_id)
 
-    async def load_existing(self):
+    async def load_existing(self, session_strings=()):
         stored = self._read_store()
         self._stored_accounts = dict(stored)
         failed = []
@@ -107,6 +107,43 @@ class AccountManager:
             log.info("Migrated %s existing player account(s) without deleting the legacy file", len(self.accounts))
         if failed:
             log.error("Failed to load %s saved player account(s); source store was preserved", len(failed))
+
+        # Support the old bot's optional SESSION_STRINGS environment variable too.
+        for session_string in session_strings:
+            if len(self.call_pool.clients) >= 10:
+                log.warning("Voice-player limit reached; remaining environment sessions were not loaded")
+                break
+            client = TelegramClient(
+                StringSession(session_string), self.api_id, self.api_hash
+            )
+            try:
+                await client.start()
+                me = await client.get_me()
+                account_id = str(me.id)
+                if account_id in self.accounts:
+                    await client.disconnect()
+                    continue
+                await self.call_pool.add_client(client)
+                self.clients.append(client)
+                record = {
+                    "username": me.username or "",
+                    "first_name": me.first_name or "",
+                    "session": session_string,
+                }
+                self.accounts[account_id] = record
+                self._stored_accounts[account_id] = record
+                try:
+                    self._write_store()
+                except Exception:
+                    log.exception(
+                        "Could not persist environment player account %s; it remains configured in the environment",
+                        account_id,
+                    )
+                log.info("Loaded environment music player account %s", account_id)
+            except Exception:
+                log.exception("Could not load an environment music player session")
+                if client.is_connected():
+                    await client.disconnect()
         return len(self.clients)
 
     async def handle_add_account(self, update, context):
