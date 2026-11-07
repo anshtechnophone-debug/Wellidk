@@ -51,6 +51,35 @@ class MultiCallPool:
             self.instances.append(instance)
             return instance
 
+    async def remove_client(self, client):
+        """Remove a just-added account safely if its persistent save fails."""
+        async with self._client_lock:
+            if client not in self.clients:
+                return
+            index = self.clients.index(client)
+            chat_id = self.slot_to_chat.pop(index, None)
+            if chat_id is not None:
+                self.chat_to_slot.pop(chat_id, None)
+                try:
+                    await self.instances[index].leave_call(chat_id)
+                except Exception:
+                    pass
+            instance = self.instances.pop(index)
+            self.clients.pop(index)
+            if self._started:
+                try:
+                    await instance.stop()
+                except Exception:
+                    pass
+            self.chat_to_slot = {
+                chat: slot - 1 if slot > index else slot
+                for chat, slot in self.chat_to_slot.items()
+            }
+            self.slot_to_chat = {
+                slot - 1 if slot > index else slot: chat
+                for slot, chat in self.slot_to_chat.items()
+            }
+
     async def start(self):
         started = []
         try:
