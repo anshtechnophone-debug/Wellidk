@@ -35,6 +35,7 @@ class AccountManager:
         self.clients = []
         self.accounts = {}
         self._login_lock = asyncio.Lock()
+        self._login_tasks = {}
 
     def _read_store(self):
         candidates = [self.store_path]
@@ -108,10 +109,41 @@ class AccountManager:
             return await update.effective_message.reply_text("⛔ This command is available only to the configured bot owner.")
         if len(self.call_pool.clients) >= 10:
             return await update.effective_message.reply_text("The total voice-player account limit is 10.")
+        user_id = update.effective_user.id
+        current = self._login_tasks.get(user_id)
+        if current and not current.done():
+            return await update.effective_message.reply_text(
+                "An account connection is already running. Use /cancelaccount to stop it."
+            )
         if self._login_lock.locked():
             return await update.effective_message.reply_text("An account connection is already in progress.")
-        async with self._login_lock:
-            await self._run_qr_login(update, context)
+        await update.effective_message.reply_text(
+            "Starting secure account linking. Send /cancelaccount at any time to stop it."
+        )
+        task = asyncio.create_task(self._login_worker(update, context, user_id))
+        self._login_tasks[user_id] = task
+
+    async def _login_worker(self, update, context, user_id):
+        try:
+            async with self._login_lock:
+                await self._run_qr_login(update, context)
+        except asyncio.CancelledError:
+            log.info("Music account login cancelled by owner %s", user_id)
+        finally:
+            if self._login_tasks.get(user_id) is asyncio.current_task():
+                self._login_tasks.pop(user_id, None)
+
+    async def handle_cancel_account(self, update, context):
+        message = update.effective_message
+        if not self._is_owner(update):
+            return await message.reply_text("⛔ This command is available only to the configured bot owner.")
+        user_id = update.effective_user.id
+        task = self._login_tasks.get(user_id)
+        if not task or task.done():
+            return await message.reply_text("There is no active account-linking process to cancel.")
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await message.reply_text("🛑 Account linking cancelled. Temporary QR messages are being removed.")
 
     async def _run_qr_login(self, update, context):
         message = update.effective_message
@@ -188,6 +220,12 @@ class AccountManager:
                 "Use /accounts to view connected players.",
                 parse_mode="HTML",
             )
+        except asyncio.CancelledError:
+            try:
+                await status.edit_text("🛑 Account linking cancelled. No new account was saved.")
+            except Exception:
+                log.debug("Could not update cancelled music login status", exc_info=True)
+            raise
         except SessionPasswordNeededError:
             await status.edit_text("Telegram requires an additional verification step. For safety, XYRON does not collect account passwords; this login was not saved.")
         except asyncio.TimeoutError:
@@ -220,6 +258,13 @@ class AccountManager:
         )
 
     async def shutdown(self):
+        login_tasks = list(self._login_tasks.values())
+        for task in login_tasks:
+            if not task.done():
+                task.cancel()
+        if login_tasks:
+            await asyncio.gather(*login_tasks, return_exceptions=True)
+        self._login_tasks.clear()
         for client in reversed(self.clients):
             try:
                 if client.is_connected():
