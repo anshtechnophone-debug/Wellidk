@@ -78,6 +78,7 @@ def _example(command: CommandInfo) -> str:
         "<type>": "trivia",
         "<rock|paper|scissors>": "rock",
         "<on|off>": "on",
+        "<l|f>": "l",
         "<hangman|scramble|number>": "hangman",
         "<trivia|truefalse|riddle|quickmath>": "trivia",
         "<lock>": "links",
