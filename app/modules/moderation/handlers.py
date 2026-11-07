@@ -454,7 +454,7 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
     await ensure_target_is_moderatable(context, chat.id, target_id, access.actor, settings)
     if normalized in {"mute", "tmute"}:
         target_member = await context.bot.get_chat_member(chat.id, target_id)
-        if target_member.status in {ChatMember.LEFT, ChatMember.KICKED}:
+        if str(target_member.status).casefold() in {"left", "kicked"}:
             raise TargetError(
                 "Mute requires the target to be a current group member. "
                 "Use /ban to block a user who is not in the group."
