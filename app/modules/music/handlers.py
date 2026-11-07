@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import aiohttp
-from telegram import Chat, ChatMember, Update
+from telegram import Chat, Update
 from telegram.constants import ChatMemberStatus
 from telegram.ext import (
     Application, CallbackQueryHandler, CommandHandler, ContextTypes,
