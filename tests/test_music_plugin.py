@@ -79,3 +79,28 @@ def test_account_store_write_keeps_saved_accounts_that_failed_to_connect(tmp_pat
 
     saved = json.loads(manager.store_path.read_text())
     assert set(saved) == {"100", "200"}
+
+
+
+def test_local_cache_prunes_only_inactive_channel_cached_files(tmp_path):
+    source = SongsxSource(
+        "Songsx_bot", 4363096287, tmp_path, local_cache_max_mb=64
+    )
+    old_file = tmp_path / "old-track.mp3"
+    active_file = tmp_path / "active-track.mp3"
+    uncached_file = tmp_path / "not-uploaded.mp3"
+    for path in (old_file, active_file, uncached_file):
+        with path.open("wb") as output:
+            output.truncate(40 * 1024 * 1024)
+    source.index = {
+        "old": {"path": str(old_file), "cache_message_id": 101},
+        "active": {"path": str(active_file), "cache_message_id": 102},
+        "uncached": {"path": str(uncached_file)},
+    }
+
+    removed = source.prune_local_cache(protected_paths=[active_file])
+
+    assert removed == 1
+    assert not old_file.exists()
+    assert active_file.exists()
+    assert uncached_file.exists()
