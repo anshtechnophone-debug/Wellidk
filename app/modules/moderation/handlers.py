@@ -38,6 +38,39 @@ class TargetError(ValueError):
     """The command did not identify a known Telegram user."""
 
 
+
+async def _resolve_username_via_userbot(
+    context: ContextTypes.DEFAULT_TYPE, username: str
+) -> int:
+    """Resolve an unseen public Telegram username through a connected music account."""
+    normalized = username.strip().lstrip("@")
+    if not re.fullmatch(r"[A-Za-z0-9_]{5,32}", normalized):
+        raise TargetError("That does not look like a valid Telegram username.")
+
+    plugin = context.application.bot_data.get("music_plugin")
+    accounts = getattr(plugin, "accounts", None)
+    clients = list(getattr(accounts, "clients", []) or [])
+    for client in clients:
+        try:
+            if not client.is_connected():
+                continue
+            entity = await client.get_entity("@" + normalized)
+            if not getattr(entity, "first_name", None):
+                raise TargetError("That username belongs to a channel or group, not a user.")
+            user_id = int(getattr(entity, "id", 0) or 0)
+            if user_id > 0:
+                return user_id
+        except TargetError:
+            raise
+        except Exception:
+            logger.debug("Music account could not resolve @%s", normalized, exc_info=True)
+
+    raise TargetError(
+        f"XYRON couldn't resolve @{normalized}. Connect a Telegram account with /addaccount "
+        "in the bot's private chat, or use the person's numeric Telegram ID."
+    )
+
+
 def _repository(context: ContextTypes.DEFAULT_TYPE) -> ModerationRepository:
     return ModerationRepository(context.application.bot_data["sessions"])
 
@@ -197,8 +230,7 @@ async def _resolve_target(
                     KnownUser.chat_id == chat.id,
                     KnownUser.username == value[1:].casefold(),
                 )
-            )
-            history_ids = set((await session.scalars(
+            )            history_ids = set((await session.scalars(
                 select(GroupMessage.user_id).where(
                     GroupMessage.chat_id == chat.id,
                     func.lower(GroupMessage.username) == value[1:].casefold(),
@@ -234,7 +266,13 @@ async def _resolve_target(
                 "Use the user's numeric Telegram ID."
             )
         if allow_name:
-            return await _resolve_name_target(context, chat.id, value), args[1:]
+            try:
+                return await _resolve_username_via_userbot(context, value), args[1:]
+            except TargetError as lookup_error:
+                try:
+                    return await _resolve_name_target(context, chat.id, value), args[1:]
+                except TargetError:
+                    raise lookup_error from None
         raise TargetError(
             "XYRON hasn't seen this username in any group yet. "
             "Ask the user to send a message in a group where XYRON is present, "
@@ -397,12 +435,14 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
     if is_temporary:
         if not remaining:
             raise TargetError("A duration is required, for example 2h or 6d.")
-        duration = parse_duration(remaining[0])
-        remaining = remaining[1:]
+        duration = parse_duration(remaining[0])        remaining = remaining[1:]
     temporary_mute = normalized == "tmute" or (normalized == "mute" and duration is not None)
     reason = " ".join(remaining).strip() or None
     settings: Settings = context.application.bot_data["settings"]
-    await ensure_target_is_moderatable(context, chat.id, target_id, access.actor, settings)
+    await ensure_target_is_moderatable(
+        context, chat.id, target_id, access.actor, settings,
+        allow_absent=normalized in {"ban", "tban"},
+    )
 
     repository = _repository(context)
     previous_permissions: dict[str, bool] | None = None
@@ -597,8 +637,7 @@ async def _resolve_historical_ban_username(
         known_rows = (
             await session.execute(
                 select(KnownUser.user_id, KnownUser.username).where(
-                    KnownUser.chat_id == chat_id,
-                    KnownUser.user_id.in_(banned_ids),
+                    KnownUser.chat_id == chat_id,                    KnownUser.user_id.in_(banned_ids),
                     KnownUser.username.is_not(None),
                 )
             )
@@ -668,7 +707,7 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
         await ensure_target_is_moderatable(
             context, chat.id, target_id, access.actor,
-            context.application.bot_data["settings"],
+            context.application.bot_data["settings"], allow_absent=True,
         )
         await context.bot.unban_chat_member(chat.id, target_id, only_if_banned=True)
         await _repository(context).cancel_temporary(chat.id, target_id, "unban")
@@ -797,8 +836,7 @@ async def kickme_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await _reply(update, f"Telegram could not remove you: {exc.message}")
 
 
-async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat, actor_user = update.effective_chat, update.effective_user
+async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:    chat, actor_user = update.effective_chat, update.effective_user
     try:
         access = await require_admin_access(
             update, context, context.application.bot_data["settings"], "can_restrict_members"
@@ -997,8 +1035,7 @@ UNBANALL_USER_IDS = (
     8560741589,
     8849943398,
     7085170334,
-    8069683750,
-    7720648367,
+    8069683750,    7720648367,
     8889349162,
     8705062020,
     8660512964,
@@ -1197,8 +1234,7 @@ UNBANALL_USER_IDS = (
     8282689234,
     8604548205,
     8848328906,
-    8840874987,
-    8668969423,
+    8840874987,    8668969423,
     8915238507,
     612900440,
     8821040340,
