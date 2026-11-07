@@ -45,6 +45,16 @@ class Settings:
     ai_activity_threshold: int = 5
     ai_activity_window_seconds: int = 120
     report_destination_id: int | None = None
+    music_enabled: bool = False
+    music_api_id: int = 0
+    music_api_hash: str = ""
+    music_owner_id: int | None = None
+    music_songsx_bot: str = "Songsx_bot"
+    music_cache_channel_id: int = 4363096287
+    music_channel: str = "@xyronschannel"
+    music_data_dir: str = "./data/music"
+    music_legacy_accounts_file: str = "/opt/wellidkmusic/data/player_accounts.json"
+    music_legacy_cache_index: str = "/opt/wellidkmusic/media/songsx_cache.json"
 
     @property
     def owner_ids(self) -> frozenset[int]:
@@ -76,6 +86,29 @@ class Settings:
             raise ValueError("MAX_REMINDERS_PER_USER must be an integer") from exc
         if reminders_limit < 1 or reminders_limit > 500:
             raise ValueError("MAX_REMINDERS_PER_USER must be between 1 and 500")
+        music_enabled = _parse_bool("MUSIC_ENABLED", False)
+        try:
+            music_api_id = int(os.getenv("MUSIC_API_ID", os.getenv("API_ID", "0")) or 0)
+            music_cache_channel_id = int(os.getenv(
+                "MUSIC_CACHE_CHANNEL_ID", os.getenv("AUDIO_CACHE_CHANNEL_ID", "4363096287")
+            ))
+            music_owner_value = os.getenv("MUSIC_OWNER_ID", "").strip()
+            music_owner_id = int(music_owner_value) if music_owner_value else owner_id
+        except ValueError as exc:
+            raise ValueError("MUSIC_API_ID, MUSIC_CACHE_CHANNEL_ID and MUSIC_OWNER_ID must be numeric") from exc
+        music_api_hash = os.getenv("MUSIC_API_HASH", os.getenv("API_HASH", "")).strip()
+        if music_enabled and (music_api_id <= 0 or not music_api_hash):
+            raise ValueError("MUSIC_API_ID and MUSIC_API_HASH are required when MUSIC_ENABLED=true")
+        music_songsx_bot = os.getenv("MUSIC_SONGSX_BOT", os.getenv("SONGSX_BOT_USERNAME", "Songsx_bot")).strip().lstrip("@")
+        music_channel = os.getenv("MUSIC_CHANNEL", os.getenv("XYRON_CHANNEL", "@xyronschannel")).strip()
+        music_data_dir = os.getenv("MUSIC_DATA_DIR", "./data/music").strip()
+        music_legacy_accounts_file = os.getenv(
+            "MUSIC_LEGACY_ACCOUNTS_FILE", "/opt/wellidkmusic/data/player_accounts.json"
+        ).strip()
+        music_legacy_cache_index = os.getenv(
+            "MUSIC_LEGACY_CACHE_INDEX", "/opt/wellidkmusic/media/songsx_cache.json"
+        ).strip()
+
         report_destination_value = os.getenv("REPORT_DESTINATION_ID", "").strip()
         if report_destination_value:
             try:
@@ -177,6 +210,16 @@ class Settings:
             ai_activity_threshold=ai_limits["AI_ACTIVITY_THRESHOLD"],
             ai_activity_window_seconds=ai_limits["AI_ACTIVITY_WINDOW_SECONDS"],
             report_destination_id=report_destination_id,
+            music_enabled=music_enabled,
+            music_api_id=music_api_id,
+            music_api_hash=music_api_hash,
+            music_owner_id=music_owner_id,
+            music_songsx_bot=music_songsx_bot,
+            music_cache_channel_id=music_cache_channel_id,
+            music_channel=music_channel,
+            music_data_dir=music_data_dir,
+            music_legacy_accounts_file=music_legacy_accounts_file,
+            music_legacy_cache_index=music_legacy_cache_index,
         )
 
 

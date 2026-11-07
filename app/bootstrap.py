@@ -39,6 +39,7 @@ from app.handlers.common import (
 )
 from app.handlers.errors import error_handler
 from app.modules.ai.assistant import AIEventRouter
+from app.modules.music.handlers import register_music
 from app.modules.ai.owner_control import owner_natural_control
 from app.modules.appeals.handlers import (
     appeal_command,
@@ -385,6 +386,16 @@ async def plain_moderation_command(update: Update, context: ContextTypes.DEFAULT
         await moderation_command(update, context)
 
 
+async def _stop_command_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Keep /stop <phrase> for filters; plain /stop controls active music."""
+    plugin = context.application.bot_data.get("music_plugin")
+    chat = update.effective_chat
+    if not context.args and plugin and chat and plugin.is_active(chat.id):
+        await plugin.stop_command(update, context)
+        return
+    await stopfilter_command(update, context)
+
+
 def _register_general(application: Application) -> None:
     for command, callback in (
         ("admin", admin_command),
@@ -435,7 +446,7 @@ def _register_general(application: Application) -> None:
         ("notes", notes_command),
         ("filter", filter_command),
         ("filters", filters_command),
-        ("stop", stopfilter_command),
+        ("stop", _stop_command_router),
         ("lock", lock_command),
         ("unlock", unlock_command),
         ("locks", locks_command),
@@ -684,6 +695,14 @@ async def _post_init(application: Application) -> None:
     application.bot_data["engine"] = engine
     application.bot_data["sessions"] = sessions
 
+    music_plugin = application.bot_data.get("music_plugin")
+    if music_plugin:
+        try:
+            await music_plugin.start()
+        except Exception:
+            logger.exception("XYRON Music failed to start; core XYRON will remain available")
+            application.bot_data["music_start_error"] = "Music startup failed; inspect XYRON logs."
+
     # Importing GroupMessage above registers its model with Base.metadata,
     # so initialize_schema can create the group history table as well.
     await initialize_schema(engine)
@@ -725,6 +744,10 @@ async def _post_init(application: Application) -> None:
 
 
 async def _post_shutdown(application: Application) -> None:
+    music_plugin = application.bot_data.get("music_plugin")
+    if music_plugin:
+        await music_plugin.shutdown()
+
     stop_event = application.bot_data.get("shutdown_event")
     if stop_event:
         stop_event.set()
@@ -760,6 +783,11 @@ def build_application(settings: Settings | None = None) -> Application:
                 "general-moderation",
                 "Core commands and group moderation",
                 _register_general,
+            ),
+            Module(
+                "music",
+                "Songsx-powered voice-chat music player",
+                register_music,
             ),
         ),
     )
