@@ -1,0 +1,1 @@
+"""XYRON Music plugin package."""
