@@ -250,6 +250,17 @@ COMMANDS = (
         "Admin Logs",
         True,
     ),
+    CommandInfo("play", "Search Songsx and play a track in the group voice chat", "/play <song name>", "Music"),
+    CommandInfo("pause", "Pause music playback", "/pause", "Music", True),
+    CommandInfo("resume", "Resume music playback", "/resume", "Music", True),
+    CommandInfo("skip", "Skip the current track", "/skip", "Music", True),
+    CommandInfo("queue", "Show upcoming music tracks", "/queue", "Music"),
+    CommandInfo("np", "Show the current music player card", "/np", "Music"),
+    CommandInfo("volume", "Set music volume from 1 to 200", "/volume <1-200>", "Music", True),
+    CommandInfo("musichelp", "Show music commands and setup", "/musichelp", "Music"),
+    CommandInfo("addaccount", "Connect a voice-player account (owner only)", "/addaccount", "Music", owner_only=True),
+    CommandInfo("accounts", "List connected voice-player accounts (owner only)", "/accounts", "Music", owner_only=True),
+    CommandInfo("myid", "Show your Telegram numeric user ID", "/myid", "Music"),
 )
 
 
