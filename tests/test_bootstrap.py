@@ -20,7 +20,8 @@ def test_bot_application_registers_only_implemented_commands():
     }
     assert {"ban", "tban", "tmute", "mutelist", "kickme", "warn", "settings", "help"} <= names
     assert {command.name for command in COMMANDS if command.enabled} <= names
-    assert "play" not in names
+    assert {"play", "addaccount", "accounts", "musichelp"} <= names
+    assert sum(1 for handlers in application.handlers.values() for handler in handlers if "start" in getattr(handler, "commands", ())) == 1
 
 
 @pytest.mark.asyncio
