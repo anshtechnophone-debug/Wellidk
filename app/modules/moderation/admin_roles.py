@@ -119,8 +119,18 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await message.reply_text(f"Telegram could not promote that member: {exc}")
 
 
+# Updates for the same administrator are serialized so concurrent Telegram
+# chat_member updates cannot overwrite one another's rolling-window history.
+_PROTECTOR_LOCKS: dict[tuple[int, int], asyncio.Lock] = {}
+
+
 async def mass_ban_protector(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Suspend ban permission after a fifth ban in any rolling two-minute window."""
+    """Suspend an administrator's ban permission after a fifth ban in 2 minutes.
+
+    This monitors every identifiable Telegram administrator, not only admins
+    promoted by XYRON. Telegram remains the authority for whether XYRON can
+    edit that administrator's rights (bot admin hierarchy and can_promote_members).
+    """
     event = update.chat_member
     chat = update.effective_chat
     if not event or not chat or not event.from_user:
@@ -128,21 +138,48 @@ async def mass_ban_protector(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if getattr(event.new_chat_member, "status", None) != ChatMember.BANNED:
         return
 
-    policies = GroupPolicyRepository(context.application.bot_data["sessions"])
-    policy = await policies.get(chat.id)
     actor_id = event.from_user.id
-    actor_key = str(actor_id)
-    promoted = policy.get("xyron_promoted_admins", {})
-    if not isinstance(promoted, dict) or actor_key not in promoted:
-        return
-    if promoted[actor_key].get("mode") != "f":
+    bot_id = context.bot.id
+    if actor_id == bot_id:
         return
 
+    lock = _PROTECTOR_LOCKS.setdefault((chat.id, actor_id), asyncio.Lock())
+    async with lock:
+        await _mass_ban_protector_locked(update, context, actor_id)
+
+
+async def _mass_ban_protector_locked(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    actor_id: int,
+) -> None:
+    chat = update.effective_chat
+    if not chat:
+        return
+
+    policies = GroupPolicyRepository(context.application.bot_data["sessions"])
+    policy = await policies.get(chat.id)
+    actor_key = str(actor_id)
     now = time.time()
+
+    # Only actual Telegram admins can trigger this protection. The group owner
+    # is explicitly exempt and is never subjected to a rights change.
+    try:
+        current = await context.bot.get_chat_member(chat.id, actor_id)
+    except TelegramError:
+        logger.exception(
+            "Could not inspect ban actor: chat_id=%s actor_id=%s",
+            chat.id, actor_id,
+        )
+        return
+    if current.status != ChatMember.ADMINISTRATOR:
+        return
+
     histories = policy.get("xyron_removal_events", {})
     histories = dict(histories) if isinstance(histories, dict) else {}
+    raw_history = histories.get(actor_key, [])
     recent = [
-        float(stamp) for stamp in histories.get(actor_key, [])
+        float(stamp) for stamp in raw_history
         if now - float(stamp) <= REMOVAL_WINDOW_SECONDS
     ]
     recent.append(now)
@@ -159,31 +196,62 @@ async def mass_ban_protector(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await policies.set_value(chat.id, "xyron_removal_events", histories)
         return
 
+    # Check XYRON's live authority immediately before changing rights. If the
+    # target is above XYRON in Telegram's admin hierarchy, Telegram will reject
+    # the change; we log that limitation and leave the group owner's controls
+    # untouched. Keep the threshold history so a later event can retry.
     try:
-        current = await context.bot.get_chat_member(chat.id, actor_id)
-        if current.status != ChatMember.ADMINISTRATOR:
+        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
+        if (
+            bot_member.status != ChatMember.ADMINISTRATOR
+            or not getattr(bot_member, "can_promote_members", False)
+            or not bool(getattr(current, "can_restrict_members", False))
+        ):
+            await policies.set_value(chat.id, "xyron_removal_events", histories)
+            logger.warning(
+                "Mass-ban detected but XYRON cannot edit actor rights: "
+                "chat_id=%s actor_id=%s bot_status=%s bot_can_promote=%s",
+                chat.id,
+                actor_id,
+                bot_member.status,
+                getattr(bot_member, "can_promote_members", False),
+            )
             return
+
+        # Preserve every other current admin right; suspend only the ability
+        # to ban/restrict members. The original state is saved for restoration.
         rights = {name: bool(getattr(current, name, False)) for name in RIGHTS}
-        if not rights["can_restrict_members"]:
-            return
         rights["can_restrict_members"] = False
         await context.bot.promote_chat_member(chat.id, actor_id, **rights)
+
         suspensions[actor_key] = {
             "expires_at": now + BAN_PERMISSION_SUSPENSION_SECONDS,
             "restore_can_restrict_members": True,
         }
         histories[actor_key] = []
         await policies.set_value(chat.id, "xyron_removal_events", histories)
-        await policies.set_value(chat.id, "xyron_ban_permission_suspensions", suspensions)
+        await policies.set_value(
+            chat.id, "xyron_ban_permission_suspensions", suspensions
+        )
         label = await _user_label(context, chat.id, actor_id)
         await context.bot.send_message(
             chat.id,
             f"⛔ {label} exceeded 4 bans in 2 minutes. "
-            "Ban permission has been paused for 1 hour and will then be restored.",
+            "XYRON immediately paused their ban permission for 1 hour. "
+            "Their other administrator permissions remain unchanged.",
             parse_mode="HTML",
         )
+        logger.warning(
+            "Mass-ban protection activated: chat_id=%s actor_id=%s bans=%s",
+            chat.id, actor_id, len(recent),
+        )
     except TelegramError:
-        logger.exception("Could not suspend ban permission for admin %s in %s", actor_id, chat.id)
+        logger.exception(
+            "Mass-ban detected but Telegram rejected rights suspension: "
+            "chat_id=%s actor_id=%s",
+            chat.id, actor_id,
+        )
+        await policies.set_value(chat.id, "xyron_removal_events", histories)
 
 
 async def mass_ban_restore_worker(application, stop_event: asyncio.Event) -> None:
