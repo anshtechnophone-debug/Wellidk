@@ -34,29 +34,35 @@ class AccountManager:
         self.legacy_store = Path(legacy_store) if legacy_store else None
         self.clients = []
         self.accounts = {}
+        self._stored_accounts = {}
         self._login_lock = asyncio.Lock()
 
     def _read_store(self):
+        """Merge new and legacy stores without discarding any saved account."""
+        merged = {}
         candidates = [self.store_path]
-        if self.legacy_store:
+        if self.legacy_store and self.legacy_store != self.store_path:
             candidates.append(self.legacy_store)
         for candidate in candidates:
             if not candidate.is_file():
                 continue
             try:
                 payload = json.loads(candidate.read_text(encoding="utf-8"))
-                if isinstance(payload, dict):
-                    if candidate != self.store_path:
-                        log.warning("Found legacy player-account store at %s; migrating a copy", candidate)
-                    return payload
-            except (OSError, json.JSONDecodeError):
+                if not isinstance(payload, dict):
+                    raise ValueError("Player-account store must contain a JSON object")
+                # Prefer the new store if the same account exists in both places.
+                for account_id, record in payload.items():
+                    merged.setdefault(str(account_id), record)
+                if candidate != self.store_path:
+                    log.info("Found legacy player-account store at %s; preserving its entries", candidate)
+            except (OSError, json.JSONDecodeError, ValueError):
                 log.exception("Could not read player-account store: %s", candidate)
                 raise RuntimeError(f"Player-account store is unreadable: {candidate}")
-        return {}
-
+        return merged
     def _write_store(self):
         temporary = self.store_path.with_suffix(".tmp")
-        payload = json.dumps(self.accounts, indent=2, sort_keys=True)
+        self._stored_accounts.update(self.accounts)
+        payload = json.dumps(self._stored_accounts, indent=2, sort_keys=True)
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as output:
@@ -79,6 +85,7 @@ class AccountManager:
 
     async def load_existing(self):
         stored = self._read_store()
+        self._stored_accounts = dict(stored)
         failed = []
         for account_id, record in stored.items():
             try:
@@ -172,11 +179,13 @@ class AccountManager:
                 await player.disconnect()
                 raise
             self.accounts[account_id] = record
+            self._stored_accounts[account_id] = record
             self.clients.append(player)
             try:
                 self._write_store()
             except Exception:
                 self.accounts.pop(account_id, None)
+                self._stored_accounts.pop(account_id, None)
                 self.clients.remove(player)
                 await self.call_pool.remove_client(player)
                 await player.disconnect()
@@ -208,12 +217,13 @@ class AccountManager:
         message = update.effective_message
         if not self._is_owner(update):
             return await message.reply_text("⛔ Owner only.")
-        if not self.accounts:
-            return await message.reply_text("No voice-player accounts are connected. Use /addaccount.")
+        if not self._stored_accounts:
+            return await message.reply_text("No voice-player accounts are saved. Use /addaccount.")
         rows = []
-        for account_id, record in self.accounts.items():
+        for account_id, record in self._stored_accounts.items():
             name = f"@{record['username']}" if record.get("username") else record.get("first_name", "Telegram user")
-            rows.append(f"• {name} — <code>{account_id}</code>")
+            state = "🟢 Connected" if account_id in self.accounts else "🟡 Saved; reconnect needed"
+            rows.append(f"• {name} — <code>{account_id}</code> · {state}")
         await message.reply_text(
             "🎧 <b>XYRON MUSIC — CONNECTED ACCOUNTS</b>\n\n" + "\n".join(rows),
             parse_mode="HTML",
