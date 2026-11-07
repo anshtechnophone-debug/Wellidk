@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from telegram import Chat, ChatMember, ChatPermissions, Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from sqlalchemy import select
 
@@ -81,11 +82,30 @@ async def require_admin_access(update: Update, context: ContextTypes.DEFAULT_TYP
     return AdminAccess(actor=actor, bot=bot_member, is_bot_admin=effective_bot_admin)
 
 
-async def ensure_target_is_moderatable(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
-                                       target_id: int, actor: ChatMember, settings: Settings) -> None:
+async def ensure_target_is_moderatable(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    target_id: int,
+    actor: ChatMember,
+    settings: Settings,
+    *,
+    allow_absent: bool = False,
+) -> None:
     if settings.is_owner(target_id) or target_id in settings.protected_user_ids:
         raise AuthorizationError("That user is protected from moderation.")
-    target = await context.bot.get_chat_member(chat_id, target_id)
+    try:
+        target = await context.bot.get_chat_member(chat_id, target_id)
+    except BadRequest as exc:
+        # Telegram cannot return a ChatMember for someone who has never joined
+        # or is no longer in the group. Only ban/unban may target absent users.
+        detail = str(exc).casefold()
+        absent = any(term in detail for term in (
+            "user not participant", "user_not_participant",
+            "chat member not found", "user not found",
+        ))
+        if allow_absent and absent:
+            return
+        raise
     if target.status == ChatMember.OWNER:
         raise AuthorizationError("The group owner cannot be moderated by the bot.")
     if target.status == ChatMember.ADMINISTRATOR and actor.status != ChatMember.OWNER:
