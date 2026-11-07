@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import secrets
 import unicodedata
@@ -17,13 +18,17 @@ log = logging.getLogger("xyron.music.songsx")
 
 
 class SongsxSource:
-    def __init__(self, bot_username: str, cache_channel_id: int | str, media_dir: Path, legacy_index: Path | None = None):
+    def __init__(
+        self, bot_username: str, cache_channel_id: int | str, media_dir: Path,
+        legacy_index: Path | None = None, local_cache_max_mb: int = 512,
+    ):
         self.bot_username = (bot_username or "Songsx_bot").lstrip("@")
         self.raw_cache_channel_id = int(cache_channel_id or 0)
         self.media_dir = Path(media_dir)
         self.media_dir.mkdir(parents=True, exist_ok=True)
         self.index_path = self.media_dir / "songsx_cache.json"
         self.legacy_index = Path(legacy_index) if legacy_index else None
+        self.local_cache_max_bytes = int(local_cache_max_mb) * 1024 * 1024
         self.index = self._load_index()
         self.pending: dict[str, dict] = {}
         self._lock = asyncio.Lock()
@@ -104,6 +109,7 @@ class SongsxSource:
     async def _restore_from_channel(self, client, record: dict) -> str | None:
         path = Path(record.get("path", ""))
         if path.is_file() and path.stat().st_size > 10_000:
+            os.utime(path, None)
             return str(path)
         message_id = record.get("cache_message_id")
         if not message_id:
@@ -127,6 +133,7 @@ class SongsxSource:
                     return None
                 temporary.replace(destination)
             record["path"] = str(destination)
+            os.utime(destination, None)
             self._save_index()
             return str(destination)
         except Exception:
@@ -189,6 +196,43 @@ class SongsxSource:
                 raise RuntimeError("Songsx returned no selectable song buttons.")
             return choices
 
+    def prune_local_cache(self, protected_paths=()) -> int:
+        """Bound local audio storage; Telegram-channel copies remain restorable."""
+        protected = {str(Path(path).resolve()) for path in protected_paths if path}
+        cache_paths = {}
+        for record in self.index.values():
+            if not record.get("cache_message_id"):
+                continue
+            path = Path(record.get("path", ""))
+            try:
+                if path.is_file() and path.stat().st_size > 0:
+                    cache_paths[str(path.resolve())] = path
+            except OSError:
+                continue
+        entries = []
+        total_bytes = 0
+        for resolved, path in cache_paths.items():
+            try:
+                stat = path.stat()
+                total_bytes += stat.st_size
+                entries.append((stat.st_mtime, stat.st_size, resolved, path))
+            except OSError:
+                continue
+        removed = 0
+        for _, size, resolved, path in sorted(entries):
+            if total_bytes <= self.local_cache_max_bytes:
+                break
+            if resolved in protected:
+                continue
+            try:
+                path.unlink()
+                total_bytes -= size
+                removed += 1
+            except OSError:
+                log.warning("Could not prune cached audio file %s", path, exc_info=True)
+        if removed:
+            log.info("Pruned %s local music cache file(s); Telegram channel copies remain available", removed)
+        return removed
     async def download_selected(self, track: dict) -> str:
         cached_path = track.get("_cached_path")
         if cached_path and Path(cached_path).is_file():
