@@ -509,9 +509,8 @@ class MusicPlugin:
         track = self.search_cache.get(chat_id, {}).get(token)
         if not track:
             return await query.answer("Search expired. Run /play again.", show_alert=True)
-        await query.answer()
-        self.queues[chat_id].append(track)
         await query.answer("Added to queue")
+        self.queues[chat_id].append(track)
         if chat_id not in self.players:
             await query.edit_message_text("⏳ Preparing your selected track…")
             await self._play_next(chat_id, query.message.message_id)
@@ -601,7 +600,10 @@ class MusicPlugin:
             await self._edit_player_card(chat_id, query.message.message_id, self._render_player(chat_id))
         except Exception as exc:
             log.exception("Music player control failed")
-            await query.answer(f"Action failed: {type(exc).__name__}", show_alert=True)
+            try:
+                await query.answer(f"Action failed: {type(exc).__name__}", show_alert=True)
+            except Exception:
+                pass
 
     async def _control_command(self, update, action):
         if await self._reject_control(update):
