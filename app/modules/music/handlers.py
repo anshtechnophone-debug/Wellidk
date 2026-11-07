@@ -73,7 +73,7 @@ class MusicPlugin:
             connector=aiohttp.TCPConnector(limit=30, ttl_dns_cache=300, keepalive_timeout=30),
         )
         try:
-            count = await self.accounts.load_existing()
+            count = await self.accounts.load_existing(self.settings.music_session_strings)
             await self.calls.start()
             me = await self.bot.get_me()
             self.public_username = me.username or "xyronrobot"
