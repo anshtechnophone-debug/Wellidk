@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import re
 from dataclasses import dataclass
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -94,6 +95,7 @@ def _example(command: CommandInfo) -> str:
     }
     for placeholder, value in replacements.items():
         example = example.replace(placeholder, value)
+    example = re.sub(r"<[^>]+>", "value", example)
     return " ".join(example.split())
 
 
