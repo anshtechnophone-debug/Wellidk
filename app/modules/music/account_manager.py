@@ -59,6 +59,7 @@ class AccountManager:
                 log.exception("Could not read player-account store: %s", candidate)
                 raise RuntimeError(f"Player-account store is unreadable: {candidate}")
         return merged
+
     def _write_store(self):
         temporary = self.store_path.with_suffix(".tmp")
         self._stored_accounts.update(self.accounts)
@@ -178,6 +179,7 @@ class AccountManager:
             except Exception:
                 await player.disconnect()
                 raise
+            previous_stored_record = self._stored_accounts.get(account_id)
             self.accounts[account_id] = record
             self._stored_accounts[account_id] = record
             self.clients.append(player)
@@ -185,7 +187,10 @@ class AccountManager:
                 self._write_store()
             except Exception:
                 self.accounts.pop(account_id, None)
-                self._stored_accounts.pop(account_id, None)
+                if previous_stored_record is None:
+                    self._stored_accounts.pop(account_id, None)
+                else:
+                    self._stored_accounts[account_id] = previous_stored_record
                 self.clients.remove(player)
                 await self.call_pool.remove_client(player)
                 await player.disconnect()
