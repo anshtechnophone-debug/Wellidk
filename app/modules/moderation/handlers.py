@@ -167,6 +167,70 @@ async def _resolve_name_target(
     )
 
 
+async def _resolve_username_via_userbot(
+    context: ContextTypes.DEFAULT_TYPE, username: str
+) -> int:
+    """Resolve a public Telegram username through XYRON's connected MTProto music account."""
+    import os
+
+    normalized = username.strip().lstrip("@")
+    if not re.fullmatch(r"[A-Za-z0-9_]{5,32}", normalized):
+        raise TargetError("That does not look like a valid Telegram username.")
+
+    plugin = context.application.bot_data.get("music_plugin")
+    accounts = getattr(plugin, "accounts", None)
+    clients = list(getattr(accounts, "clients", []) or [])
+
+    for client in clients:
+        try:
+            if not client.is_connected():
+                continue
+            entity = await client.get_entity("@" + normalized)
+            if not hasattr(entity, "first_name"):
+                raise TargetError("That username belongs to a channel or group, not a user.")
+            user_id = int(getattr(entity, "id", 0) or 0)
+            if user_id > 0:
+                return user_id
+        except TargetError:
+            raise
+        except Exception:
+            logger.debug("Connected music userbot could not resolve @%s", normalized, exc_info=True)
+
+    # The standalone owner-control userbot session is also supported as a fallback.
+    api_id_raw = os.getenv("TELEGRAM_API_ID", "").strip()
+    api_hash = os.getenv("TELEGRAM_API_HASH", "").strip()
+    session_string = os.getenv("TELETHON_SESSION", "").strip()
+    if api_id_raw and api_hash and session_string:
+        client = None
+        try:
+            from telethon import TelegramClient
+            from telethon.sessions import StringSession
+
+            client = TelegramClient(StringSession(session_string), int(api_id_raw), api_hash)
+            await client.connect()
+            if not await client.is_user_authorized():
+                raise TargetError("The configured XYRON userbot session is not authorized.")
+            entity = await client.get_entity("@" + normalized)
+            if not hasattr(entity, "first_name"):
+                raise TargetError("That username belongs to a channel or group, not a user.")
+            user_id = int(getattr(entity, "id", 0) or 0)
+            if user_id > 0:
+                return user_id
+        except TargetError:
+            raise
+        except Exception:
+            logger.debug("Fallback MTProto lookup failed for @%s", normalized, exc_info=True)
+        finally:
+            if client is not None and client.is_connected():
+                await client.disconnect()
+
+    raise TargetError(
+        f"I couldn't resolve @{normalized}. Make sure a music userbot account is connected "
+        "or TELEGRAM_API_ID, TELEGRAM_API_HASH and TELETHON_SESSION are configured; "
+        "otherwise use the numeric Telegram ID."
+    )
+
+
 async def _resolve_target(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -209,7 +273,13 @@ async def _resolve_target(
         if history_user_id:
             return history_user_id, args[1:]
         if allow_name:
-            return await _resolve_name_target(context, chat.id, value), args[1:]
+            try:
+                return await _resolve_username_via_userbot(context, value), args[1:]
+            except TargetError as lookup_error:
+                try:
+                    return await _resolve_name_target(context, chat.id, value), args[1:]
+                except TargetError:
+                    raise lookup_error
         raise TargetError(
             "That username is not known to XYRON yet. Try a name match, numeric ID, "
             "or reply to the user's message."
