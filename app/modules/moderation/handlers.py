@@ -230,7 +230,8 @@ async def _resolve_target(
                     KnownUser.chat_id == chat.id,
                     KnownUser.username == value[1:].casefold(),
                 )
-            )            history_ids = set((await session.scalars(
+            )
+            history_ids = set((await session.scalars(
                 select(GroupMessage.user_id).where(
                     GroupMessage.chat_id == chat.id,
                     func.lower(GroupMessage.username) == value[1:].casefold(),
