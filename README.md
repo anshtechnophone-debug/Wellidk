@@ -247,7 +247,7 @@ AI is disabled by default. Set `AI_ENABLED=true`, `AI_GLOBAL_EMERGENCY_STOP=fals
 - **`OWNER_ID must be ... numeric`:** use the owner's numeric Telegram user ID, not `@s1dh7`.
 - **Owner gate blocks moderation:** promote the configured owner to group admin; the bot will not moderate in that group otherwise.
 - **Bot missing permission / `CHAT_ADMIN_REQUIRED`:** promote the bot and grant `Ban users`; `d*`/`s*` additionally need `Delete messages`.
-- **Cannot resolve username:** the Bot API cannot look up arbitrary usernames. Have the member send a group message first or use a reply/numeric ID.
+- **Cannot resolve username:** connect at least one music userbot account (the same MTProto accounts used by `/play`) or configure `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` and `TELETHON_SESSION`. Otherwise use the numeric ID. Public usernames can resolve users XYRON has never seen in the group.
 - **SQLite locked:** run one poller only, stop concurrent copies, and check file ownership. Use PostgreSQL for multiple application processes only after adding distributed job claiming.
 - **Migration cannot connect:** verify `DATABASE_URL`, the async driver (`aiosqlite` or `asyncpg`), database availability, and network rules.
 - **Temporary action still queued:** inspect service logs and current bot rights. Failed expirations are retained and retried; fixing Telegram permissions allows retry.
