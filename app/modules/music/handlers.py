@@ -769,6 +769,11 @@ class MusicPlugin:
             return await update.effective_message.reply_text("For account security, use /addaccount in XYRON's private chat.")
         await self.accounts.handle_add_account(update, context)
 
+    async def myid_command(self, update, context):
+        user = update.effective_user
+        if user:
+            await update.effective_message.reply_text(f"Your Telegram user ID: <code>{user.id}</code>", parse_mode="HTML")
+
     async def accounts_command(self, update, context):
         if update.effective_chat.type != Chat.PRIVATE:
             return await update.effective_message.reply_text("Use /accounts in XYRON's private chat.")
@@ -791,7 +796,7 @@ def register_music(application: Application):
             "skip": unavailable, "queue": unavailable, "np": unavailable,
             "volume": unavailable, "musichelp": unavailable,
             "addaccount": unavailable, "newaccount": unavailable,
-            "accounts": unavailable,
+            "accounts": unavailable, "myid": unavailable,
         }
         for name, callback in commands.items():
             application.add_handler(CommandHandler(name, callback))
