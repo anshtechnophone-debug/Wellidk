@@ -40,6 +40,7 @@ class MusicPlugin:
         self.media_dir = self.data_dir / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
         self.calls = MultiCallPool()
+        self.calls.set_handoff_handler(self._handle_player_handoff)
         self.accounts = AccountManager(
             bot=self.bot,
             call_pool=self.calls,
@@ -413,6 +414,28 @@ class MusicPlugin:
                 except Exception:
                     pass
 
+    async def _handle_player_handoff(self, old_chat_id: int, new_chat_id: int):
+        """Clear stale UI/state when every authorized voice account is already busy."""
+        await self._stop_progress(old_chat_id)
+        old_track = self.players.pop(old_chat_id, None)
+        self.queues[old_chat_id].clear()
+        if old_track:
+            try:
+                await self._edit_player_card(
+                    old_chat_id, old_track["message_id"],
+                    "🔀 <b>XYRON Music moved to another group's voice chat.</b> Playback stopped here.",
+                    with_keyboard=False,
+                )
+            except Exception:
+                pass
+        try:
+            await self.bot.send_message(
+                old_chat_id,
+                "🔀 XYRON Music moved to another group's voice chat. Use /play to start music here again.",
+            )
+        except Exception:
+            log.debug("Could not notify previous music group %s", old_chat_id, exc_info=True)
+
     async def _on_stream_end(self, _, update: StreamEnded):
         chat_id = update.chat_id
         await self._stop_progress(chat_id)
@@ -486,8 +509,6 @@ class MusicPlugin:
         track = self.search_cache.get(chat_id, {}).get(token)
         if not track:
             return await query.answer("Search expired. Run /play again.", show_alert=True)
-        if not await self._can_control(query.message.chat, query.from_user):
-            return await query.answer("Only group admins or the bot owner can select music.", show_alert=True)
         await query.answer()
         self.queues[chat_id].append(track)
         await query.answer("Added to queue")
@@ -509,13 +530,13 @@ class MusicPlugin:
         chat_id = chat.id
         if not await self._can_control(chat, query.from_user):
             return await query.answer("Only group admins or the bot owner can control playback.", show_alert=True)
-        await query.answer()
         action = query.data.rsplit(":", 1)[-1]
         try:
             if action == "queue":
                 upcoming = list(self.queues[chat_id])
                 if not upcoming:
                     return await query.answer("The queue is empty.", show_alert=True)
+                await query.answer()
                 lines = [
                     f"{i}. {html.escape(str(item.get('name', 'Unknown')))} — "
                     f"{html.escape(str(item.get('artist_name', 'Unknown artist')))}"
@@ -527,6 +548,7 @@ class MusicPlugin:
                 track = self.players.get(chat_id)
                 if not track:
                     return await query.answer("Nothing is playing.", show_alert=True)
+                await query.answer()
                 await self.calls.leave_call(chat_id)
                 await self._ensure_player_in_group(chat_id)
                 await self.calls.play(chat_id, track["path"])
@@ -534,18 +556,21 @@ class MusicPlugin:
                 track["paused_elapsed"] = 0
                 track["paused"] = False
             elif action == "pause":
+                await query.answer()
                 await self.calls.pause(chat_id)
                 track = self.players.get(chat_id)
                 if track:
                     track["paused_elapsed"] = int(time.monotonic() - track["started_at"])
                     track["paused"] = True
             elif action == "resume":
+                await query.answer()
                 await self.calls.resume(chat_id)
                 track = self.players.get(chat_id)
                 if track:
                     track["started_at"] = time.monotonic() - track.get("paused_elapsed", 0)
                     track["paused"] = False
             elif action == "skip":
+                await query.answer("Skipping…")
                 try:
                     await self.calls.leave_call(chat_id)
                 except Exception:
@@ -555,6 +580,7 @@ class MusicPlugin:
                 await self._play_next(chat_id)
                 return
             elif action == "stop":
+                await query.answer("Stopping…")
                 self.queues[chat_id].clear()
                 await self._stop_progress(chat_id)
                 self.players.pop(chat_id, None)
@@ -568,6 +594,7 @@ class MusicPlugin:
                 track = self.players.get(chat_id)
                 if not track:
                     return await query.answer("Nothing is playing.", show_alert=True)
+                await query.answer()
                 volume = max(1, min(200, int(track.get("volume", 100)) + (-10 if action == "vol_down" else 10)))
                 await self.calls.change_volume_call(chat_id, volume)
                 track["volume"] = volume
@@ -658,12 +685,33 @@ class MusicPlugin:
     async def queue_command(self, update, context):
         if not await self._require_membership(update):
             return
-        await self._control_command(update, "queue")
+        chat_id = update.effective_chat.id
+        upcoming = list(self.queues[chat_id])
+        if not upcoming:
+            return await update.effective_message.reply_text("📭 The queue is empty.")
+        lines = [
+            f"{i}. {html.escape(str(x.get('name')))} — {html.escape(str(x.get('artist_name')))}"
+            for i, x in enumerate(upcoming[:15], 1)
+        ]
+        await update.effective_message.reply_text(
+            "📜 <b>UP NEXT</b>\\n" + "\\n".join(lines), parse_mode="HTML"
+        )
 
     async def np_command(self, update, context):
         if not await self._require_membership(update):
             return
-        await self._control_command(update, "np")
+        track = self.players.get(update.effective_chat.id)
+        if not track:
+            return await update.effective_message.reply_text("🎵 Nothing is playing.")
+        cover = make_player_cover(
+            title=track.get("title", "Unknown title"),
+            artist=track.get("artist", "Unknown artist"),
+            requested_by=track.get("requested_by", "A group member"),
+            bot_username=self.public_username,
+        )
+        await self._send_player_card(
+            update.effective_chat.id, cover, self._render_player(update.effective_chat.id)
+        )
 
     async def volume_command(self, update, context):
         if await self._reject_control(update):
