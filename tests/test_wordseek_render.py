@@ -9,7 +9,7 @@ def test_wordseek_board_is_generated_in_memory_as_png():
     board = render_wordseek_board(
         4,
         ("king", "dead", "epic"),
-        ("🟥🟦🟥🟥", "🟥🟥🟩🟥", "🟥🟩🟩🟥"),
+        ("🟥🟨🟥🟥", "🟥🟥🟩🟥", "🟥🟩🟩🟥"),
     )
     assert isinstance(board, BytesIO)
     assert board.name == "wordseek-board.png"
