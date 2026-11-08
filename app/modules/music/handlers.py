@@ -1153,6 +1153,7 @@ def register_music(application: Application):
     application.bot_data["music_plugin"] = plugin
     commands = {
         "play": plugin.play_command,
+        "myplaylist": plugin.my_playlist_command,
         "pause": plugin.pause_command,
         "resume": plugin.resume_command,
         "skip": plugin.skip_command,
@@ -1173,6 +1174,9 @@ def register_music(application: Application):
     )
     application.add_handler(
         CallbackQueryHandler(plugin.player_callback, pattern=r"^music:player:(?:replay|pause|resume|skip|stop|queue|vol_down|vol_up)$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(plugin.playlist_callback, pattern=r"^music:playlist:(?:open|add_current|play|stop|delete:[A-Za-z0-9]+|page:\\d+)$")
     )
     application.add_handler(
         CallbackQueryHandler(plugin.subscription_callback, pattern=r"^music:subscription$")
