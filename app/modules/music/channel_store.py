@@ -69,7 +69,7 @@ class ChannelMusicStore:
 
     @staticmethod
     def _marker(user_id: int) -> str:
-        return f"XYRON_MUSIC_USER_V1_{int(user_id)}"
+        return f"XYRONMUSICUSER{int(user_id)}V1"
 
     @staticmethod
     def _default(user_id: int) -> dict:
