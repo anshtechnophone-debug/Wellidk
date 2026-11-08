@@ -383,7 +383,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
                     f"🏁 <b>Until:</b> {(started + DURATION).strftime('%d %b %Y, %H:%M UTC')}\n"
                     "⏳ Duration: <b>7 days</b>\n\n"
                     "💬 Reply = 1 point · Standalone text = 0.5 point\n"
-                    "✅ Join with <b>/gw</b> before chatting to earn credits.\n"
+                    "✅ Join with <b>/gw</b> before chatting to earn points.\n"
                     "📊 Use <b>/prize</b> to see the leaderboard.",
                     parse_mode="HTML",
                 )
