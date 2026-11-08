@@ -73,14 +73,14 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
     caption = f"👤 <b>{escape(user.full_name)}</b> guessed · {len(result.guesses)}/30"
     if result.state == "won":
         caption += (
-            "\\n\\n🎉 <b>Excellent! You found the word!</b>"
-            f"\\n⭐ Added {result.points} points to the leaderboard."
-            f"\\nStart again: /new{len(value)}"
+            "\n\n🎉 <b>Excellent! You found the word!</b>"
+            f"\n⭐ Added {result.points} points to the leaderboard."
+            f"\nStart again: /new{len(value)}"
         )
     elif result.state == "lost":
         caption += (
-            f"\\n\\nThe word was <b>{escape(result.answer.upper() if result.answer else '')}</b>."
-            f"\\nTry again: /new{len(value)}"
+            f"\n\nThe word was <b>{escape(result.answer.upper() if result.answer else '')}</b>."
+            f"\nTry again: /new{len(value)}"
         )
 
     board_image = render_wordseek_board(
