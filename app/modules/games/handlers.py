@@ -68,14 +68,29 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
             return
         await message.reply_text(str(exc))
         return
-    rows = [f"{feedback}  <b>{word.upper()}</b>"
-            for feedback, word in zip(result.feedbacks, result.guesses, strict=True)]
-    board = f"<b>{len(value)}-letter mode · {len(result.guesses)}/30</b>\n" + "\n".join(rows)
+    from app.modules.games.wordseek_render import render_wordseek_board
+
+    caption = f"👤 <b>{escape(user.full_name)}</b> guessed · {len(result.guesses)}/30"
     if result.state == "won":
-        board += f"\n\n🎉 <b>Excellent! You found {result.answer.upper()}!</b>\n⭐ Added {result.points} points to the leaderboard.\nStart again: /new{len(value)}"
+        caption += (
+            "\\n\\n🎉 <b>Excellent! You found the word!</b>"
+            f"\\n⭐ Added {result.points} points to the leaderboard."
+            f"\\nStart again: /new{len(value)}"
+        )
     elif result.state == "lost":
-        board += f"\n\nThe word was <b>{result.answer.upper()}</b>.\nTry again: /new{len(value)}"
-    await message.reply_text(f"👤 {escape(user.full_name)} guessed:\n" + board, parse_mode="HTML")
+        caption += (
+            f"\\n\\nThe word was <b>{escape(result.answer.upper() if result.answer else '')}</b>."
+            f"\\nTry again: /new{len(value)}"
+        )
+
+    board_image = render_wordseek_board(
+        len(value), result.guesses, result.feedbacks, max_guesses=30
+    )
+    await message.reply_photo(
+        photo=board_image,
+        caption=caption,
+        parse_mode="HTML",
+    )
 
 
 async def guess_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
