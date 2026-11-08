@@ -143,7 +143,6 @@ class SongsxSource:
                 # Only reuse an exact title/title+artist cache hit. A raw search
                 # phrase must never become a global shortcut to another user's choice.
                 cached_title = self._key(cached.get("title", ""))
-                cached_artist = self._key(cached.get("artist", ""))
                 if key not in {cached_title, self._key(
                     f"{cached.get('title', '')} {cached.get('artist', '')}"
                 )}:
