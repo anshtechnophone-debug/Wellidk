@@ -144,9 +144,13 @@ class ChannelMusicStore:
             part, message_total, chunk = parsed
             if total and total != message_total:
                 continue
-            total = message_total
-            found[part] = int(message.id)
-            chunks[part] = chunk
+            if not total:
+                total = message_total
+            if part not in found:
+                # iter_messages is newest-first: keep the newest copy if an
+                # interrupted save left an older record behind.
+                found[part] = int(message.id)
+                chunks[part] = chunk
         return found, chunks, total
 
     async def get_user(self, user_id: int) -> dict:
@@ -175,20 +179,34 @@ class ChannelMusicStore:
             if existing_ids is None:
                 existing_ids, _, _ = await self._find_messages(client, peer, user_id)
             saved_ids = {}
-            for part, message_text in enumerate(messages, 1):
-                message_id = existing_ids.get(part)
-                if message_id is not None:
-                    await client.edit_message(peer, message_id, message_text, link_preview=False)
-                    saved_ids[part] = message_id
-                else:
+            try:
+                for part, message_text in enumerate(messages, 1):
+                    message_id = existing_ids.get(part)
+                    if message_id is not None:
+                        await client.edit_message(peer, message_id, message_text, link_preview=False)
+                        saved_ids[part] = message_id
+                    else:
+                        sent = await client.send_message(peer, message_text, link_preview=False)
+                        saved_ids[part] = int(sent.id)
+                stale_ids = [
+                    message_id for part, message_id in existing_ids.items()
+                    if part > len(messages)
+                ]
+                if stale_ids:
+                    await client.delete_messages(peer, stale_ids)
+            except Exception:
+                # Telegram can expire edit rights on older channel messages.
+                # Replace the complete record, then remove its previous chunks.
+                log.info("Replacing an older channel playlist record for user %s", user_id)
+                saved_ids = {}
+                for part, message_text in enumerate(messages, 1):
                     sent = await client.send_message(peer, message_text, link_preview=False)
                     saved_ids[part] = int(sent.id)
-            stale_ids = [
-                message_id for part, message_id in existing_ids.items()
-                if part > len(messages)
-            ]
-            if stale_ids:
-                await client.delete_messages(peer, stale_ids)
+                if existing_ids:
+                    try:
+                        await client.delete_messages(peer, list(existing_ids.values()))
+                    except Exception:
+                        log.warning("Could not delete superseded playlist record for user %s", user_id)
             self._message_ids[user_id] = saved_ids
             self._records[user_id] = record
             return record
