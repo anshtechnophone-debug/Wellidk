@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import re
+import unicodedata
 from datetime import UTC, datetime, timedelta
 from html import escape
 from io import BytesIO
@@ -157,9 +159,6 @@ def _draw_avatar(canvas: Image.Image, box: tuple[int, int, int, int], name: str,
 
 def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: datetime, active: bool, avatars: dict[int, bytes | None]) -> BytesIO:
     """Render a premium mobile leaderboard with the real Vice Cream NFT artwork."""
-    import base64
-import unicodedata
-
     width, height = 1080, 1350
     image = Image.new("RGB", (width, height), (9, 13, 31))
     draw = ImageDraw.Draw(image)
