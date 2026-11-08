@@ -18,8 +18,7 @@ from app.core.permissions import AuthorizationError, require_admin_access
 from app.services.group_policy import GroupPolicyRepository
 
 DURATION = timedelta(days=7)
-TARGET_CREDITS = 9_800
-PRIZES = (350, 200, 150, 0, 0)
+PRIZE_LABELS = ("NFT GIFT · VICE CREAM", "₹175", "₹75")
 
 
 def _repo(context: ContextTypes.DEFAULT_TYPE) -> GroupPolicyRepository:
@@ -69,12 +68,12 @@ def _rules_text(group_title: str, started: datetime | None = None, ends: datetim
         f"🎁 <b>{escape(group_title)} — GIVEAWAY RULES</b>\n\n"
         f"🗓 <b>Starts:</b> {start_label}\n"
         f"🏁 <b>Ends:</b> {end_label}\n\n"
-        "💬 <b>Earn credits</b>\n"
-        "• Text reply: <b>+1 credit</b>\n"
-        "• Standalone text: <b>+0.5 credit</b>\n"
-        "• Media, stickers, captions and commands: <b>0 credits</b>\n\n"
+        "💬 <b>Earn points</b>\n"
+        "• Text reply: <b>+1 point</b>\n"
+        "• Standalone text: <b>+0.5 point</b>\n"
+        "• Media, stickers, captions and commands: <b>0 points</b>\n\n"
         "✅ Join first. Only messages sent after joining count.\n"
-        "🏆 Your rank depends on your credits. Use <b>/prize</b> in the group.\n"
+        "🏆 Your rank depends on your points. Use <b>/prize</b> in the group.\n"
         "⏳ The giveaway ends after 7 days."
     )
 
@@ -138,72 +137,67 @@ def _draw_avatar(canvas: Image.Image, box: tuple[int, int, int, int], name: str,
 
 
 def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: datetime, active: bool, avatars: dict[int, bytes | None]) -> BytesIO:
-    """Render a mobile-friendly, top-three-only weekly giveaway image."""
+    """Render a premium, mobile-first top-three points leaderboard."""
     width, height = 1080, 1350
-    image = Image.new("RGB", (width, height))
-    pixels = image.load()
-    top = (12, 18, 39)
-    bottom = (31, 25, 58)
-    for y in range(height):
-        ratio = y / max(1, height - 1)
-        color = tuple(int(top[i] * (1 - ratio) + bottom[i] * ratio) for i in range(3))
-        ImageDraw.Draw(image).line((0, y, width, y), fill=color)
+    image = Image.new("RGB", (width, height), (8, 12, 29))
     draw = ImageDraw.Draw(image)
-    title_font = _load_font(53, True)
-    subtitle_font = _load_font(25, False)
-    section_font = _load_font(23, True)
-    name_font = _load_font(34, True)
-    small_font = _load_font(23, False)
-    prize_font = _load_font(32, True)
-    progress_font = _load_font(19, True)
-    white = (247, 248, 255)
-    muted = (177, 187, 210)
-    gold = (255, 207, 87)
-    draw.rounded_rectangle((44, 38, width - 44, 224), radius=34, fill=(22, 29, 55), outline=(77, 74, 111), width=2)
-    draw.text((width // 2, 68), "WEEKLY GIVEAWAY", font=title_font, fill=white, anchor="mt")
-    draw.text((width // 2, 143), "LIVE  •  " + (_remaining(ends_at) + " LEFT" if active else "FINAL RESULTS"), font=subtitle_font, fill=(126, 235, 177) if active else gold, anchor="mt")
-    draw.text((width // 2, 190), "THE PRIZE LEAGUE", font=section_font, fill=gold, anchor="mt")
+    top, bottom = (8, 13, 31), (31, 20, 54)
+    for y in range(height):
+        ratio = y / (height - 1)
+        color = tuple(int(top[i] * (1 - ratio) + bottom[i] * ratio) for i in range(3))
+        draw.line((0, y, width, y), fill=color)
+    draw.ellipse((-230, -330, 560, 460), fill=(24, 39, 82))
+    draw.ellipse((650, 820, 1320, 1500), fill=(54, 27, 79))
+    draw = ImageDraw.Draw(image)
 
-    medals = ("1ST PLACE", "2ND PLACE", "3RD PLACE")
-    accents = ((255, 207, 87), (198, 211, 232), (205, 143, 94))
+    title_font = _load_font(58, True)
+    subtitle_font = _load_font(25)
+    eyebrow_font = _load_font(20, True)
+    rank_font = _load_font(23, True)
+    name_font = _load_font(37, True)
+    points_font = _load_font(31, True)
+    prize_font = _load_font(25, True)
+    footer_font = _load_font(20, True)
+    white, muted = (248, 249, 255), (166, 180, 207)
+    gold, silver, bronze = (255, 211, 105), (211, 222, 241), (224, 157, 116)
+    accents = (gold, silver, bronze)
+
+    draw.rounded_rectangle((42, 38, width - 42, 238), radius=42, fill=(17, 25, 51), outline=(78, 91, 137), width=2)
+    draw.text((width // 2, 66), "XYRON PRESENTS", font=eyebrow_font, fill=(147, 169, 222), anchor="mt")
+    draw.text((width // 2, 101), "GIVEAWAY", font=title_font, fill=white, anchor="mt", stroke_width=1, stroke_fill=(102, 91, 151))
+    status = ("LIVE  •  " + _remaining(ends_at) + " LEFT") if active else "GIVEAWAY RESULTS"
+    draw.text((width // 2, 184), status, font=subtitle_font, fill=(126, 237, 181) if active else gold, anchor="mt")
+    draw.text((width // 2, 270), "TOP PLAYERS  •  HIGHEST POINTS WIN", font=eyebrow_font, fill=muted, anchor="mm")
+
+    labels = ("1ST  •  GRAND PRIZE", "2ND  •  RUNNER-UP", "3RD  •  THIRD PLACE")
     for index in range(3):
-        rank = index + 1
-        y1 = 254 + index * 328
-        y2 = y1 + 294
+        rank, y1 = index + 1, 310 + index * 315
         accent = accents[index]
-        draw.rounded_rectangle((44, y1, width - 44, y2), radius=30, fill=(25, 32, 59), outline=accent, width=3)
-        draw.rounded_rectangle((68, y1 + 22, 254, y1 + 64), radius=18, fill=accent)
-        draw.text((161, y1 + 43), medals[index], font=section_font, fill=(24, 27, 42), anchor="mm")
+        draw.rounded_rectangle((42, y1, width - 42, y1 + 282), radius=34, fill=(17, 25, 49), outline=accent, width=3)
+        draw.rounded_rectangle((58, y1 + 17, width - 58, y1 + 26), radius=5, fill=accent)
+        draw.rounded_rectangle((72, y1 + 48, 390, y1 + 98), radius=20, fill=(45, 48, 73), outline=accent, width=1)
+        draw.text((231, y1 + 73), labels[index], font=rank_font, fill=accent, anchor="mm")
         if index < len(entries):
             user_id, data = entries[index]
             name = str(data.get("name") or "Member").strip() or "Member"
-            score = _score(data)
-            earned = min(float(PRIZES[index]), score * 0.05)
-            photo_bytes = avatars.get(user_id)
+            score, photo_bytes = _score(data), avatars.get(user_id)
         else:
-            user_id, name, score, earned, photo_bytes = None, "OPEN SPOT", 0.0, 0.0, None
-        _draw_avatar(image, (78, y1 + 88, 174, y1 + 184), name, photo_bytes, rank)
+            user_id, name, score, photo_bytes = None, "OPEN SPOT", 0.0, None
+        _draw_avatar(image, (78, y1 + 120, 202, y1 + 244), name, photo_bytes, rank)
         draw = ImageDraw.Draw(image)
-        max_name_width = 520
-        while name and draw.textbbox((0, 0), name, font=name_font)[2] > max_name_width:
+        while name and draw.textbbox((0, 0), name, font=name_font)[2] > 690:
             name = name[:-2].rstrip() + "…"
-        draw.text((198, y1 + 94), name, font=name_font, fill=white)
-        draw.text((198, y1 + 145), f"SCORE: {score:g}" if user_id is not None else "SCORE: —", font=small_font, fill=muted)
-        draw.text((78, y1 + 211), f"₹{earned:.2f}  /  ₹{PRIZES[index]}", font=prize_font, fill=accent)
-        bar_x1, bar_y, bar_x2, bar_h = 78, y1 + 260, width - 78, y1 + 278
-        draw.rounded_rectangle((bar_x1, bar_y, bar_x2, bar_h), radius=9, fill=(55, 62, 87))
-        ratio = min(1.0, earned / PRIZES[index]) if PRIZES[index] else 0.0
-        if ratio > 0:
-            fill_x = bar_x1 + max(18, int((bar_x2 - bar_x1) * ratio))
-            draw.rounded_rectangle((bar_x1, bar_y, min(bar_x2, fill_x), bar_h), radius=9, fill=accent)
-        draw.text((bar_x2, y1 + 230), f"{ratio * 100:.2f}% OF PRIZE", font=progress_font, fill=muted, anchor="ra")
+        draw.text((230, y1 + 133), name, font=name_font, fill=white)
+        draw.text((230, y1 + 187), f"{score:g} POINTS" if user_id is not None else "— POINTS", font=points_font, fill=(126, 237, 181) if user_id is not None else muted)
+        draw.rounded_rectangle((72, y1 + 250, width - 72, y1 + 270), radius=10, fill=(36, 44, 70))
+        draw.text((width // 2, y1 + 260), PRIZE_LABELS[index], font=prize_font, fill=accent, anchor="mm")
 
-    draw.text((width // 2, 1272), "CHAT MORE. WIN MORE.", font=section_font, fill=white, anchor="mm")
-    draw.text((width // 2, 1310), "POWERED BY XYRON", font=small_font, fill=muted, anchor="mm")
+    draw.text((width // 2, 1280), "KEEP CHATTING. CLIMB THE LEADERBOARD.", font=footer_font, fill=white, anchor="mm")
+    draw.text((width // 2, 1317), "POWERED BY XYRON", font=eyebrow_font, fill=(139, 151, 184), anchor="mm")
     output = BytesIO()
     image.save(output, format="PNG", optimize=True)
     output.seek(0)
-    output.name = "weekly-giveaway.png"
+    output.name = "xyron-giveaway-leaderboard.png"
     return output
 
 
@@ -348,7 +342,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await message.reply_text(
             f"🎁 <b>WEEKLY GIVEAWAY</b>\n\n"
             f"{mention}, join here to register and receive the rules privately.\n"
-            "💬 Earn credits by chatting after you join.\n"
+            "💬 Earn points by chatting after you join.\n"
             "🏆 Use /prize in the group to check your progress.",
             parse_mode="HTML",
             reply_markup=button,
@@ -388,7 +382,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
                     f"🗓 <b>From:</b> {started.strftime('%d %b %Y, %H:%M UTC')}\n"
                     f"🏁 <b>Until:</b> {(started + DURATION).strftime('%d %b %Y, %H:%M UTC')}\n"
                     "⏳ Duration: <b>7 days</b>\n\n"
-                    "💬 Reply = 1 credit · Standalone text = 0.5 credit\n"
+                    "💬 Reply = 1 point · Standalone text = 0.5 point\n"
                     "✅ Join with <b>/gw</b> before chatting to earn credits.\n"
                     "📊 Use <b>/prize</b> to see the leaderboard.",
                     parse_mode="HTML",
