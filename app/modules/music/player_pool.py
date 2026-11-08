@@ -160,10 +160,30 @@ class MultiCallPool:
         await client.get_entity(chat_id)
         return me
 
-    async def play(self, chat_id, source):
+    @staticmethod
+    def _build_media_stream(source, volume=100, start_at=0):
+        """Build an audio-only stream with local FFmpeg gain (no Telegram admin rights)."""
+        volume = max(0, min(200, int(volume)))
+        start_at = max(0.0, float(start_at or 0))
+        gain = volume / 100
+        ffmpeg_parameters = (
+            f"--audio -instart -ss {start_at:.3f} "
+            f"-inmid -af volume={gain:.2f}"
+        )
+        return MediaStream(
+            source,
+            AudioQuality.STUDIO,
+            audio_flags=MediaStream.Flags.REQUIRED,
+            video_flags=MediaStream.Flags.IGNORE,
+            ffmpeg_parameters=ffmpeg_parameters,
+        )
+
+    async def play(self, chat_id, source, volume=100, start_at=0):
         instance = await self._instance_for(chat_id, allocate=True)
         try:
-            await instance.play(chat_id, MediaStream(source, AudioQuality.STUDIO))
+            await instance.play(
+                chat_id, self._build_media_stream(source, volume, start_at)
+            )
         except Exception:
             await self.leave_call(chat_id)
             raise
@@ -174,8 +194,14 @@ class MultiCallPool:
     async def resume(self, chat_id):
         await (await self._instance_for(chat_id)).resume(chat_id)
 
-    async def change_volume_call(self, chat_id, volume):
-        await (await self._instance_for(chat_id)).change_volume_call(chat_id, volume)
+    async def change_volume_call(self, chat_id, volume, source, position=0):
+        """Change playback gain locally and seek back to the current position.
+
+        PyTgCalls' Telegram participant-volume API requires call-management
+        privileges. Replacing the FFmpeg-backed stream avoids that permission
+        requirement and changes only XYRON's outgoing audio.
+        """
+        await self.play(chat_id, source, volume=volume, start_at=position)
 
     async def leave_call(self, chat_id):
         slot = self.chat_to_slot.get(chat_id)
