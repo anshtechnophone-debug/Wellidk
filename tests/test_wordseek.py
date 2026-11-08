@@ -32,6 +32,9 @@ def test_word_check_and_duplicate_letter_feedback():
     assert is_valid_word("across", 6)
     assert is_valid_word("leery", 5)
     assert is_valid_word("bright", 6)
+    assert is_valid_word("ache", 4)
+    assert is_valid_word("beard", 5)
+    assert is_valid_word("kernel", 6)
     assert not is_valid_word("zzzz", 4)
     assert score_guess("game", "name") == "🟥🟩🟩🟩"
     assert score_guess("else", "eels") == "🟩🟨🟨🟨"
