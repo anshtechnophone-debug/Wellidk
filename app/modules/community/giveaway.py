@@ -85,12 +85,16 @@ def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageF
     paths = (
         (
             "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
         )
         if bold
         else (
             "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
             "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
         )
@@ -101,6 +105,13 @@ def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageF
         except OSError:
             continue
     return ImageFont.load_default()
+
+
+def _display_name(value: object) -> str:
+    """Normalize decorative Unicode and remove unsupported emoji glyphs from raster text."""
+    name = unicodedata.normalize("NFKC", str(value or "")).strip()
+    name = "".join(char for char in name if char.isprintable() and unicodedata.category(char) not in {"So", "Cs"})
+    return name or "Member"
 
 
 async def _profile_photo_bytes(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bytes | None:
@@ -147,6 +158,7 @@ def _draw_avatar(canvas: Image.Image, box: tuple[int, int, int, int], name: str,
 def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: datetime, active: bool, avatars: dict[int, bytes | None]) -> BytesIO:
     """Render a premium mobile leaderboard with the real Vice Cream NFT artwork."""
     import base64
+import unicodedata
 
     width, height = 1080, 1350
     image = Image.new("RGB", (width, height), (9, 13, 31))
@@ -199,7 +211,7 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
 
     if entries:
         user_id, data = entries[0]
-        name = str(data.get("name") or "Member").strip() or "Member"
+        name = _display_name(data.get("name"))
         score = _score(data)
     else:
         user_id, name, score = None, "OPEN SPOT", 0.0
