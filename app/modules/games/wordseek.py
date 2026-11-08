@@ -122,6 +122,146 @@ _EXTRA_WORDS[4] = tuple([*_EXTRA_WORDS[4], *"""acorn acre aged amid anew ante ar
 _EXTRA_WORDS[5] = tuple([*_EXTRA_WORDS[5], *"""aback abase abbey abbot abide abort abyss acorn acted adorn aisle algae alias allay alley allot aloud alpha altar amiss amuse ankle antic apron arose attic bacon badge bagel balmy banal banjo basin bathe beady berth biker binge blade bland bleed blink bliss boast brace brake brisk brute cacao cache cacti cadre cameo canny canoe caper cedar champ chaos chime chunk clang clash cleat cling clink cloak clout cobra cocoa colon comet comma conch condo cough coupe covet crack crate crave crawl crazy credo creep crest cried crook crude cruel crumb cubic cumin curly curry curse daisy decor decoy defer deity delta demon denim dense depot derby deter diner disco ditch ditto dizzy dodge donor dryer eagle easel eater ebony edict eerie elude email ember emcee endow ennui equip erase erupt ethic evade exalt excel exert exile expel fable facet faint fairy fatal favor ferry fewer fiend filet finch flare flask flesh flick fling flock flute foggy forge freak frisk fungi gamut gamma gamer gauge gaunt gauze gazer gecko geeky genie genre ghost glaze gleam glide gloom glove gnash gnome hardy haven havoc hazel heath hedge heron hinge hobby hound humid idiom incur inept inert infer intro ionic irony jazzy jelly jewel jiffy joist joker joust kebab khaki koala laden lager lance lapel larva latch latte leach leafy leaky leash lemur lilac liner lipid liter llama lodge login lorry lotus lunar macro madam magma mambo manga mango manor maple marsh mason matey metro micro midst milky mimic miner mixer modem mogul moist molar moody mower mulch mummy mural nanny nasal nasty natal naval needy niche ninja ninth noisy nosey notch octal olive omega onset opine optic ounce ozone pansy parka pasta paste patio peach pecan pedal penal penny peril pinch pixel plaid pluck plumb plume plump plush poise poker polka porch posit proxy pudgy puree purge rabbi rabid racer rally ranch raven recap regal rehab reign renew repay rerun resin retry ridge rifle rigor ripen risen rivet rodeo roomy roost rotor rover rubric rugby rumor salsa satin sauce scalp scarf scary scold scoop scorn scrub seedy setup sewer shady shard shark shave shawl shear sheen shook shred shrub shrug siege silly sinus skate slain slang slant slate slick slight slink sloth slump smash smirk snare snarl sniff snoop snore snowy sonic spear spiny spoil spoof spout spree sprig squat staid stain stair stale stalk stall stamp stark stave stead steak steep stern sting stink stint stoic stoke stool stoop stout stove strap straw stray strut stump sulky surge sushi swami swamp swarm swash swath swear sweep swept swift swipe swirl swish sword sworn taboo tacit tally talon tango tangy tapir tasty tease tempo tempt tenet tenor tense tenth tepid terra terse testy theta thigh thong thorn thump tiara tidal tiger timid tipsy titan toast token tonal tonic tooth towel tract trail trait tramp trash tripe trite troll troop trout trove trump trunk tuber tumor tummy tuple tutor twine twist ultra umber undue unfit unify unite utter vague valet valor vault vegan venue verge verse vigil villa vinyl viola vowel waive weary whisk widen windy winch witty yacht yearn""".split()])
 _EXTRA_WORDS[6] = tuple([*_EXTRA_WORDS[6], *"""abduct absorb absurd accent accord accrue achieve acumen advance advent aerial alight almond alpine anchor ardent argent armada around arrest ascend astute atomic attach awaken babble badger bedlam behold benefit berate bidder bikini blight blonde breach broker bronze browse bypass cabana campus canary carbon carton casino cavern chapel charter checkup cherish chisel clever coffin collar column combat coming concur confer confess conifer console context crochet cruise crumble crunch cutter damage daring deduct deploy desert detect disclose discuss display divide drawer driver evolve granite grapple graphic gravity humble hunter hybrid jagged jargon jersey jigsaw jingle kettle kidney kindly magnet nimble object occupy number oxygen permit polish profit remedy reveal secure shadow shield simply smooth sphere spider spirit spoken stable stadium stolen summit survey symbol tenant tender threat timber timely tissue tomato unlock vanish velvet vendor verify version viewer village wallet wander wisdom""".split()])
 
+
+# Additional everyday vocabulary. These are both accepted guesses and possible answers.
+_BONUS_WORDS = {
+    4: """ache acre aged also arch army aunt bald bake balm barn bead beam bean beef beer
+    belt bend bike bill bite blue blur bold bolt bond bone boom boot bore boss bulk
+    bump cafe cage calf cane cape cart cave chew chin chip chop clue coal coil coin
+    cone cope copy cord core corn cozy crab crew crop cube cure curl cute damp dare
+    dart dash dean debt deck deed deer deny dial dice dime dine dish disk dive dock
+    doll dome dose dove drag draw drew drip duck dull dump dune dust earn ease echo
+    envy exit fade fail fame fang fare farm fear feat fern file flag flap flaw flee
+    flip foam fold fork fort frog fuel fuse gain gale game gang gasp gate gaze gift
+    glow goat grab gray grid grin grip guru hail half halt heal heap heel herd hide
+    hike hint hire hold hood hook horn idea inch item jade jail join joke jolt jump
+    keen kick kiss kite knee knit knob knot lace lamb lamp land lash leak limb limp
+    link list loaf lock logo loop loss lump lung lure made mail mall mane many map
+    mark math maze meal memo menu mesh mild mill mime mint mist mole mood moor moth
+    move mule myth name navy nest noon note noun obey odds okay once onto open oval
+    oven over pace pack page paid pain pair palm park part pass past path pear peel
+    peer pick pile pill pine pink pipe plan play plot plug plum plus poet pole poll
+    pond pool poor port pose post pull pulp pump pure push quit quiz race rail rain
+    rake rank rare rate read real rear reef rent rest rice rich ride ring rise road
+    roam roar rock role roof room rope rose rule rush rust safe sage sail sake sale
+    salt same sand save scan scar seat seed seek seem self sell send sent shed ship
+    shoe shop shot show shut sick side sign silk sing sink site size skin skip slab
+    slam sled slim slip slow slug snap snow soak soap soar sock soda sofa soft soil
+    sold sole some song soon soot sort soul soup sour span spar spin spit spot star
+    stay stem step stir stop such suit sure swan swim taco tail take tale talk tall
+    tame tank tape task team tear tell tend tent term test text thin this tide tile
+    time tiny tire told tone took tool torn toss tour town trap tree trek trim trip
+    true tube tuck tuna tune turn twin type unit upon used user vain vale vary vast
+    veil vein very vial vice view visa void vote wage wait wake walk wall wand want
+    ward warm warn warp wash wave weak wear week well went west what when whip wide
+    wife wild will wilt wind wine wing wink wipe wire wise wish with wolf wood wool
+    word wore work worm wrap yard yarn year yell yoga zero zone""",
+    5: """abide abode abort abuse adapt adept adore adopt adult after again agent agile
+    aging agree ahead alarm album alert alike alive allow alone along alter amend
+    ample angel anger angle angry apart apple apply arena argue arise armed armor
+    aroma array arrow aside asset atlas audio audit avoid awake award aware awful
+    bacon badge baker basic batch beach beard beast began begin being below bench
+    berry birth black blade blame blank blast blaze bleed blend bless blind blink
+    bliss block blood bloom board boast bonus boost booth bound brain brake brand
+    brave bread break brick bride brief bring broad broke brook brown brush build
+    built bunch buyer cable cabin camel candy carry carve catch cater cause cease
+    chain chair chalk champ charm chart chase cheap cheat check cheek cheer chess
+    chest chief child chill china choir choke chord chose civic civil claim class
+    clean clear clerk click cliff climb cling clock clone close cloth cloud coach
+    coast coral couch count court cover crack craft crash cream creek crime crisp
+    cross crowd crown crude crush crust curve cycle daily dairy dance dated deals
+    dealt death debut decay delay depth devil diary digit dirty doubt dozen draft
+    drama dream dress dried drift drill drink drive drove eager early earth eaten
+    eight elbow elder elect elite empty enact enemy enjoy enter entry equal error
+    essay event every exact exist extra faith false fancy fault favor feast fence
+    fetch fever fiber field fifth fifty fight final first fixed flame flash fleet
+    flesh flick flies float floor flour fluid flush focus force forge forth forty
+    forum found frame frank fraud freak fresh front frost fruit fully funny fuzzy
+    giant given glass glaze globe glory going grace grade grain grand grant grape
+    graph grasp grass great green greet grief grill grind gross group grown guard
+    guess guest guide habit happy harsh haste haunt heart heavy hello hence hobby
+    honey honor horse hotel house human humor ideal image imply inbox index inner
+    input issue ivory joint judge juice juicy jumbo karma kayak kneel known label
+    labor large laser later laugh layer learn lease least leave legal lemon level
+    lever light limit linen liver local logic loose lower loyal lucky lunch lyric
+    magic major maker march marry match maybe mayor medal media mercy merge merit
+    merry metal meter might minor minus mixed model money month moral motor mount
+    mouse mouth movie music naive naked nerve never newly night noble noise north
+    novel nurse occur ocean offer often onion opera orbit order other ought outer
+    owner oxide paint panel panic paper party peace pearl phase phone photo piano
+    piece pilot pinch pitch place plain plane plant plate plead point polar pound
+    power press price pride prime print prior prize proof proud prove queen query
+    quest quick quiet quite quote radar radio raise range rapid ratio reach react
+    ready realm rebel refer relax relay reply reset retro rhyme rider right rigid
+    rival river robot rocky roman rough round route royal ruler rural saint salad
+    salon sandy scale scene scent scope score scout scrap screw serve seven shade
+    shaft shake shall shame shape share sharp sheep sheer sheet shelf shell shift
+    shine shiny shirt shock shoot shore short shout shown sight since sixth sixty
+    sized skill skirt skull sleep slice slide slime sling slope small smart smell
+    smile smoke snack snake sneak sober solar solid solve sorry sound south space
+    spare speak speed spell spend spent spice spicy spike spill split spoke spoon
+    sport spray squad staff stage stake stamp stand stare stark start state steam
+    steel steep steer stick stiff still stock stone stood stool store storm story
+    strip stuck study stuff style sugar suite sunny super sweet table taken taste
+    teach teeth thank theme there these thick thief thing think third those three
+    threw throw thumb tight timer tired title today topic total touch tough tower
+    trace track trade train treat trend trial tribe trick tried truly trust truth
+    twice uncle under union unity until upper upset urban usage usual valid value
+    video vigil villa vinyl viral virus visit vital vivid vocal voice voter waist
+    waste watch water weary weave wedge weird whale wheat wheel where which while
+    white whole whose widow width wield wince winds wings winner wiser witch woman
+    women world worry worse worst worth would wound woven wreck wrist write wrong
+    yacht yearn yeast yield young youth""",
+    6: """abroad absorb absurd accent access accord accuse achieve across acting action
+    active actual admire advice advise affect afford afraid agency agenda almost
+    always amount anchor animal annual answer anyone appeal appear arcade arrive
+    artist aspect assess assign assist assume assure attack attend author autumn
+    avenue backup barely basket battle beacon become before behalf behave belief
+    belong beloved better beyond bishop bitter blanket blossom border bottle bottom
+    branch breath breeze bridge bright broken broker bronze browse budget buffer
+    burden button camera cancel candle cannot canvas canyon career carpet carrot
+    castle casual caught center chance change charge cheese cherry choice choose
+    chrome church circle circus client climate closed closet coffee collect colony
+    combine comedy comfort comic common comply compose concert conduct confirm
+    connect consist consume contact contain content contest control convert cookie
+    copper corner costly cotton county couple course cousin create credit crisis
+    critic custom danger debate decade decide decline decode defend degree demand
+    depend depict design desire detail device differ dinner direct doctor dollar
+    domain donate double driven during easily editor effect effort either eleven
+    emerge empire employ enable ending energy engage engine enough enrich ensure
+    entire entity escape estate ethics ethnic except excess excite excuse expand
+    expect expert export extend extent fabric factor family famous farmer father
+    fellow female figure finger finish fiscal fitness flower follow forest forget
+    formal format former fossil foster friend frozen future gadget galaxy garden
+    gather gender gentle global golden gossip govern ground growth guitar guilty
+    handle happen harbor hardly health height helmet hidden highly honest hostel
+    impact impose income indeed infant inform inhale inherit inside insist intend
+    invest invite island itself jacket junior keeper kernel latest launch lawyer
+    leader league length lesson letter likely listen little locate lonely lovely
+    lumber luxury machine mainly manner manual margin marine market master matter
+    mature medium member memory mental mentor method middle minute mirror mobile
+    modern modest modify moment monkey mother motion museum mutual nation native
+    nature nearby nearly needle nephew nickel nobody normal notice number object
+    obtain occupy office online option orange origin output oxygen parent people
+    period permit person phrase picnic planet player please pocket poetry police
+    policy polish polite postal powder pretty prince prison profit proper public
+    pursue puzzle random rarely rather reader reason recent record reduce reform
+    regard region relate relief remain remark remedy remind remote remove repair
+    repeat replace reply report rescue resist result retail return reveal review
+    rhythm safety sample school screen search season second secret secure select
+    senior series server settle severe shadow shield signal silver simple simply
+    single sister slowly smooth social source speech sphere spider spirit spoken
+    spring square stable stadium status steady stolen street stress strict string
+    strive strong submit sudden suffer summer summit supply surely survey switch
+    symbol system talent target taught tenant tender theory thirty thread threat
+    ticket timely tissue tomato toward travel treaty twelve unable unique united
+    unless unlike unlock update useful valley vanish velvet vendor verify version
+    viewer village vision visual volume wallet wander wealth weekly weight window
+    winner winter wisdom wonder wooden worker writer yellow""",
+}
+for _length, _bonus in _BONUS_WORDS.items():
+    _EXTRA_WORDS[_length] = (*_EXTRA_WORDS[_length], *_bonus.split())
+
 for length, words in _EXTRA_WORDS.items():
     _WORDS[length] = tuple(dict.fromkeys([*_WORDS[length], *words]))
 _VALID_WORDS = {length: {word for word in words if len(word) == length and word.isalpha()} for length, words in _WORDS.items()}
