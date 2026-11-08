@@ -81,11 +81,19 @@ logger = logging.getLogger(__name__)
 
 
 def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    """Load a widely available system font, with a safe Pillow fallback."""
+    """Prefer broad Unicode fonts so Telegram display names don't become tofu boxes."""
     paths = (
-        ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf")
-        if bold else
-        ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf")
+        (
+            "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        )
+        if bold
+        else (
+            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        )
     )
     for path in paths:
         try:
@@ -137,63 +145,106 @@ def _draw_avatar(canvas: Image.Image, box: tuple[int, int, int, int], name: str,
 
 
 def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: datetime, active: bool, avatars: dict[int, bytes | None]) -> BytesIO:
-    """Render a premium, mobile-first top-three points leaderboard."""
+    """Render a premium mobile leaderboard with the real Vice Cream NFT artwork."""
+    import base64
+
     width, height = 1080, 1350
-    image = Image.new("RGB", (width, height), (8, 12, 29))
+    image = Image.new("RGB", (width, height), (9, 13, 31))
     draw = ImageDraw.Draw(image)
-    top, bottom = (8, 13, 31), (31, 20, 54)
+    top, bottom = (10, 16, 38), (35, 19, 57)
     for y in range(height):
         ratio = y / (height - 1)
         color = tuple(int(top[i] * (1 - ratio) + bottom[i] * ratio) for i in range(3))
         draw.line((0, y, width, y), fill=color)
-    draw.ellipse((-230, -330, 560, 460), fill=(24, 39, 82))
-    draw.ellipse((650, 820, 1320, 1500), fill=(54, 27, 79))
+    draw.ellipse((-250, -330, 570, 460), fill=(25, 43, 91))
+    draw.ellipse((660, 860, 1340, 1510), fill=(65, 30, 86))
     draw = ImageDraw.Draw(image)
 
     title_font = _load_font(58, True)
-    subtitle_font = _load_font(25)
     eyebrow_font = _load_font(20, True)
+    subtitle_font = _load_font(25, True)
     rank_font = _load_font(23, True)
-    name_font = _load_font(37, True)
-    points_font = _load_font(31, True)
+    name_font = _load_font(39, True)
+    points_font = _load_font(34, True)
     prize_font = _load_font(25, True)
-    footer_font = _load_font(20, True)
+    small_font = _load_font(18, True)
     white, muted = (248, 249, 255), (166, 180, 207)
     gold, silver, bronze = (255, 211, 105), (211, 222, 241), (224, 157, 116)
-    accents = (gold, silver, bronze)
 
-    draw.rounded_rectangle((42, 38, width - 42, 238), radius=42, fill=(17, 25, 51), outline=(78, 91, 137), width=2)
-    draw.text((width // 2, 66), "XYRON PRESENTS", font=eyebrow_font, fill=(147, 169, 222), anchor="mt")
-    draw.text((width // 2, 101), "GIVEAWAY", font=title_font, fill=white, anchor="mt", stroke_width=1, stroke_fill=(102, 91, 151))
+    # Header: compact, with stronger hierarchy and more breathing room.
+    draw.rounded_rectangle((42, 35, width - 42, 220), radius=40, fill=(17, 25, 51), outline=(78, 91, 137), width=2)
+    draw.text((width // 2, 62), "XYRON PRESENTS", font=eyebrow_font, fill=(147, 169, 222), anchor="mt")
+    draw.text((width // 2, 94), "GIVEAWAY", font=title_font, fill=white, anchor="mt")
     status = ("LIVE  •  " + _remaining(ends_at) + " LEFT") if active else "GIVEAWAY RESULTS"
-    draw.text((width // 2, 184), status, font=subtitle_font, fill=(126, 237, 181) if active else gold, anchor="mt")
-    draw.text((width // 2, 270), "TOP PLAYERS  •  HIGHEST POINTS WIN", font=eyebrow_font, fill=muted, anchor="mm")
+    draw.text((width // 2, 177), status, font=subtitle_font, fill=(126, 237, 181) if active else gold, anchor="mt")
+    draw.text((width // 2, 255), "TOP PLAYERS  •  HIGHEST POINTS WIN", font=eyebrow_font, fill=muted, anchor="mm")
 
-    labels = ("1ST  •  GRAND PRIZE", "2ND  •  RUNNER-UP", "3RD  •  THIRD PLACE")
-    for index in range(3):
-        rank, y1 = index + 1, 310 + index * 315
-        accent = accents[index]
-        draw.rounded_rectangle((42, y1, width - 42, y1 + 282), radius=34, fill=(17, 25, 49), outline=accent, width=3)
-        draw.rounded_rectangle((58, y1 + 17, width - 58, y1 + 26), radius=5, fill=accent)
-        draw.rounded_rectangle((72, y1 + 48, 390, y1 + 98), radius=20, fill=(45, 48, 73), outline=accent, width=1)
-        draw.text((231, y1 + 73), labels[index], font=rank_font, fill=accent, anchor="mm")
-        if index < len(entries):
-            user_id, data = entries[index]
+    # Actual Vice Cream artwork cropped from the supplied NFT screenshot.
+    nft_bytes = base64.b64decode("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")
+    nft_image = Image.open(BytesIO(nft_bytes)).convert("RGB")
+    nft_image = ImageOps.fit(nft_image, (230, 310), method=Image.Resampling.LANCZOS)
+
+    # Grand-prize card gets a distinct, larger composition.
+    y1, y2 = 292, 752
+    draw.rounded_rectangle((42, y1, width - 42, y2), radius=38, fill=(18, 27, 53), outline=gold, width=4)
+    draw.rounded_rectangle((60, y1 + 18, width - 60, y1 + 27), radius=5, fill=gold)
+    draw.rounded_rectangle((74, y1 + 47, 390, y1 + 98), radius=20, fill=(57, 49, 67), outline=gold, width=1)
+    draw.text((232, y1 + 72), "1ST  •  NFT GRAND PRIZE", font=rank_font, fill=gold, anchor="mm")
+
+    art_box = (78, y1 + 120, 338, y1 + 445)
+    draw.rounded_rectangle(art_box, radius=28, fill=(84, 145, 66), outline=(255, 222, 139), width=4)
+    art_mask = Image.new("L", nft_image.size, 0)
+    ImageDraw.Draw(art_mask).rounded_rectangle((0, 0, 229, 309), radius=22, fill=255)
+    image.paste(nft_image, (93, y1 + 128), art_mask)
+
+    if entries:
+        user_id, data = entries[0]
+        name = str(data.get("name") or "Member").strip() or "Member"
+        score = _score(data)
+    else:
+        user_id, name, score = None, "OPEN SPOT", 0.0
+
+    info_x = 375
+    draw.text((info_x, y1 + 158), "GRAND PRIZE WINNER", font=small_font, fill=(177, 190, 218))
+    # Clip long names without squeezing the entire card.
+    shown_name = name
+    while shown_name and draw.textbbox((0, 0), shown_name, font=name_font)[2] > 600:
+        shown_name = shown_name[:-2].rstrip() + "…"
+    draw.text((info_x, y1 + 203), shown_name, font=name_font, fill=white)
+    draw.text((info_x, y1 + 270), f"{score:g} POINTS" if user_id is not None else "— POINTS", font=points_font, fill=(126, 237, 181) if user_id is not None else muted)
+    draw.rounded_rectangle((info_x, y1 + 338, 975, y1 + 410), radius=22, fill=(54, 46, 62), outline=(138, 111, 67), width=1)
+    draw.text(((info_x + 975) // 2, y1 + 374), "VICE CREAM  •  NFT GIFT", font=prize_font, fill=gold, anchor="mm")
+    draw.text(((info_x + 975) // 2, y1 + 430), "ONE-OF-A-KIND TELEGRAM GIFT", font=small_font, fill=(183, 193, 215), anchor="mm")
+
+    # Compact silver and bronze runner-up cards.
+    cards = (
+        (790, 1005, 2, silver, "2ND  •  RUNNER-UP", "₹175"),
+        (1025, 1240, 3, bronze, "3RD  •  THIRD PLACE", "₹75"),
+    )
+    for top_y, bottom_y, rank, accent, label, prize in cards:
+        draw.rounded_rectangle((42, top_y, width - 42, bottom_y), radius=30, fill=(18, 27, 53), outline=accent, width=3)
+        draw.rounded_rectangle((62, top_y + 15, width - 62, top_y + 23), radius=4, fill=accent)
+        draw.rounded_rectangle((72, top_y + 39, 385, top_y + 83), radius=17, fill=(45, 48, 73), outline=accent, width=1)
+        draw.text((228, top_y + 61), label, font=rank_font, fill=accent, anchor="mm")
+        if len(entries) >= rank:
+            user_id, data = entries[rank - 1]
             name = str(data.get("name") or "Member").strip() or "Member"
-            score, photo_bytes = _score(data), avatars.get(user_id)
+            score = _score(data)
+            photo_bytes = avatars.get(user_id)
         else:
             user_id, name, score, photo_bytes = None, "OPEN SPOT", 0.0, None
-        _draw_avatar(image, (78, y1 + 120, 202, y1 + 244), name, photo_bytes, rank)
+        _draw_avatar(image, (78, top_y + 99, 180, top_y + 201), name, photo_bytes, rank)
         draw = ImageDraw.Draw(image)
-        while name and draw.textbbox((0, 0), name, font=name_font)[2] > 690:
-            name = name[:-2].rstrip() + "…"
-        draw.text((230, y1 + 133), name, font=name_font, fill=white)
-        draw.text((230, y1 + 187), f"{score:g} POINTS" if user_id is not None else "— POINTS", font=points_font, fill=(126, 237, 181) if user_id is not None else muted)
-        draw.rounded_rectangle((72, y1 + 250, width - 72, y1 + 270), radius=10, fill=(36, 44, 70))
-        draw.text((width // 2, y1 + 260), PRIZE_LABELS[index], font=prize_font, fill=accent, anchor="mm")
+        shown_name = name
+        while shown_name and draw.textbbox((0, 0), shown_name, font=name_font)[2] > 440:
+            shown_name = shown_name[:-2].rstrip() + "…"
+        draw.text((210, top_y + 105), shown_name, font=name_font, fill=white)
+        draw.text((210, top_y + 153), f"{score:g} POINTS" if user_id is not None else "— POINTS", font=points_font, fill=(126, 237, 181) if user_id is not None else muted)
+        draw.rounded_rectangle((710, top_y + 119, 985, top_y + 184), radius=18, fill=(42, 47, 70))
+        draw.text((847, top_y + 151), prize, font=prize_font, fill=accent, anchor="mm")
 
-    draw.text((width // 2, 1280), "KEEP CHATTING. CLIMB THE LEADERBOARD.", font=footer_font, fill=white, anchor="mm")
-    draw.text((width // 2, 1317), "POWERED BY XYRON", font=eyebrow_font, fill=(139, 151, 184), anchor="mm")
+    draw.text((width // 2, 1280), "KEEP CHATTING. CLIMB THE LEADERBOARD.", font=eyebrow_font, fill=white, anchor="mm")
+    draw.text((width // 2, 1315), "POWERED BY XYRON", font=eyebrow_font, fill=(139, 151, 184), anchor="mm")
     output = BytesIO()
     image.save(output, format="PNG", optimize=True)
     output.seek(0)
