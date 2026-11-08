@@ -140,6 +140,15 @@ class SongsxSource:
         async with self._lock:
             cached = self.index.get(key)
             if cached:
+                # Only reuse an exact title/title+artist cache hit. A raw search
+                # phrase must never become a global shortcut to another user's choice.
+                cached_title = self._key(cached.get("title", ""))
+                cached_artist = self._key(cached.get("artist", ""))
+                if key not in {cached_title, self._key(
+                    f"{cached.get('title', '')} {cached.get('artist', '')}"
+                )}:
+                    cached = None
+            if cached:
                 restored = await self._restore_from_channel(clients[0], cached)
                 if restored:
                     return [{
@@ -258,7 +267,9 @@ class SongsxSource:
                 "artist": context["artist"], "duration": duration,
                 "cache_message_id": getattr(cache_message, "id", None),
             }
-            for alias in (context["query"], context["title"], f"{context['title']} {context['artist']}"):
+            # Cache by the resolved track identity, not the user's broad search phrase.
+            # Per-user search preferences live separately in the Telegram cache channel. 
+            for alias in (context["title"], f"{context['title']} {context['artist']}"):
                 alias_key = self._key(alias)
                 if alias_key:
                     self.index[alias_key] = record
