@@ -838,7 +838,8 @@ async def kickme_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await _reply(update, f"Telegram could not remove you: {exc.message}")
 
 
-async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:    chat, actor_user = update.effective_chat, update.effective_user
+async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat, actor_user = update.effective_chat, update.effective_user
     try:
         access = await require_admin_access(
             update, context, context.application.bot_data["settings"], "can_restrict_members"
