@@ -616,6 +616,10 @@ class MusicPlugin:
             raise RuntimeError("None of the saved tracks could be loaded from the music cache channel.")
         old_track = self.players.get(chat_id)
         await self._stop_progress(chat_id)
+        # Clear old queued work before leaving the call so a stream-end event
+        # cannot race in and restart a stale queue.
+        self.queues[chat_id].clear()
+        self.playlist_sessions.pop(chat_id, None)
         if old_track:
             try:
                 await self._edit_player_card(
@@ -629,7 +633,6 @@ class MusicPlugin:
         except Exception:
             pass
         self.players.pop(chat_id, None)
-        self.queues[chat_id].clear()
         self.queues[chat_id].extend(playable)
         self.playlist_sessions[chat_id] = {
             "owner_id": int(user.id),
