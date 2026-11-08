@@ -142,10 +142,9 @@ class SongsxSource:
             if cached:
                 # Only reuse an exact title/title+artist cache hit. A raw search
                 # phrase must never become a global shortcut to another user's choice.
-                cached_title = self._key(cached.get("title", ""))
-                if key not in {cached_title, self._key(
+                if key != self._key(
                     f"{cached.get('title', '')} {cached.get('artist', '')}"
-                )}:
+                ):
                     cached = None
             if cached:
                 restored = await self._restore_from_channel(clients[0], cached)
