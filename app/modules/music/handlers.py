@@ -247,8 +247,7 @@ class MusicPlugin:
 
     def _render_player(self, chat_id):
         track = self.players.get(chat_id)
-        if not track:
-            return "🎵 Nothing is playing right now."
+        if not track:            return "🎵 Nothing is playing right now."
         duration = int(track.get("duration") or 0)
         elapsed_now = (
             track.get("paused_elapsed", 0) if track.get("paused")
@@ -300,7 +299,6 @@ class MusicPlugin:
                 {"text": "－  VOLUME", "callback_data": "music:player:vol_down", "style": "primary"},
                 {"text": "＋  VOLUME", "callback_data": "music:player:vol_up", "style": "primary"},
             ],
-            [{"text": "➕  ADD TO MY PLAYLIST", "callback_data": "music:playlist:add_current", "style": "success"}],
             [{"text": "🎼  MY PLAYLIST", "callback_data": "music:playlist:open", "style": "primary"}],
             [{"text": "■  STOP PLAYBACK", "callback_data": "music:player:stop", "style": "danger"}],
         ]}
@@ -497,14 +495,13 @@ class MusicPlugin:
         except Exception:
             log.exception("Could not save music choice in the cache channel for user %s", user.id)
 
-    @staticmethod
-    def _playlist_text(record: dict, page: int = 0) -> str:
+    @staticmethod    def _playlist_text(record: dict, page: int = 0) -> str:
         playlist = record.get("playlist", [])
         if not playlist:
             return (
                 "🎼 <b>YOUR XYRON PLAYLIST</b>\n\n"
-                "Your playlist is empty. Play a song in this group and tap "
-                "<b>ADD TO MY PLAYLIST</b> on the player card."
+                "Your playlist is empty. Start a song in this group, open /myplaylist, "
+                "then tap <b>ADD TO MY PLAYLIST</b> here."
             )
         page_size = 8
         page_count = max(1, (len(playlist) + page_size - 1) // page_size)
@@ -533,7 +530,7 @@ class MusicPlugin:
                 {"text": "▶  PLAY PLAYLIST", "callback_data": "music:playlist:play", "style": "success"},
                 {"text": "■  STOP PLAYLIST", "callback_data": "music:playlist:stop", "style": "danger"},
             ],
-            [{"text": "➕  ADD CURRENT SONG", "callback_data": "music:playlist:add_current", "style": "primary"}],
+            [{"text": "➕  ADD TO MY PLAYLIST", "callback_data": "music:playlist:add_current", "style": "success"}],
         ]
         for item in playlist[page * page_size:(page + 1) * page_size]:
             title = str(item.get("title", "Track"))[:32]
@@ -747,8 +744,7 @@ class MusicPlugin:
                     disable_web_page_preview=True,
                 )
             if action == "page" and len(parts) == 4:
-                page = max(0, int(parts[3]))
-                await query.answer()
+                page = max(0, int(parts[3]))                await query.answer()
                 return await query.edit_message_text(
                     self._playlist_text(record, page),
                     parse_mode="HTML",
@@ -925,7 +921,9 @@ class MusicPlugin:
                 await query.answer()
                 await self.calls.leave_call(chat_id)
                 await self._ensure_player_in_group(chat_id)
-                await self.calls.play(chat_id, track["path"])
+                await self.calls.play(
+                    chat_id, track["path"], volume=track.get("volume", 100)
+                )
                 track["started_at"] = time.monotonic()
                 track["paused_elapsed"] = 0
                 track["paused"] = False
@@ -969,10 +967,20 @@ class MusicPlugin:
                 track = self.players.get(chat_id)
                 if not track:
                     return await query.answer("Nothing is playing.", show_alert=True)
-                await query.answer()
-                volume = max(1, min(200, int(track.get("volume", 100)) + (-10 if action == "vol_down" else 10)))
-                await self.calls.change_volume_call(chat_id, volume)
+                volume = max(0, min(200, int(track.get("volume", 100)) + (-10 if action == "vol_down" else 10)))
+                elapsed = (
+                    int(track.get("paused_elapsed", 0)) if track.get("paused")
+                    else max(0, int(time.monotonic() - track["started_at"]))
+                )
+                await self.calls.change_volume_call(
+                    chat_id, volume, track["path"], elapsed
+                )
+                if track.get("paused"):
+                    await self.calls.pause(chat_id)
+                else:
+                    track["started_at"] = time.monotonic() - elapsed
                 track["volume"] = volume
+                await query.answer(f"Volume: {volume}%")
             await self._edit_player_card(chat_id, query.message.message_id, self._render_player(chat_id))
         except Exception as exc:
             log.exception("Music player control failed")
@@ -997,8 +1005,7 @@ class MusicPlugin:
             elif action == "resume":
                 await self.calls.resume(chat_id)
                 track = self.players.get(chat_id)
-                if track:
-                    track["started_at"] = time.monotonic() - track.get("paused_elapsed", 0)
+                if track:                    track["started_at"] = time.monotonic() - track.get("paused_elapsed", 0)
                     track["paused"] = False
                 await message.reply_text("▶️ Playback resumed.")
             elif action == "skip":
@@ -1097,14 +1104,25 @@ class MusicPlugin:
             return
         message = update.effective_message
         if not context.args or not context.args[0].isdigit():
-            return await message.reply_text("Usage: /volume <1-200>")
+            return await message.reply_text("Usage: /volume <0-200>")
         chat_id = update.effective_chat.id
         if chat_id not in self.players:
             return await message.reply_text("Nothing is playing right now.")
-        volume = max(1, min(200, int(context.args[0])))
+        volume = max(0, min(200, int(context.args[0])))
         try:
-            await self.calls.change_volume_call(chat_id, volume)
-            self.players[chat_id]["volume"] = volume
+            track = self.players[chat_id]
+            elapsed = (
+                int(track.get("paused_elapsed", 0)) if track.get("paused")
+                else max(0, int(time.monotonic() - track["started_at"]))
+            )
+            await self.calls.change_volume_call(
+                chat_id, volume, track["path"], elapsed
+            )
+            if track.get("paused"):
+                await self.calls.pause(chat_id)
+            else:
+                track["started_at"] = time.monotonic() - elapsed
+            track["volume"] = volume
             await message.reply_text(f"🔊 Volume set to {volume}%.")
         except Exception as exc:
             log.exception("Music volume change failed")
