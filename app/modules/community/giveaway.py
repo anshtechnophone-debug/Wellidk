@@ -7,6 +7,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from html import escape
 from io import BytesIO
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
@@ -18,8 +19,8 @@ from app.core.permissions import AuthorizationError, require_admin_access
 from app.services.group_policy import GroupPolicyRepository
 
 DURATION = timedelta(days=7)
-TARGET_CREDITS = 9_800
-PRIZES = (350, 200, 150, 0, 0)
+PRIZE_LABELS = ("VICE CREAM NFT", "₹175", "₹75")
+BACKGROUND_PATH = Path(__file__).with_name("assets") / "giveaway_background.jpg"
 
 
 def _repo(context: ContextTypes.DEFAULT_TYPE) -> GroupPolicyRepository:
@@ -137,75 +138,81 @@ def _draw_avatar(canvas: Image.Image, box: tuple[int, int, int, int], name: str,
     border.ellipse(box, outline=ring, width=5)
 
 
-def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: datetime, active: bool, avatars: dict[int, bytes | None]) -> BytesIO:
-    """Render a mobile-friendly, top-three-only weekly giveaway image."""
-    width, height = 1080, 1350
-    image = Image.new("RGB", (width, height))
-    pixels = image.load()
-    top = (12, 18, 39)
-    bottom = (31, 25, 58)
-    for y in range(height):
-        ratio = y / max(1, height - 1)
-        color = tuple(int(top[i] * (1 - ratio) + bottom[i] * ratio) for i in range(3))
-        ImageDraw.Draw(image).line((0, y, width, y), fill=color)
-    draw = ImageDraw.Draw(image)
-    title_font = _load_font(53, True)
-    subtitle_font = _load_font(25, False)
-    section_font = _load_font(23, True)
-    name_font = _load_font(34, True)
-    small_font = _load_font(23, False)
-    prize_font = _load_font(32, True)
-    progress_font = _load_font(19, True)
-    white = (247, 248, 255)
-    muted = (177, 187, 210)
-    gold = (255, 207, 87)
-    draw.rounded_rectangle((44, 38, width - 44, 224), radius=34, fill=(22, 29, 55), outline=(77, 74, 111), width=2)
-    draw.text((width // 2, 68), "WEEKLY GIVEAWAY", font=title_font, fill=white, anchor="mt")
-    draw.text((width // 2, 143), "LIVE  •  " + (_remaining(ends_at) + " LEFT" if active else "FINAL RESULTS"), font=subtitle_font, fill=(126, 235, 177) if active else gold, anchor="mt")
-    draw.text((width // 2, 190), "THE PRIZE LEAGUE", font=section_font, fill=gold, anchor="mt")
+def _fit_font(draw: ImageDraw.ImageDraw, text: str, max_width: int, size: int, bold: bool = True) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Shrink text until it fits its designated panel."""
+    current = size
+    while current > 13:
+        font = _load_font(current, bold)
+        if draw.textbbox((0, 0), text, font=font)[2] <= max_width:
+            return font
+        current -= 1
+    return _load_font(13, bold)
 
-    medals = ("1ST PLACE", "2ND PLACE", "3RD PLACE")
-    accents = ((255, 207, 87), (198, 211, 232), (205, 143, 94))
-    for index in range(3):
+
+def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: datetime, active: bool, avatars: dict[int, bytes | None]) -> BytesIO:
+    """Composite live giveaway data into the supplied XYRON artwork."""
+    width, height = 1080, 1350
+    if not BACKGROUND_PATH.is_file():
+        raise FileNotFoundError(f"Giveaway background missing: {BACKGROUND_PATH}")
+    image = Image.open(BACKGROUND_PATH).convert("RGB")
+    image = ImageOps.fit(image, (width, height), method=Image.Resampling.LANCZOS)
+    draw = ImageDraw.Draw(image)
+
+    white = (250, 248, 255)
+    muted = (211, 204, 231)
+    gold = (255, 218, 116)
+    silver = (226, 232, 255)
+    bronze = (255, 202, 158)
+    accents = (gold, silver, bronze)
+
+    # Replace the artwork's empty countdown pill with a live value.
+    countdown = f"{_remaining(ends_at)} LEFT" if active else "GIVEAWAY ENDED"
+    draw.rounded_rectangle((486, 214, 827, 270), radius=25, fill=(18, 10, 42))
+    countdown_font = _fit_font(draw, countdown, 315, 27, True)
+    draw.text((656, 242), countdown, font=countdown_font, fill=(126, 245, 183) if active else gold, anchor="mm")
+
+    # Coordinates are aligned to the 1080x1350 artwork canvas.
+    slots = (
+        {"avatar": (432, 460, 617, 645), "name": (646, 492, 1004, 588), "points": (610, 604, 950, 657), "name_size": 36},
+        {"avatar": (235, 806, 405, 976), "name": (427, 830, 918, 921), "points": (455, 934, 766, 984), "name_size": 32},
+        {"avatar": (235, 1024, 405, 1194), "name": (427, 1051, 918, 1142), "points": (455, 1154, 766, 1204), "name_size": 32},
+    )
+
+    for index, slot in enumerate(slots):
         rank = index + 1
-        y1 = 254 + index * 328
-        y2 = y1 + 294
         accent = accents[index]
-        draw.rounded_rectangle((44, y1, width - 44, y2), radius=30, fill=(25, 32, 59), outline=accent, width=3)
-        draw.rounded_rectangle((68, y1 + 22, 254, y1 + 64), radius=18, fill=accent)
-        draw.text((161, y1 + 43), medals[index], font=section_font, fill=(24, 27, 42), anchor="mm")
         if index < len(entries):
             user_id, data = entries[index]
             name = str(data.get("name") or "Member").strip() or "Member"
             score = _score(data)
-            earned = min(float(PRIZES[index]), score * 0.05)
             photo_bytes = avatars.get(user_id)
         else:
-            user_id, name, score, earned, photo_bytes = None, "OPEN SPOT", 0.0, 0.0, None
-        _draw_avatar(image, (78, y1 + 88, 174, y1 + 184), name, photo_bytes, rank)
-        draw = ImageDraw.Draw(image)
-        max_name_width = 520
-        while name and draw.textbbox((0, 0), name, font=name_font)[2] > max_name_width:
-            name = name[:-2].rstrip() + "…"
-        draw.text((198, y1 + 94), name, font=name_font, fill=white)
-        draw.text((198, y1 + 145), f"SCORE: {score:g}" if user_id is not None else "SCORE: —", font=small_font, fill=muted)
-        draw.text((78, y1 + 211), f"₹{earned:.2f}  /  ₹{PRIZES[index]}", font=prize_font, fill=accent)
-        bar_x1, bar_y, bar_x2, bar_h = 78, y1 + 260, width - 78, y1 + 278
-        draw.rounded_rectangle((bar_x1, bar_y, bar_x2, bar_h), radius=9, fill=(55, 62, 87))
-        ratio = min(1.0, earned / PRIZES[index]) if PRIZES[index] else 0.0
-        if ratio > 0:
-            fill_x = bar_x1 + max(18, int((bar_x2 - bar_x1) * ratio))
-            draw.rounded_rectangle((bar_x1, bar_y, min(bar_x2, fill_x), bar_h), radius=9, fill=accent)
-        draw.text((bar_x2, y1 + 230), f"{ratio * 100:.2f}% OF PRIZE", font=progress_font, fill=muted, anchor="ra")
+            user_id, name, score, photo_bytes = None, "OPEN SPOT", 0.0, None
 
-    draw.text((width // 2, 1272), "CHAT MORE. WIN MORE.", font=section_font, fill=white, anchor="mm")
-    draw.text((width // 2, 1310), "POWERED BY XYRON", font=small_font, fill=muted, anchor="mm")
+        # Real Telegram avatar, cropped to the circular frame.
+        ax1, ay1, ax2, ay2 = slot["avatar"]
+        _draw_avatar(image, (ax1, ay1, ax2, ay2), name, photo_bytes, rank)
+        draw = ImageDraw.Draw(image)
+
+        # Draw directly over the blank name bar, preserving its neon outline.
+        nx1, ny1, nx2, ny2 = slot["name"]
+        draw.rounded_rectangle((nx1 + 8, ny1 + 8, nx2 - 8, ny2 - 8), radius=30, fill=(17, 9, 35))
+        clean_name = re.sub(r"\s+", " ", name)
+        name_font = _fit_font(draw, clean_name, nx2 - nx1 - 34, slot["name_size"], True)
+        draw.text(((nx1 + nx2) // 2, (ny1 + ny2) // 2), clean_name, font=name_font, fill=white, anchor="mm")
+
+        # Cover the decorative POINTS placeholder and replace it with the live score.
+        px1, py1, px2, py2 = slot["points"]
+        draw.rounded_rectangle((px1 + 5, py1 + 5, px2 - 5, py2 - 5), radius=22, fill=(19, 10, 37))
+        points_text = f"{score:g} POINTS" if user_id is not None else "— POINTS"
+        points_font = _fit_font(draw, points_text, px2 - px1 - 24, 25 if index == 0 else 23, True)
+        draw.text(((px1 + px2) // 2, (py1 + py2) // 2), points_text, font=points_font, fill=accent, anchor="mm")
+
     output = BytesIO()
     image.save(output, format="PNG", optimize=True)
     output.seek(0)
-    output.name = "weekly-giveaway.png"
+    output.name = "xyron-giveaway.png"
     return output
-
 
 async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Register giveaway participants and provide private rules or a start link."""
