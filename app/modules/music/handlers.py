@@ -247,8 +247,7 @@ class MusicPlugin:
 
     def _render_player(self, chat_id):
         track = self.players.get(chat_id)
-        if not track:            return "🎵 Nothing is playing right now."
-        duration = int(track.get("duration") or 0)
+        if not track:            return "🎵 Nothing is playing right now."        duration = int(track.get("duration") or 0)
         elapsed_now = (
             track.get("paused_elapsed", 0) if track.get("paused")
             else int(time.monotonic() - track["started_at"])
@@ -497,8 +496,7 @@ class MusicPlugin:
 
     @staticmethod    def _playlist_text(record: dict, page: int = 0) -> str:
         playlist = record.get("playlist", [])
-        if not playlist:
-            return (
+        if not playlist:            return (
                 "🎼 <b>YOUR XYRON PLAYLIST</b>\n\n"
                 "Your playlist is empty. Start a song in this group, open /myplaylist, "
                 "then tap <b>ADD TO MY PLAYLIST</b> here."
@@ -582,7 +580,7 @@ class MusicPlugin:
     async def _start_user_playlist(self, chat_id: int, user, record: dict):
         playlist = list(record.get("playlist", []))
         if not playlist:
-            raise RuntimeError("Your playlist is empty. Add songs from a music player card first.")
+            raise RuntimeError("Your playlist is empty. Start a song, open /myplaylist, and tap ADD TO MY PLAYLIST.")
         if not self.accounts.clients:
             raise RuntimeError("No voice-player account is connected.")
         playable = []
@@ -747,8 +745,7 @@ class MusicPlugin:
                 page = max(0, int(parts[3]))                await query.answer()
                 return await query.edit_message_text(
                     self._playlist_text(record, page),
-                    parse_mode="HTML",
-                    reply_markup=self._playlist_keyboard(record, page),
+                    parse_mode="HTML",                    reply_markup=self._playlist_keyboard(record, page),
                     disable_web_page_preview=True,
                 )
             if action == "play":
@@ -997,8 +994,7 @@ class MusicPlugin:
         try:
             if action == "pause":
                 await self.calls.pause(chat_id)
-                track = self.players.get(chat_id)
-                if track:
+                track = self.players.get(chat_id)                if track:
                     track["paused_elapsed"] = int(time.monotonic() - track["started_at"])
                     track["paused"] = True
                 await message.reply_text("⏸ Playback paused.")
@@ -1136,7 +1132,7 @@ class MusicPlugin:
             "• /pause — pause playback\n• /resume — resume playback\n"
             "• /skip — skip current track\n• /stop — stop and clear queue\n"
             "• /queue — show upcoming tracks\n• /np — show player card\n"
-            "• /volume &lt;1-200&gt; — set volume\n"
+            "• /volume &lt;0-200&gt; — set volume\n"
             "• /addaccount — connect a voice-player account (owner only)\n"
             "• /cancelaccount — cancel QR account linking (owner only)\n"
             "• /accounts — list connected accounts (owner only)\n\n"
