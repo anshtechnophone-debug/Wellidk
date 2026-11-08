@@ -1097,6 +1097,7 @@ class MusicPlugin:
         await update.effective_message.reply_text(
             "🎧 <b>XYRON MUSIC</b>\n\n"
             "• /play &lt;song name&gt; — search Songsx and play\n"
+            "• /myplaylist — open, play, or manage your personal playlist\n"
             "• /pause — pause playback\n• /resume — resume playback\n"
             "• /skip — skip current track\n• /stop — stop and clear queue\n"
             "• /queue — show upcoming tracks\n• /np — show player card\n"
@@ -1176,7 +1177,7 @@ def register_music(application: Application):
         CallbackQueryHandler(plugin.player_callback, pattern=r"^music:player:(?:replay|pause|resume|skip|stop|queue|vol_down|vol_up)$")
     )
     application.add_handler(
-        CallbackQueryHandler(plugin.playlist_callback, pattern=r"^music:playlist:(?:open|add_current|play|stop|delete:[A-Za-z0-9]+|page:\\d+)$")
+        CallbackQueryHandler(plugin.playlist_callback, pattern=r"^music:playlist:(?:open|add_current|play|stop|delete:[A-Za-z0-9]+|page:\d+)$")
     )
     application.add_handler(
         CallbackQueryHandler(plugin.subscription_callback, pattern=r"^music:subscription$")
