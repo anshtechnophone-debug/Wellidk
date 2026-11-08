@@ -13,7 +13,7 @@ def test_wordseek_board_is_generated_in_memory_as_png():
     )
     assert isinstance(board, BytesIO)
     assert board.name == "wordseek-board.png"
-    assert board.getvalue().startswith(b"\\x89PNG\\r\\n\\x1a\\n")
+    assert board.getvalue().startswith(b"\x89PNG\r\n\x1a\n")
     board.seek(0)
     with Image.open(board) as image:
         assert image.format == "PNG"
