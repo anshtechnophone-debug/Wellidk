@@ -48,12 +48,11 @@ def render_wordseek_board(
     footer_h = 120
     height = header_h + max(1, count) * row_h + footer_h
     image = Image.new("RGB", (WIDTH, height))
-    pixels = image.load()
+    draw = ImageDraw.Draw(image)
     for y in range(height):
         t = y / max(1, height - 1)
         color = tuple(round(BG_TOP[i] * (1 - t) + BG_BOTTOM[i] * t) for i in range(3))
-        for x in range(WIDTH):
-            pixels[x, y] = color
+        draw.line((0, y, WIDTH, y), fill=color)
 
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((30, 26, WIDTH - 30, 170), radius=30, fill=(20, 31, 49), outline=(65, 88, 116), width=2)
@@ -75,7 +74,7 @@ def render_wordseek_board(
             y = y0 + 4
             code = feedback[col] if col < len(feedback) else "🟥"
             fill = GREEN if code == "🟩" else BLUE if code == "🟨" else RED
-            draw.rounded_rectangle((x, y, x + tile, y + tile - 4), radius=16, fill=fill, outline=(255, 255, 255, 45), width=2)
+            draw.rounded_rectangle((x, y, x + tile, y + tile - 4), radius=16, fill=fill, outline=(105, 125, 150), width=2)
             draw.text((x + tile / 2, y + (tile - 4) / 2), letter, font=_font(48, True), fill=WHITE, anchor="mm")
 
     legend_y = header_h + count * row_h + 28
