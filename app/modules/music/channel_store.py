@@ -95,23 +95,24 @@ class ChannelMusicStore:
         total = len(chunks)
         marker = self._marker(user_id)
         return [
-            f"{marker}_PART_{index}_OF_{total}\n{chunk}"
+            f"{marker}\nPART {index} OF {total}\n{chunk}"
             for index, chunk in enumerate(chunks, 1)
         ]
 
     def _parse_part(self, user_id: int, message: str):
         if not isinstance(message, str):
             return None
-        header, separator, chunk = message.partition("\n")
-        prefix = self._marker(user_id) + "_PART_"
-        if not separator or not header.startswith(prefix):
+        lines = message.split("\n", 2)
+        if len(lines) != 3 or lines[0] != self._marker(user_id):
             return None
         try:
-            part_text, total_text = header[len(prefix):].split("_OF_", 1)
+            part_label, part_text, of_label, total_text = lines[1].split()
+            if part_label != "PART" or of_label != "OF":
+                return None
             part, total = int(part_text), int(total_text)
             if not (1 <= part <= total <= self.MAX_PARTS):
                 return None
-            return part, total, chunk
+            return part, total, lines[2]
         except (TypeError, ValueError):
             return None
 
