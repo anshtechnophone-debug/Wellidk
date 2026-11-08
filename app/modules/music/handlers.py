@@ -9,6 +9,7 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import secrets
 
 import aiohttp
 from telegram import Chat, Update
@@ -20,6 +21,7 @@ from pytgcalls import filters as call_filters
 from pytgcalls.types import StreamEnded
 
 from app.modules.music.account_manager import AccountManager
+from app.modules.music.channel_store import ChannelMusicStore
 from app.modules.music.player_art import make_player_cover
 from app.modules.music.player_pool import MultiCallPool
 from app.modules.music.songsx_source import SongsxSource
@@ -58,6 +60,8 @@ class MusicPlugin:
         )
         self.queues = defaultdict(deque)
         self.players = {}
+        self.playlist_sessions = {}
+        self.user_store = None
         self.progress_tasks = {}
         self.locks = defaultdict(asyncio.Lock)
         self.search_cache = defaultdict(dict)
@@ -74,6 +78,11 @@ class MusicPlugin:
         )
         try:
             count = await self.accounts.load_existing()
+            if self.accounts.clients:
+                self.user_store = ChannelMusicStore(
+                    client_provider=lambda: self.accounts.clients[0],
+                    channel_id=self.cache_channel_id,
+                )
             await self.calls.start()
             me = await self.bot.get_me()
             self.public_username = me.username or "xyronrobot"
@@ -291,6 +300,8 @@ class MusicPlugin:
                 {"text": "－  VOLUME", "callback_data": "music:player:vol_down", "style": "primary"},
                 {"text": "＋  VOLUME", "callback_data": "music:player:vol_up", "style": "primary"},
             ],
+            [{"text": "➕  ADD TO MY PLAYLIST", "callback_data": "music:playlist:add_current", "style": "success"}],
+            [{"text": "🎼  MY PLAYLIST", "callback_data": "music:playlist:open", "style": "primary"}],
             [{"text": "■  STOP PLAYBACK", "callback_data": "music:player:stop", "style": "danger"}],
         ]}
 
@@ -361,6 +372,7 @@ class MusicPlugin:
             "volume": 100,
             "paused": False,
             "paused_elapsed": 0,
+            "_playlist_item_id": track.get("_playlist_item_id"),
         }
         cover = make_player_cover(
             title=self.players[chat_id]["title"],
@@ -406,6 +418,7 @@ class MusicPlugin:
                     status_message_id = None
             await self._stop_progress(chat_id)
             self.players.pop(chat_id, None)
+            self.playlist_sessions.pop(chat_id, None)
             try:
                 await self.calls.leave_call(chat_id)
             except Exception:
@@ -423,6 +436,7 @@ class MusicPlugin:
         await self._stop_progress(old_chat_id)
         old_track = self.players.pop(old_chat_id, None)
         self.queues[old_chat_id].clear()
+        self.playlist_sessions.pop(old_chat_id, None)
         if old_track:
             try:
                 await self._edit_player_card(
@@ -446,39 +460,375 @@ class MusicPlugin:
         self.players.pop(chat_id, None)
         await self._play_next(chat_id)
 
+    @staticmethod
+    def _preference_key(chat_id: int, query: str) -> str:
+        return f"{int(chat_id)}:{SongsxSource._key(query)}"
+
+    async def _remember_choice(self, chat_id: int, user, query_text: str, track: dict):
+        """Remember one choice per user/group/search; update it instead of appending duplicates."""
+        if not self.user_store or not user or not query_text:
+            return
+        try:
+            record = await self.user_store.get_user(user.id)
+            preferences = record.setdefault("preferences", {})
+            key = self._preference_key(chat_id, query_text)
+            preferences[key] = {
+                "chat_id": int(chat_id),
+                "query": str(query_text)[:120],
+                "title": str(track.get("name", "Unknown title"))[:120],
+                "artist": str(track.get("artist_name", "Unknown artist"))[:100],
+                "duration": int(track.get("duration") or 0),
+                "chosen_by": int(user.id),
+                "chosen_by_name": str(user.full_name)[:100],
+                "selected_at": datetime.now(timezone.utc).isoformat(),
+            }
+            while len(preferences) > 80:
+                preferences.pop(next(iter(preferences)))
+            await self.user_store.save_user(user.id, record)
+        except Exception:
+            log.exception("Could not save music choice in the cache channel for user %s", user.id)
+
+    @staticmethod
+    def _playlist_text(record: dict, page: int = 0) -> str:
+        playlist = record.get("playlist", [])
+        if not playlist:
+            return (
+                "🎼 <b>YOUR XYRON PLAYLIST</b>\n\n"
+                "Your playlist is empty. Play a song in this group and tap "
+                "<b>ADD TO MY PLAYLIST</b> on the player card."
+            )
+        page_size = 8
+        page_count = max(1, (len(playlist) + page_size - 1) // page_size)
+        page = max(0, min(int(page), page_count - 1))
+        start = page * page_size
+        lines = [
+            f"<b>{start + index + 1}.</b> {html.escape(str(item.get('title', 'Unknown title')))}"
+            f" — {html.escape(str(item.get('artist', 'Unknown artist')))}"
+            for index, item in enumerate(playlist[start:start + page_size])
+        ]
+        return (
+            "🎼 <b>YOUR XYRON PLAYLIST</b>\n"
+            f"🎵 <b>{len(playlist)}</b> saved track(s)\n\n"
+            + "\n".join(lines)
+            + f"\n\n<code>Page {page + 1}/{page_count}</code>"
+        )
+
+    @staticmethod
+    def _playlist_keyboard(record: dict, page: int = 0) -> dict:
+        playlist = record.get("playlist", [])
+        page_size = 8
+        page_count = max(1, (len(playlist) + page_size - 1) // page_size)
+        page = max(0, min(int(page), page_count - 1))
+        rows = [
+            [
+                {"text": "▶  PLAY PLAYLIST", "callback_data": "music:playlist:play", "style": "success"},
+                {"text": "■  STOP PLAYLIST", "callback_data": "music:playlist:stop", "style": "danger"},
+            ],
+            [{"text": "➕  ADD CURRENT SONG", "callback_data": "music:playlist:add_current", "style": "primary"}],
+        ]
+        for item in playlist[page * page_size:(page + 1) * page_size]:
+            title = str(item.get("title", "Track"))[:32]
+            artist = str(item.get("artist", ""))[:18]
+            rows.append([{
+                "text": f"✖  {title} — {artist}",
+                "callback_data": f"music:playlist:delete:{item['item_id']}",
+                "style": "danger",
+            }])
+        if page_count > 1:
+            nav = []
+            if page > 0:
+                nav.append({"text": "⬅ PREVIOUS", "callback_data": f"music:playlist:page:{page - 1}", "style": "primary"})
+            if page + 1 < page_count:
+                nav.append({"text": "NEXT ➡", "callback_data": f"music:playlist:page:{page + 1}", "style": "primary"})
+            rows.append(nav)
+        return {"inline_keyboard": rows}
+
+    async def _send_playlist_view(self, chat_id: int, record: dict, page: int = 0):
+        return await self._api("sendMessage", {
+            "chat_id": chat_id,
+            "text": self._playlist_text(record, page),
+            "parse_mode": "HTML",
+            "reply_markup": self._playlist_keyboard(record, page),
+            "disable_web_page_preview": True,
+        })
+
+    async def my_playlist_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._require_membership(update):
+            return
+        chat = update.effective_chat
+        if chat.type == Chat.PRIVATE:
+            return await update.effective_message.reply_text(
+                "Open a group where XYRON Music is enabled and use /myplaylist there."
+            )
+        if not self.user_store:
+            return await update.effective_message.reply_text(
+                "Playlist storage is unavailable. The music cache channel is not connected."
+            )
+        try:
+            record = await self.user_store.get_user(update.effective_user.id)
+            await self._send_playlist_view(chat.id, record)
+        except Exception as exc:
+            log.exception("Could not open user playlist")
+            await update.effective_message.reply_text(
+                f"Could not load your playlist from the music cache channel: {type(exc).__name__}"
+            )
+
+    async def _start_user_playlist(self, chat_id: int, user, record: dict):
+        playlist = list(record.get("playlist", []))
+        if not playlist:
+            raise RuntimeError("Your playlist is empty. Add songs from a music player card first.")
+        if not self.accounts.clients:
+            raise RuntimeError("No voice-player account is connected.")
+        playable = []
+        for item in playlist:
+            title = str(item.get("title", "")).strip()
+            artist = str(item.get("artist", "")).strip()
+            if not title:
+                continue
+            results = await self.source.search(f"{title} {artist}".strip(), self.accounts.clients)
+            expected_title = SongsxSource._key(title)
+            expected_artist = SongsxSource._key(artist)
+            track = next(
+                (
+                    candidate for candidate in results
+                    if SongsxSource._key(candidate.get("name", "")) == expected_title
+                    and SongsxSource._key(candidate.get("artist_name", "")) == expected_artist
+                ),
+                results[0] if results else None,
+            )
+            if not track:
+                log.warning("Playlist track could not be resolved: %s — %s", title, artist)
+                continue
+            track["requested_by"] = user.full_name
+            track["requested_by_username"] = f"@{user.username}" if user.username else ""
+            track["_playlist_item_id"] = item["item_id"]
+            playable.append(track)
+        if not playable:
+            raise RuntimeError("None of the saved tracks could be loaded from the music cache channel.")
+        old_track = self.players.get(chat_id)
+        await self._stop_progress(chat_id)
+        if old_track:
+            try:
+                await self._edit_player_card(
+                    chat_id, old_track["message_id"],
+                    "🔁 <b>Switching to a personal playlist…</b>", False,
+                )
+            except Exception:
+                pass
+        try:
+            await self.calls.leave_call(chat_id)
+        except Exception:
+            pass
+        self.players.pop(chat_id, None)
+        self.queues[chat_id].clear()
+        self.queues[chat_id].extend(playable)
+        self.playlist_sessions[chat_id] = {
+            "owner_id": int(user.id),
+            "item_ids": {item.get("_playlist_item_id") for item in playable},
+        }
+        status = await self.bot.send_message(
+            chat_id,
+            f"🎼 Starting {html.escape(user.first_name)}'s playlist ({len(playable)} tracks)…",
+            parse_mode="HTML",
+        )
+        await self._play_next(chat_id, status.message_id)
+
+    async def _stop_user_playlist(self, chat_id: int, user_id: int):
+        session = self.playlist_sessions.get(chat_id)
+        if not session or int(session.get("owner_id", 0)) != int(user_id):
+            raise PermissionError("You do not own the playlist currently playing in this group.")
+        item_ids = set(session.get("item_ids", set()))
+        self.queues[chat_id] = deque(
+            item for item in self.queues[chat_id]
+            if item.get("_playlist_item_id") not in item_ids
+        )
+        current = self.players.get(chat_id)
+        current_is_playlist = bool(current and current.get("_playlist_item_id") in item_ids)
+        self.playlist_sessions.pop(chat_id, None)
+        if current_is_playlist:
+            await self._stop_progress(chat_id)
+            self.players.pop(chat_id, None)
+            try:
+                await self.calls.leave_call(chat_id)
+            except Exception:
+                pass
+            try:
+                await self._edit_player_card(
+                    chat_id, current["message_id"],
+                    "⏹ <b>Your playlist has been stopped.</b>", False,
+                )
+            except Exception:
+                pass
+            if self.queues[chat_id]:
+                await self._play_next(chat_id)
+
+    async def playlist_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user = query.from_user
+        if not await self._is_channel_member(user.id):
+            return await query.answer("Join @xyronschannel before using playlists.", show_alert=True)
+        chat = query.message.chat
+        if chat.type == Chat.PRIVATE:
+            return await query.answer("Use playlist controls in a group.", show_alert=True)
+        if not self.user_store:
+            return await query.answer("Playlist storage is unavailable.", show_alert=True)
+        parts = query.data.split(":")
+        action = parts[2] if len(parts) > 2 else ""
+        chat_id = chat.id
+        try:
+            record = await self.user_store.get_user(user.id)
+            if action == "open":
+                await query.answer()
+                await self._send_playlist_view(chat_id, record)
+                return
+            if action == "add_current":
+                current = self.players.get(chat_id)
+                if not current:
+                    return await query.answer("Nothing is playing right now.", show_alert=True)
+                playlist = record.setdefault("playlist", [])
+                title = str(current.get("title", "Unknown title"))
+                artist = str(current.get("artist", "Unknown artist"))
+                if any(
+                    SongsxSource._key(item.get("title", "")) == SongsxSource._key(title)
+                    and SongsxSource._key(item.get("artist", "")) == SongsxSource._key(artist)
+                    for item in playlist
+                ):
+                    return await query.answer("This song is already in your playlist.", show_alert=True)
+                if len(playlist) >= 100:
+                    return await query.answer("Your playlist has reached its 100-track limit.", show_alert=True)
+                playlist.append({
+                    "item_id": secrets.token_hex(4),
+                    "title": title[:120],
+                    "artist": artist[:100],
+                    "duration": int(current.get("duration") or 0),
+                    "added_at": datetime.now(timezone.utc).isoformat(),
+                })
+                await self.user_store.save_user(user.id, record)
+                return await query.answer("Added to your personal playlist! 🎵", show_alert=True)
+            if action == "delete" and len(parts) == 4:
+                item_id = parts[3]
+                before = len(record.get("playlist", []))
+                record["playlist"] = [
+                    item for item in record.get("playlist", [])
+                    if item.get("item_id") != item_id
+                ]
+                if len(record["playlist"]) == before:
+                    return await query.answer("That track is no longer in your playlist.", show_alert=True)
+                await self.user_store.save_user(user.id, record)
+                session = self.playlist_sessions.get(chat_id)
+                if session and int(session.get("owner_id", 0)) == int(user.id):
+                    session.get("item_ids", set()).discard(item_id)
+                self.queues[chat_id] = deque(
+                    item for item in self.queues[chat_id]
+                    if item.get("_playlist_item_id") != item_id
+                )
+                await query.answer("Track removed from your playlist.")
+                return await query.edit_message_text(
+                    self._playlist_text(record),
+                    parse_mode="HTML",
+                    reply_markup=self._playlist_keyboard(record),
+                    disable_web_page_preview=True,
+                )
+            if action == "page" and len(parts) == 4:
+                page = max(0, int(parts[3]))
+                await query.answer()
+                return await query.edit_message_text(
+                    self._playlist_text(record, page),
+                    parse_mode="HTML",
+                    reply_markup=self._playlist_keyboard(record, page),
+                    disable_web_page_preview=True,
+                )
+            if action == "play":
+                await query.answer("Preparing your playlist…")
+                await self._start_user_playlist(chat_id, user, record)
+                return
+            if action == "stop":
+                await self._stop_user_playlist(chat_id, user.id)
+                return await query.answer("Your playlist has been stopped.")
+            await query.answer("Unknown playlist action.", show_alert=True)
+        except PermissionError as exc:
+            await query.answer(str(exc), show_alert=True)
+        except Exception as exc:
+            log.exception("Playlist action failed")
+            try:
+                await query.answer(f"Playlist action failed: {type(exc).__name__}", show_alert=True)
+            except Exception:
+                pass
+
     async def play_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = update.effective_message
         if not await self._require_membership(update):
             return
-        query = " ".join(context.args or []).strip()
-        if not query:
+        query_text = " ".join(context.args or []).strip()
+        if not query_text:
             return await message.reply_text("Usage: /play <song name>")
         if update.effective_chat.type == Chat.PRIVATE:
             return await message.reply_text("Add @xyronrobot to a group, start its voice chat, then use /play there.")
+        chat_id = update.effective_chat.id
+        user = update.effective_user
         status = await message.reply_text(
-            f"🔎 Finding tracks for <b>{html.escape(query)}</b>…", parse_mode="HTML"
+            f"🔎 Finding tracks for <b>{html.escape(query_text)}</b>…", parse_mode="HTML"
         )
         try:
-            results = (await self.source.search(query, self.accounts.clients))[:7]
+            if user and self.user_store:
+                record = await self.user_store.get_user(user.id)
+                preference = record.get("preferences", {}).get(
+                    self._preference_key(chat_id, query_text)
+                )
+                if preference:
+                    preferred_query = (
+                        f"{preference.get('title', '')} {preference.get('artist', '')}"
+                    ).strip()
+                    preferred_results = await self.source.search(
+                        preferred_query, self.accounts.clients
+                    )
+                    expected_title = SongsxSource._key(preference.get("title", ""))
+                    expected_artist = SongsxSource._key(preference.get("artist", ""))
+                    selected_preference = next(
+                        (
+                            item for item in preferred_results
+                            if SongsxSource._key(item.get("name", "")) == expected_title
+                            and SongsxSource._key(item.get("artist_name", "")) == expected_artist
+                        ),
+                        None,
+                    )
+                    if selected_preference:
+                        selected_preference["requested_by"] = user.full_name
+                        selected_preference["requested_by_username"] = (
+                            f"@{user.username}" if user.username else ""
+                        )
+                        self.queues[chat_id].append(selected_preference)
+                        if chat_id not in self.players:
+                            await status.edit_text("⚡ Loading your previously selected song…")
+                            await self._play_next(chat_id, status.message_id)
+                        else:
+                            await status.edit_text(
+                                f"➕ Added your saved choice to the queue: "
+                                f"<b>{html.escape(selected_preference.get('name', 'Track'))}</b>",
+                                parse_mode="HTML",
+                            )
+                        return
+
+            results = (await self.source.search(query_text, self.accounts.clients))[:7]
             if not results:
                 return await status.edit_text("Songsx returned no tracks. Try another title or artist.")
-            user = update.effective_user
-            requester = " ".join(x for x in (user.first_name, user.last_name) if x) if user else "Telegram user"
+            requester = user.full_name if user else "Telegram user"
             username = f"@{user.username}" if user and user.username else ""
             for item in results:
                 item["requested_by"] = requester
                 item["requested_by_username"] = username
+                item["_search_query"] = query_text
             if len(results) > 1:
-                self.search_cache[update.effective_chat.id] = {
-                    str(item["id"]): item for item in results
-                }
-                await self._edit_song_choices(update.effective_chat.id, status.message_id, results)
+                self.search_cache[chat_id] = {str(item["id"]): item for item in results}
+                await self._edit_song_choices(chat_id, status.message_id, results)
                 return
             selected = results[0]
-            self.queues[update.effective_chat.id].append(selected)
-            if update.effective_chat.id not in self.players:
+            if user:
+                await self._remember_choice(chat_id, user, query_text, selected)
+            self.queues[chat_id].append(selected)
+            if chat_id not in self.players:
                 await status.edit_text("⏳ Preparing your selected track and voice chat…")
-                await self._play_next(update.effective_chat.id, status.message_id)
+                await self._play_next(chat_id, status.message_id)
             else:
                 await status.edit_text(
                     f"➕ Added to queue: <b>{html.escape(selected.get('name', 'Track'))}</b> "
@@ -497,11 +847,12 @@ class MusicPlugin:
 
     async def choose_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        if not await self._is_channel_member(query.from_user.id):
+        user = query.from_user
+        if not await self._is_channel_member(user.id):
             await query.answer("Join @xyronschannel before selecting tracks.", show_alert=True)
             try:
                 await self._api("sendMessage", {
-                    "chat_id": query.from_user.id,
+                    "chat_id": user.id,
                     "text": "Join @xyronschannel and confirm membership to use music.",
                     "reply_markup": self._subscription_keyboard(),
                 })
@@ -513,6 +864,9 @@ class MusicPlugin:
         track = self.search_cache.get(chat_id, {}).get(token)
         if not track:
             return await query.answer("Search expired. Run /play again.", show_alert=True)
+        track["requested_by"] = user.full_name
+        track["requested_by_username"] = f"@{user.username}" if user.username else ""
+        await self._remember_choice(chat_id, user, track.get("_search_query", ""), track)
         await query.answer("Added to queue")
         self.queues[chat_id].append(track)
         if chat_id not in self.players:
@@ -585,6 +939,7 @@ class MusicPlugin:
             elif action == "stop":
                 await query.answer("Stopping…")
                 self.queues[chat_id].clear()
+                self.playlist_sessions.pop(chat_id, None)
                 await self._stop_progress(chat_id)
                 self.players.pop(chat_id, None)
                 try:
@@ -640,6 +995,7 @@ class MusicPlugin:
                 await message.reply_text("⏭ Skipped.")
             elif action == "stop":
                 self.queues[chat_id].clear()
+                self.playlist_sessions.pop(chat_id, None)
                 await self._stop_progress(chat_id)
                 track = self.players.pop(chat_id, None)
                 try:
