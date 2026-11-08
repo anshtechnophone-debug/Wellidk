@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import secrets
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-import secrets
 
 import aiohttp
 from telegram import Chat, Update
@@ -472,11 +472,20 @@ class MusicPlugin:
             record = await self.user_store.get_user(user.id)
             preferences = record.setdefault("preferences", {})
             key = self._preference_key(chat_id, query_text)
+            title = str(track.get("name", "Unknown title"))[:120]
+            artist = str(track.get("artist_name", "Unknown artist"))[:100]
+            previous = preferences.get(key, {})
+            if (
+                previous.get("title") == title
+                and previous.get("artist") == artist
+                and int(previous.get("chosen_by", 0)) == int(user.id)
+            ):
+                return
             preferences[key] = {
                 "chat_id": int(chat_id),
                 "query": str(query_text)[:120],
-                "title": str(track.get("name", "Unknown title"))[:120],
-                "artist": str(track.get("artist_name", "Unknown artist"))[:100],
+                "title": title,
+                "artist": artist,
                 "duration": int(track.get("duration") or 0),
                 "chosen_by": int(user.id),
                 "chosen_by_name": str(user.full_name)[:100],
@@ -716,7 +725,12 @@ class MusicPlugin:
                     return await query.answer("That track is no longer in your playlist.", show_alert=True)
                 await self.user_store.save_user(user.id, record)
                 session = self.playlist_sessions.get(chat_id)
-                if session and int(session.get("owner_id", 0)) == int(user.id):
+                current = self.players.get(chat_id)
+                if (
+                    session
+                    and int(session.get("owner_id", 0)) == int(user.id)
+                    and (not current or current.get("_playlist_item_id") != item_id)
+                ):
                     session.get("item_ids", set()).discard(item_id)
                 self.queues[chat_id] = deque(
                     item for item in self.queues[chat_id]
