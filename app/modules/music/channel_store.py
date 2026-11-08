@@ -1,7 +1,7 @@
-"""Per-user music playlists and song-choice preferences stored in the Telegram cache channel.
+"""Per-user music playlists and preferences stored in Telegram channel messages.
 
 The channel is the source of truth; no playlist or preference rows are written to SQL.
-A compact compressed payload is kept in one searchable channel message per Telegram user.
+Each user's compressed JSON record is split into searchable channel-message chunks.
 """
 
 from __future__ import annotations
@@ -18,14 +18,15 @@ log = logging.getLogger("xyron.music.channel_store")
 
 class ChannelMusicStore:
     VERSION = 1
-    MAX_MESSAGE_CHARS = 3900
+    CHUNK_SIZE = 3500
+    MAX_PARTS = 100
 
     def __init__(self, client_provider, channel_id: int | str):
         self.client_provider = client_provider
         self.channel_id = int(channel_id or 0)
         self._peer_cache = {}
         self._records: dict[int, dict] = {}
-        self._message_ids: dict[int, int] = {}
+        self._message_ids: dict[int, dict[int, int]] = {}
         self._locks: dict[int, asyncio.Lock] = {}
 
     def _lock_for(self, user_id: int) -> asyncio.Lock:
@@ -80,26 +81,47 @@ class ChannelMusicStore:
             "updated_at": "",
         }
 
-    def _encode(self, user_id: int, record: dict) -> str:
+    def _encode(self, user_id: int, record: dict) -> list[str]:
         payload = json.dumps(
             record, ensure_ascii=False, separators=(",", ":")
         ).encode("utf-8")
         packed = base64.urlsafe_b64encode(zlib.compress(payload, 9)).decode("ascii")
-        message = f"{self._marker(user_id)}\n{packed}"
-        if len(message) > self.MAX_MESSAGE_CHARS:
-            raise ValueError(
-                "Your playlist data is too large to fit in its channel record. "
-                "Remove a few tracks and try again."
-            )
-        return message
+        chunks = [
+            packed[index:index + self.CHUNK_SIZE]
+            for index in range(0, len(packed), self.CHUNK_SIZE)
+        ] or [""]
+        if len(chunks) > self.MAX_PARTS:
+            raise ValueError("Your music data is too large to store in the cache channel.")
+        total = len(chunks)
+        marker = self._marker(user_id)
+        return [
+            f"{marker}_PART_{index}_OF_{total}\n{chunk}"
+            for index, chunk in enumerate(chunks, 1)
+        ]
 
-    def _decode(self, user_id: int, message: str) -> dict | None:
-        marker = self._marker(user_id) + "\n"
-        if not isinstance(message, str) or not message.startswith(marker):
+    def _parse_part(self, user_id: int, message: str):
+        if not isinstance(message, str):
+            return None
+        header, separator, chunk = message.partition("\n")
+        prefix = self._marker(user_id) + "_PART_"
+        if not separator or not header.startswith(prefix):
             return None
         try:
-            packed = base64.urlsafe_b64decode(message[len(marker):].encode("ascii"))
-            record = json.loads(zlib.decompress(packed).decode("utf-8"))
+            part_text, total_text = header[len(prefix):].split("_OF_", 1)
+            part, total = int(part_text), int(total_text)
+            if not (1 <= part <= total <= self.MAX_PARTS):
+                return None
+            return part, total, chunk
+        except (TypeError, ValueError):
+            return None
+
+    def _decode(self, user_id: int, parts: dict[int, str], total: int) -> dict | None:
+        if total < 1 or len(parts) != total or any(index not in parts for index in range(1, total + 1)):
+            return None
+        try:
+            packed = "".join(parts[index] for index in range(1, total + 1))
+            payload = base64.urlsafe_b64decode(packed.encode("ascii"))
+            record = json.loads(zlib.decompress(payload).decode("utf-8"))
             if not isinstance(record, dict) or int(record.get("user_id", 0)) != int(user_id):
                 return None
             record.setdefault("playlist", [])
@@ -109,12 +131,22 @@ class ChannelMusicStore:
             log.exception("Could not decode channel playlist record for user %s", user_id)
             return None
 
-    async def _find_message(self, client, peer, user_id: int):
+    async def _find_messages(self, client, peer, user_id: int):
         marker = self._marker(user_id)
-        async for message in client.iter_messages(peer, search=marker, limit=5):
-            if self._decode(user_id, getattr(message, "message", "") or "") is not None:
-                return message
-        return None
+        found: dict[int, int] = {}
+        chunks: dict[int, str] = {}
+        total = 0
+        async for message in client.iter_messages(peer, search=marker, limit=200):
+            parsed = self._parse_part(user_id, getattr(message, "message", "") or "")
+            if not parsed:
+                continue
+            part, message_total, chunk = parsed
+            if total and total != message_total:
+                continue
+            total = message_total
+            found[part] = int(message.id)
+            chunks[part] = chunk
+        return found, chunks, total
 
     async def get_user(self, user_id: int) -> dict:
         user_id = int(user_id)
@@ -123,13 +155,9 @@ class ChannelMusicStore:
                 return self._records[user_id]
             client = self._client()
             peer = await self._peer(client)
-            message = await self._find_message(client, peer, user_id)
-            record = (
-                self._decode(user_id, getattr(message, "message", "") or "")
-                if message else None
-            ) or self._default(user_id)
-            if message:
-                self._message_ids[user_id] = int(message.id)
+            message_ids, chunks, total = await self._find_messages(client, peer, user_id)
+            record = self._decode(user_id, chunks, total) or self._default(user_id)
+            self._message_ids[user_id] = message_ids
             self._records[user_id] = record
             return record
 
@@ -141,17 +169,25 @@ class ChannelMusicStore:
             record["version"] = self.VERSION
             record["user_id"] = user_id
             record["updated_at"] = datetime.now(timezone.utc).isoformat()
-            encoded = self._encode(user_id, record)
-            message_id = self._message_ids.get(user_id)
-            if message_id is None:
-                existing = await self._find_message(client, peer, user_id)
-                if existing:
-                    message_id = int(existing.id)
-                    self._message_ids[user_id] = message_id
-            if message_id is not None:
-                await client.edit_message(peer, message_id, encoded, link_preview=False)
-            else:
-                sent = await client.send_message(peer, encoded, link_preview=False)
-                self._message_ids[user_id] = int(sent.id)
+            messages = self._encode(user_id, record)
+            existing_ids = self._message_ids.get(user_id)
+            if existing_ids is None:
+                existing_ids, _, _ = await self._find_messages(client, peer, user_id)
+            saved_ids = {}
+            for part, message_text in enumerate(messages, 1):
+                message_id = existing_ids.get(part)
+                if message_id is not None:
+                    await client.edit_message(peer, message_id, message_text, link_preview=False)
+                    saved_ids[part] = message_id
+                else:
+                    sent = await client.send_message(peer, message_text, link_preview=False)
+                    saved_ids[part] = int(sent.id)
+            stale_ids = [
+                message_id for part, message_id in existing_ids.items()
+                if part > len(messages)
+            ]
+            if stale_ids:
+                await client.delete_messages(peer, stale_ids)
+            self._message_ids[user_id] = saved_ids
             self._records[user_id] = record
             return record
