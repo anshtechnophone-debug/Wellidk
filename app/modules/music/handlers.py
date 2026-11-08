@@ -247,7 +247,9 @@ class MusicPlugin:
 
     def _render_player(self, chat_id):
         track = self.players.get(chat_id)
-        if not track:            return "🎵 Nothing is playing right now."        duration = int(track.get("duration") or 0)
+        if not track:
+            return "🎵 Nothing is playing right now."
+        duration = int(track.get("duration") or 0)
         elapsed_now = (
             track.get("paused_elapsed", 0) if track.get("paused")
             else int(time.monotonic() - track["started_at"])
@@ -494,9 +496,11 @@ class MusicPlugin:
         except Exception:
             log.exception("Could not save music choice in the cache channel for user %s", user.id)
 
-    @staticmethod    def _playlist_text(record: dict, page: int = 0) -> str:
+    @staticmethod
+    def _playlist_text(record: dict, page: int = 0) -> str:
         playlist = record.get("playlist", [])
-        if not playlist:            return (
+        if not playlist:
+            return (
                 "🎼 <b>YOUR XYRON PLAYLIST</b>\n\n"
                 "Your playlist is empty. Start a song in this group, open /myplaylist, "
                 "then tap <b>ADD TO MY PLAYLIST</b> here."
@@ -742,10 +746,12 @@ class MusicPlugin:
                     disable_web_page_preview=True,
                 )
             if action == "page" and len(parts) == 4:
-                page = max(0, int(parts[3]))                await query.answer()
+                page = max(0, int(parts[3]))
+                await query.answer()
                 return await query.edit_message_text(
                     self._playlist_text(record, page),
-                    parse_mode="HTML",                    reply_markup=self._playlist_keyboard(record, page),
+                    parse_mode="HTML",
+                    reply_markup=self._playlist_keyboard(record, page),
                     disable_web_page_preview=True,
                 )
             if action == "play":
@@ -994,14 +1000,16 @@ class MusicPlugin:
         try:
             if action == "pause":
                 await self.calls.pause(chat_id)
-                track = self.players.get(chat_id)                if track:
+                track = self.players.get(chat_id)
+                if track:
                     track["paused_elapsed"] = int(time.monotonic() - track["started_at"])
                     track["paused"] = True
                 await message.reply_text("⏸ Playback paused.")
             elif action == "resume":
                 await self.calls.resume(chat_id)
                 track = self.players.get(chat_id)
-                if track:                    track["started_at"] = time.monotonic() - track.get("paused_elapsed", 0)
+                if track:
+                    track["started_at"] = time.monotonic() - track.get("paused_elapsed", 0)
                     track["paused"] = False
                 await message.reply_text("▶️ Playback resumed.")
             elif action == "skip":
