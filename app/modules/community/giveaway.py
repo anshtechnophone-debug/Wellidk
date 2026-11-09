@@ -7,7 +7,6 @@ import re
 from datetime import UTC, datetime, timedelta
 from html import escape
 from io import BytesIO
-from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
@@ -75,7 +74,8 @@ def _rules_text(group_title: str, started: datetime | None = None, ends: datetim
         "• Standalone text: <b>+0.5 credit</b>\n"
         "• Media, stickers, captions and commands: <b>0 credits</b>\n\n"
         "✅ Join first. Only messages sent after joining count.\n"
-        "🏆 Your rank depends on your credits. Use <b>/prize</b> in the group.\n"
+        "🏆 <b>Prize targets:</b> 1st — 9,000 points (Vice Cream NFT) · 2nd — 6,500 points (₹175) · 3rd — 5,000 points (₹75).\n"
+        "Use <b>/prize</b> in the group to check the leaderboard.\n"
         "⏳ The giveaway ends after 7 days."
     )
 
