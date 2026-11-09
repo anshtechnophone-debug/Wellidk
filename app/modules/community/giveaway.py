@@ -362,8 +362,18 @@ async def global_giveaway_dm_command(update: Update, context: ContextTypes.DEFAU
         await message.reply_text("🔒 These giveaway controls are owner-only.")
         return
     args = [x.casefold() for x in context.args]
-    action = args[0] if args else "status"
     state = await _global_state(context)
+    if message.text and message.text.split("@", 1)[0].split()[0].casefold() == "/prize":
+        if not state:
+            await message.reply_text("No global giveaway has started yet.")
+        else:
+            try:
+                await _send_global_board(message, context, state)
+            except TelegramError:
+                logger.exception("Could not send global giveaway leaderboard in owner DM")
+                await message.reply_text("Could not render the global leaderboard.")
+        return
+    action = args[0] if args else "status"
     if action == "start":
         started = _now()
         state = {"active": True, "started_at": started.isoformat(), "ends_at": (started + DURATION).isoformat(), "members": {}, "scope": "all_eligible_groups"}
