@@ -77,6 +77,7 @@ def _rules_text(group_title: str, started: datetime | None = None, ends: datetim
         "✅ Join first. Only messages sent after joining count.\n"
         "🏆 <b>Prize targets:</b> 1st — 9,000 points (Vice Cream NFT) · 2nd — 6,500 points (Telegram Premium) · 3rd — 5,000 points (150 Telegram Stars).\n"
         "Your messages across all eligible XYRON groups count toward one global score. Use <b>/prize</b> to check the leaderboard.\\n"
+        "👑 <b>Hosted by:</b> @s1dh7\\n"
         "⏳ The giveaway ends after 7 days."
     )
 
@@ -214,6 +215,7 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
         fill=(123, 239, 183) if active else gold,
         anchor="mm",
     )
+    draw.text((width // 2, 229), "HOSTED BY  @s1dh7", font=_load_font(18, True), fill=(190, 198, 222), anchor="mm")
 
     # Text-only grand-prize panel. No NFT artwork or embedded image data.
     prize_box = (110, 245, 970, 440)
@@ -491,7 +493,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
     if not await _eligible_group(context, chat):
         return
     entry = state.get("members", {}).get(str(user.id))
-    if not isinstance(entry, dict):
+    if not isinstance(entry, dict) or entry.get("disqualified"):
         return
     now = _now().timestamp()
     checked = float(entry.get("channel_checked_at", 0) or 0)
@@ -543,12 +545,64 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
     entry["last_at"] = now
     entry["name"], entry["username"], entry["risk"] = user.full_name, user.username, risk
     entry["flags"] = list(dict.fromkeys(flags))[-12:]
+
+    # Require several independent, sustained signals before automatic disqualification.
+    # A risk score alone is never treated as proof.
+    certain_fraud = (
+        risk >= 90
+        and int(entry.get("messages", 0)) >= 40
+        and repeated
+        and rapid_unanswered
+        and isolated_activity
+        and len(entry.get("distinct_replies", [])) < 2
+    )
+    if certain_fraud:
+        entry["disqualified"] = True
+        entry["disqualified_at"] = _now().isoformat()
+        entry["disqualification_reason"] = (
+            "Repeated identical messages, sustained rapid unanswered activity, "
+            "and no genuine conversation with other members."
+        )
+        entry["score"] = 0.0
+        await _save_global_state(context, state)
+        notice = (
+            f"🚫 GIVEAWAY DISQUALIFICATION\\n"
+            f"{user.full_name} (ID {user.id}) has been disqualified from the global giveaway "
+            "after multiple strong anti-abuse signals."
+        )
+        try:
+            await context.bot.send_message(chat.id, notice)
+        except TelegramError:
+            logger.exception("Could not announce giveaway disqualification in group %s", chat.id)
+        for owner_id in context.application.bot_data["settings"].owner_ids:
+            try:
+                await context.bot.send_message(
+                    owner_id,
+                    f"🚫 GLOBAL GIVEAWAY — DISQUALIFIED\\n"
+                    f"User: {user.full_name} (@{user.username or 'no_username'}) · ID {user.id}\\n"
+                    f"Group: {chat.title} ({chat.id})\\n"
+                    f"Risk: {risk}/100\\n"
+                    f"Evidence: {entry['disqualification_reason']}\\n"
+                    "The participant has been blocked from earning further points."
+                )
+            except TelegramError:
+                logger.exception("Could not DM owner about disqualified giveaway participant %s", user.id)
+        return
+
     await _save_global_state(context, state)
     if risk >= 30 and not entry.get("alerted"):
         entry["alerted"] = True
         await _save_global_state(context, state)
         for owner_id in context.application.bot_data["settings"].owner_ids:
             try:
-                await context.bot.send_message(owner_id, f"⚠️ GIVEAWAY REVIEW\nUser: {user.full_name} ({user.id})\nGroup: {chat.title} ({chat.id})\nRisk: {risk}/100\nSignals: {', '.join(entry['flags'][-4:])}\nReview only; no automatic disqualification.")
+                await context.bot.send_message(
+                    owner_id,
+                    f"⚠️ GLOBAL GIVEAWAY — SUSPICIOUS ACTIVITY\\n"
+                    f"User: {user.full_name} (@{user.username or 'no_username'}) · ID {user.id}\\n"
+                    f"Group: {chat.title} ({chat.id})\\n"
+                    f"Risk: {risk}/100\\n"
+                    f"Signals: {', '.join(entry['flags'][-4:])}\\n"
+                    "Review requested only. The participant has NOT been disqualified."
+                )
             except TelegramError:
-                pass
+                logger.exception("Could not DM owner about suspicious giveaway participant %s", user.id)
