@@ -151,7 +151,7 @@ def _fit_font(draw: ImageDraw.ImageDraw, text: str, max_width: int, size: int, b
 
 def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: datetime, active: bool, avatars: dict[int, bytes | None]) -> BytesIO:
     """Draw a complete leaderboard poster in Pillow; no background artwork is required."""
-    width, height = 1080, 1350
+    width, height = 1080, 1720
     image = Image.new("RGB", (width, height), (12, 15, 32))
     pixels = image.load()
 
@@ -262,9 +262,25 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
         draw.rounded_rectangle((x1 + 24, y2 - 78, x2 - 24, y2 - 30), radius=18, fill=(17, 21, 37), outline=accent, width=1)
         draw.text(((x1 + x2) // 2, y2 - 54), target_text, font=_fit_font(draw, target_text, card_w - 56, 17, True), fill=accent, anchor="mm")
 
-    draw.text((width // 2, 1215), "REPLY  +1 POINT   ·   STANDALONE TEXT  +0.5 POINT", font=_fit_font(draw, "REPLY  +1 POINT   ·   STANDALONE TEXT  +0.5 POINT", 950, 19, True), fill=muted, anchor="mm")
-    draw.text((width // 2, 1255), "JOIN FIRST · ONLY MESSAGES AFTER JOINING COUNT", font=_load_font(17, True), fill=(137, 150, 178), anchor="mm")
-    draw.text((width // 2, 1300), "XYRON  •  7-DAY COMMUNITY GIVEAWAY", font=_load_font(17, True), fill=(111, 125, 157), anchor="mm")
+    # Five additional participants appear below the podium; only ranks 1–3 win.
+    draw.text((width // 2, 1205), "MORE LEADERS  ·  RANKS 4–8", font=_load_font(25, True), fill=white, anchor="mm")
+    for rank in range(4, 9):
+        row_y = 1240 + (rank - 4) * 67
+        draw.rounded_rectangle((110, row_y, 970, row_y + 54), radius=17, fill=(25, 31, 50), outline=(63, 73, 103), width=1)
+        draw.text((145, row_y + 27), f"#{rank}", font=_load_font(22, True), fill=muted, anchor="lm")
+        if rank - 1 < len(entries):
+            user_id, data = entries[rank - 1]
+            name = re.sub(r"\s+", " ", str(data.get("name") or "Member").strip() or "Member")
+            score = _score(data)
+        else:
+            name, score = "OPEN SPOT", 0.0
+        draw.text((225, row_y + 27), _fit_font(draw, name, 490, 21, True) and name, font=_fit_font(draw, name, 490, 21, True), fill=white, anchor="lm")
+        score_text = f"{score:,.1f} pts" if rank - 1 < len(entries) else "— pts"
+        draw.text((930, row_y + 27), score_text, font=_fit_font(draw, score_text, 190, 20, True), fill=muted, anchor="rm")
+
+    draw.text((width // 2, 1615), "REPLY  +1 POINT   ·   STANDALONE TEXT  +0.5 POINT", font=_fit_font(draw, "REPLY  +1 POINT   ·   STANDALONE TEXT  +0.5 POINT", 950, 19, True), fill=muted, anchor="mm")
+    draw.text((width // 2, 1655), "JOIN FIRST · ONLY MESSAGES AFTER JOINING COUNT", font=_load_font(17, True), fill=(137, 150, 178), anchor="mm")
+    draw.text((width // 2, 1695), "XYRON  •  7-DAY COMMUNITY GIVEAWAY", font=_load_font(17, True), fill=(111, 125, 157), anchor="mm")
 
     output = BytesIO()
     image.save(output, format="PNG", optimize=True)
@@ -485,9 +501,9 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             state["ended_at"] = ends_at.isoformat()
             await repo.set_value(chat.id, "giveaway", state)
         active = bool(state.get("active"))
-        entries = _leaderboard(state)[:3]
+        entries = _leaderboard(state)[:8]
         avatars: dict[int, bytes | None] = {}
-        for user_id, _data in entries:
+        for user_id, _data in entries[:3]:
             avatars[user_id] = await _profile_photo_bytes(context, user_id)
         photo = _render_leaderboard(state, entries, ends_at, active, avatars)
         try:
