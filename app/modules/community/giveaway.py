@@ -76,8 +76,8 @@ def _rules_text(group_title: str, started: datetime | None = None, ends: datetim
         "• Media, stickers, captions and commands: <b>0 points</b>\n\n"
         "✅ Join first. Only messages sent after joining count.\n"
         "🏆 <b>Prize targets:</b> 1st — 9,000 points (Vice Cream NFT) · 2nd — 6,500 points (Telegram Premium) · 3rd — 5,000 points (150 Telegram Stars).\n"
-        "Your messages across all eligible XYRON groups count toward one global score. Use <b>/prize</b> to check the leaderboard.\\n"
-        "👑 <b>Hosted by:</b> @s1dh7\\n"
+        "Your messages across all eligible XYRON groups count toward one global score. Use <b>/prize</b> to check the leaderboard.\n"
+        "👑 <b>Hosted by:</b> @s1dh7\n"
         "⏳ The giveaway ends after 7 days."
     )
 
@@ -566,7 +566,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         entry["score"] = 0.0
         await _save_global_state(context, state)
         notice = (
-            f"🚫 GIVEAWAY DISQUALIFICATION\\n"
+            f"🚫 GIVEAWAY DISQUALIFICATION\n"
             f"{user.full_name} (ID {user.id}) has been disqualified from the global giveaway "
             "after multiple strong anti-abuse signals."
         )
@@ -578,11 +578,11 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             try:
                 await context.bot.send_message(
                     owner_id,
-                    f"🚫 GLOBAL GIVEAWAY — DISQUALIFIED\\n"
-                    f"User: {user.full_name} (@{user.username or 'no_username'}) · ID {user.id}\\n"
-                    f"Group: {chat.title} ({chat.id})\\n"
-                    f"Risk: {risk}/100\\n"
-                    f"Evidence: {entry['disqualification_reason']}\\n"
+                    f"🚫 GLOBAL GIVEAWAY — DISQUALIFIED\n"
+                    f"User: {user.full_name} (@{user.username or 'no_username'}) · ID {user.id}\n"
+                    f"Group: {chat.title} ({chat.id})\n"
+                    f"Risk: {risk}/100\n"
+                    f"Evidence: {entry['disqualification_reason']}\n"
                     "The participant has been blocked from earning further points."
                 )
             except TelegramError:
@@ -597,11 +597,11 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             try:
                 await context.bot.send_message(
                     owner_id,
-                    f"⚠️ GLOBAL GIVEAWAY — SUSPICIOUS ACTIVITY\\n"
-                    f"User: {user.full_name} (@{user.username or 'no_username'}) · ID {user.id}\\n"
-                    f"Group: {chat.title} ({chat.id})\\n"
-                    f"Risk: {risk}/100\\n"
-                    f"Signals: {', '.join(entry['flags'][-4:])}\\n"
+                    f"⚠️ GLOBAL GIVEAWAY — SUSPICIOUS ACTIVITY\n"
+                    f"User: {user.full_name} (@{user.username or 'no_username'}) · ID {user.id}\n"
+                    f"Group: {chat.title} ({chat.id})\n"
+                    f"Risk: {risk}/100\n"
+                    f"Signals: {', '.join(entry['flags'][-4:])}\n"
                     "Review requested only. The participant has NOT been disqualified."
                 )
             except TelegramError:
