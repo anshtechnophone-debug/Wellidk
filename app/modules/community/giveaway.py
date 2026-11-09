@@ -20,7 +20,7 @@ from app.services.group_policy import GroupPolicyRepository
 
 DURATION = timedelta(days=7)
 PRIZE_LABELS = ("VICE CREAM NFT", "TELEGRAM PREMIUM", "150 TELEGRAM STARS")
-MINIMUM_POINTS = (9000, 6500, 5000)
+MINIMUM_POINTS = (11000, 10000, 9000)
 
 
 def _repo(context: ContextTypes.DEFAULT_TYPE) -> GroupPolicyRepository:
@@ -75,7 +75,7 @@ def _rules_text(group_title: str, started: datetime | None = None, ends: datetim
         "• Standalone text: <b>+0.5 point</b>\n"
         "• Media, stickers, captions and commands: <b>0 points</b>\n\n"
         "✅ Join first. Only messages sent after joining count.\n"
-        "🏆 <b>Prize targets:</b> 1st — 9,000 points (Vice Cream NFT) · 2nd — 6,500 points (Telegram Premium) · 3rd — 5,000 points (150 Telegram Stars).\n"
+        "🏆 <b>Prize targets:</b> 1st — 11,000 points (Vice Cream NFT) · 2nd — 10,000 points (Telegram Premium) · 3rd — 9,000 points (150 Telegram Stars).\n"
         "Your messages across all eligible XYRON groups count toward one global score. Use <b>/prize</b> to check the leaderboard.\n"
         "👑 <b>Hosted by:</b> @s1dh7\n"
         "⏳ The giveaway ends after 7 days."
@@ -223,20 +223,20 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
     draw.rounded_rectangle((132, 265, 948, 420), radius=25, fill=(29, 29, 48), outline=(112, 94, 119), width=2)
     draw.text((width // 2, 300), "1ST PRIZE", font=_load_font(23, True), fill=gold, anchor="mm")
     draw.text((width // 2, 348), "VICE CREAM NFT", font=_fit_font(draw, "VICE CREAM NFT", 740, 48, True), fill=(255, 244, 220), anchor="mm")
-    draw.text((width // 2, 395), "MINIMUM TARGET  ·  9,000 POINTS", font=_load_font(20, True), fill=(222, 211, 185), anchor="mm")
+    draw.text((width // 2, 395), "MINIMUM TARGET  ·  11,000 POINTS", font=_load_font(20, True), fill=(222, 211, 185), anchor="mm")
 
     # Two smaller prize labels sit below the NFT panel.
     prize_y = 475
     prize_cards = (
-        ((110, prize_y, 520, prize_y + 112), silver, "2ND PRIZE", "TELEGRAM PREMIUM", "6,500 POINTS"),
-        ((560, prize_y, 970, prize_y + 112), bronze, "3RD PRIZE", "150 TELEGRAM STARS", "5,000 POINTS"),
+        ((110, prize_y, 520, prize_y + 142), silver, "2ND PRIZE", "TELEGRAM PREMIUM", "MINIMUM  ·  10,000 POINTS"),
+        ((560, prize_y, 970, prize_y + 142), bronze, "3RD PRIZE", "150 TELEGRAM STARS", "MINIMUM  ·  9,000 POINTS"),
     )
     for box, accent, label, prize, target in prize_cards:
         draw.rounded_rectangle(box, radius=25, fill=(25, 30, 51), outline=accent, width=2)
         x1, y1, x2, y2 = box
-        draw.text((x1 + 24, y1 + 28), label, font=_load_font(19, True), fill=accent)
-        draw.text((x1 + 24, y1 + 72), prize, font=_fit_font(draw, prize, x2 - x1 - 48, 27, True), fill=white, anchor="lm")
-        draw.text((x2 - 22, y1 + 76), target, font=_fit_font(draw, target, 190, 17, True), fill=muted, anchor="rm")
+        draw.text((x1 + 24, y1 + 29), label, font=_load_font(19, True), fill=accent)
+        draw.text((x1 + 24, y1 + 70), prize, font=_fit_font(draw, prize, x2 - x1 - 48, 25, True), fill=white, anchor="lm")
+        draw.text(((x1 + x2) // 2, y1 + 116), target, font=_fit_font(draw, target, x2 - x1 - 44, 17, True), fill=muted, anchor="mm")
 
     draw.text((width // 2, 635), "TOP 3 LEADERBOARD", font=_load_font(29, True), fill=white, anchor="mm")
 
