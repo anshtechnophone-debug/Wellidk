@@ -102,6 +102,7 @@ async def ensure_target_is_moderatable(
         absent = any(term in detail for term in (
             "user not participant", "user_not_participant",
             "chat member not found", "user not found",
+            "participant_id_invalid", "participant id invalid",
         ))
         if allow_absent and absent:
             return
