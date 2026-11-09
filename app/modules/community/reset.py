@@ -40,8 +40,11 @@ async def reset_leaderboard_command(
     if kind == "daily" and not caption.startswith("🏆 daily chat leaderboard"):
         await message.reply_text("That isn't a /daily leaderboard image. Reply to the daily ranking.")
         return
-    if kind == "prize" and not caption.startswith("🎁 giveaway prize leaderboard"):
-        await message.reply_text("That isn't a /prize leaderboard image. Reply to the prize ranking.")
+    if kind == "prize" and (
+        not target.photo
+        or (caption and not caption.startswith("🎁 giveaway prize leaderboard"))
+    ):
+        await message.reply_text("That isn't a /prize leaderboard image. Reply to the prize ranking photo.")
         return
 
     try:
