@@ -16,6 +16,7 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from app.services.group_history import GroupMessage
+from app.services.group_policy import GroupPolicyRepository
 
 logger = logging.getLogger(__name__)
 LOCAL_TZ = ZoneInfo("Asia/Kolkata")
@@ -245,6 +246,16 @@ async def daily_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     end_local = start_local + timedelta(days=1)
     start_utc = start_local.astimezone(timezone.utc)
     end_utc = end_local.astimezone(timezone.utc)
+    policy = await GroupPolicyRepository(context.application.bot_data["sessions"]).get(chat.id)
+    reset_at_value = policy.get("daily_reset_at")
+    if reset_at_value:
+        try:
+            reset_at = datetime.fromisoformat(str(reset_at_value))
+            if reset_at.tzinfo is None:
+                reset_at = reset_at.replace(tzinfo=timezone.utc)
+            start_utc = max(start_utc, reset_at.astimezone(timezone.utc))
+        except ValueError:
+            logger.warning("Ignoring invalid daily_reset_at for chat_id=%s", chat.id)
 
     statement = (
         select(
