@@ -47,7 +47,11 @@ from app.modules.appeals.handlers import (
     reviewappeal_command,
 )
 from app.modules.community.daily import daily_command
-from app.modules.community.giveaway import giveaway_callback_handler, giveaway_text_handler
+from app.modules.community.giveaway import (
+    giveaway_callback_handler,
+    giveaway_text_handler,
+    global_giveaway_dm_command,
+)
 from app.modules.community.reset import reset_leaderboard_command
 from app.modules.community.handlers import (
     antiflood_command,
@@ -497,6 +501,10 @@ def _register_general(application: Application) -> None:
         ("teamwordcancel", teamwordcancel_command),
     ):
         application.add_handler(CommandHandler(command, callback))
+
+    # Global giveaway controls are intentionally available only in the owner's DM.
+    application.add_handler(CommandHandler("gw", global_giveaway_dm_command, filters=filters.ChatType.PRIVATE))
+    application.add_handler(CommandHandler("prize", global_giveaway_dm_command, filters=filters.ChatType.PRIVATE))
 
     for command in (
         "ban",
