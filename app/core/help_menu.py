@@ -31,7 +31,9 @@ def _categories() -> dict[str, list[CommandInfo]]:
 
 
 def _category_key(category: str) -> str:
-    return category.casefold().replace(" ", "_")
+    key = category.casefold().replace(" ", "_")
+    # Keep the established callback key stable for existing Family Life links.
+    return "family" if key == "family_life" else key
 
 
 def _find_category(key: str) -> tuple[str, list[CommandInfo]] | None:
