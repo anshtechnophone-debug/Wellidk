@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import logging
 import re
 import unicodedata
@@ -20,7 +19,7 @@ from app.core.permissions import AuthorizationError, require_admin_access
 from app.services.group_policy import GroupPolicyRepository
 
 DURATION = timedelta(days=7)
-PRIZE_LABELS = ("VICE CREAM NFT", "₹175", "₹75")
+PRIZE_LABELS = ("VICE CREAM NFT", "TELEGRAM PREMIUM", "150 TELEGRAM STARS")
 MINIMUM_POINTS = (9000, 6500, 5000)
 
 
@@ -76,8 +75,8 @@ def _rules_text(group_title: str, started: datetime | None = None, ends: datetim
         "• Standalone text: <b>+0.5 point</b>\n"
         "• Media, stickers, captions and commands: <b>0 points</b>\n\n"
         "✅ Join first. Only messages sent after joining count.\n"
-        "🏆 <b>Prize targets:</b> 1st — 9,000 points (Vice Cream NFT) · 2nd — 6,500 points (₹175) · 3rd — 5,000 points (₹75).\n"
-        "Your rank depends on your points. Use <b>/prize</b> in the group to check the leaderboard.\\n"
+        "🏆 <b>Prize targets:</b> 1st — 9,000 points (Vice Cream NFT) · 2nd — 6,500 points (Telegram Premium) · 3rd — 5,000 points (150 Telegram Stars).\n"
+        "Your messages across all eligible XYRON groups count toward one global score. Use <b>/prize</b> to check the leaderboard.\\n"
         "⏳ The giveaway ends after 7 days."
     )
 
@@ -171,7 +170,7 @@ def _fit_font(draw: ImageDraw.ImageDraw, text: str, max_width: int, size: int, b
 
 
 def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: datetime, active: bool, avatars: dict[int, bytes | None]) -> BytesIO:
-    """Draw a complete leaderboard poster in Pillow; no background artwork is required."""
+    """Render the navy-indigo global leaderboard with text-only prizes and aligned avatars."""
     width, height = 1080, 1720
     image = Image.new("RGB", (width, height), (12, 15, 32))
     pixels = image.load()
@@ -207,7 +206,7 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
     sub_font = _load_font(24, True)
     small_font = _load_font(21, False)
     draw.text((width // 2, 76), "XYRON", font=_load_font(27, True), fill=(151, 164, 205), anchor="mm")
-    draw.text((width // 2, 145), "WEEKLY GIVEAWAY", font=title_font, fill=white, anchor="mm")
+    draw.text((width // 2, 145), "GLOBAL GIVEAWAY", font=title_font, fill=white, anchor="mm")
     draw.text(
         (width // 2, 198),
         f"{_remaining(ends_at)} LEFT" if active else "GIVEAWAY ENDED · FINAL RESULTS",
@@ -216,31 +215,25 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
         anchor="mm",
     )
 
-    # NFT feature panel: original Pillow artwork, not a supplied background image.
-    nft_box = (110, 245, 970, 440)
-    draw.rounded_rectangle(nft_box, radius=34, fill=(36, 31, 45), outline=(181, 155, 111), width=3)
-    draw.rounded_rectangle((132, 265, 360, 420), radius=25, fill=(235, 225, 198), outline=(255, 245, 222), width=2)
-    nft_bytes = base64.b64decode("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")
-    nft_image = Image.open(BytesIO(nft_bytes)).convert("RGB")
-    nft_image = ImageOps.fit(nft_image, (208, 140), method=Image.Resampling.LANCZOS)
-    nft_mask = Image.new("L", (208, 140), 0)
-    ImageDraw.Draw(nft_mask).rounded_rectangle((0, 0, 207, 139), radius=18, fill=255)
-    image.paste(nft_image, (142, 273), nft_mask)
-    draw.text((395, 300), "1ST PRIZE", font=_load_font(23, True), fill=gold)
-    draw.text((395, 345), "VICE CREAM NFT", font=_fit_font(draw, "VICE CREAM NFT", 520, 42, True), fill=(255, 244, 220))
-    draw.text((395, 392), "MINIMUM TARGET  ·  9,000 POINTS", font=_load_font(20, True), fill=(222, 211, 185))
+    # Text-only grand-prize panel. No NFT artwork or embedded image data.
+    prize_box = (110, 245, 970, 440)
+    draw.rounded_rectangle(prize_box, radius=34, fill=(36, 31, 45), outline=(181, 155, 111), width=3)
+    draw.rounded_rectangle((132, 265, 948, 420), radius=25, fill=(29, 29, 48), outline=(112, 94, 119), width=2)
+    draw.text((width // 2, 300), "1ST PRIZE", font=_load_font(23, True), fill=gold, anchor="mm")
+    draw.text((width // 2, 348), "VICE CREAM NFT", font=_fit_font(draw, "VICE CREAM NFT", 740, 48, True), fill=(255, 244, 220), anchor="mm")
+    draw.text((width // 2, 395), "MINIMUM TARGET  ·  9,000 POINTS", font=_load_font(20, True), fill=(222, 211, 185), anchor="mm")
 
     # Two smaller prize labels sit below the NFT panel.
     prize_y = 475
     prize_cards = (
-        ((110, prize_y, 520, prize_y + 112), silver, "2ND PRIZE", "₹175", "6,500 POINTS"),
-        ((560, prize_y, 970, prize_y + 112), bronze, "3RD PRIZE", "₹75", "5,000 POINTS"),
+        ((110, prize_y, 520, prize_y + 112), silver, "2ND PRIZE", "TELEGRAM PREMIUM", "6,500 POINTS"),
+        ((560, prize_y, 970, prize_y + 112), bronze, "3RD PRIZE", "150 TELEGRAM STARS", "5,000 POINTS"),
     )
     for box, accent, label, prize, target in prize_cards:
         draw.rounded_rectangle(box, radius=25, fill=(25, 30, 51), outline=accent, width=2)
         x1, y1, x2, y2 = box
         draw.text((x1 + 24, y1 + 28), label, font=_load_font(19, True), fill=accent)
-        draw.text((x1 + 24, y1 + 72), prize, font=_load_font(35, True), fill=white, anchor="lm")
+        draw.text((x1 + 24, y1 + 72), prize, font=_fit_font(draw, prize, x2 - x1 - 48, 27, True), fill=white, anchor="lm")
         draw.text((x2 - 22, y1 + 76), target, font=_fit_font(draw, target, 190, 17, True), fill=muted, anchor="rm")
 
     draw.text((width // 2, 635), "TOP 3 LEADERBOARD", font=_load_font(29, True), fill=white, anchor="mm")
@@ -314,252 +307,248 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
 
     return output
 
-async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Register giveaway participants and provide private rules or a start link."""
-    query = update.callback_query
-    user = update.effective_user
-    if not query or not user:
-        return
-    action = (query.data or "").split(":")
-    if len(action) != 3 or action[0] != "giveaway" or action[1] not in {"join", "rules"}:
-        return
+async def _global_state(context: ContextTypes.DEFAULT_TYPE) -> dict:
+    state = (await _repo(context).get(0)).get("global_giveaway", {})
+    return state if isinstance(state, dict) else {}
+
+
+async def _save_global_state(context: ContextTypes.DEFAULT_TYPE, state: dict) -> None:
+    await _repo(context).set_value(0, "global_giveaway", state)
+
+
+async def _channel_member(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
+    channel = getattr(context.application.bot_data["settings"], "music_channel", "@xyronschannel")
     try:
-        group_id = int(action[2])
-    except ValueError:
-        await query.answer("This giveaway button is invalid.", show_alert=True)
-        return
+        member = await context.bot.get_chat_member(channel, user_id)
+        return member.status in {"member", "administrator", "creator"} or bool(getattr(member, "is_member", False))
+    except TelegramError:
+        return False
 
-    repo = _repo(context)
-    policy = await repo.get(group_id)
-    state = policy.get("giveaway", {})
-    if not isinstance(state, dict):
-        await query.answer("This giveaway is unavailable.", show_alert=True)
-        return
 
-    end = _parse_time(state.get("ends_at"))
-    if not state.get("active") or not end or _now() >= end:
-        if state.get("active"):
-            state["active"] = False
-            state["ended_at"] = end.isoformat() if end else _now().isoformat()
-            await repo.set_value(group_id, "giveaway", state)
+async def _eligible_group(context: ContextTypes.DEFAULT_TYPE, chat: Chat) -> bool:
+    cache = context.application.bot_data.setdefault("giveaway_group_cache", {})
+    now = _now().timestamp()
+    cached = cache.get(chat.id)
+    if cached and now - cached[0] < 300:
+        return bool(cached[1])
+    try:
+        count = await context.bot.get_chat_member_count(chat.id)
+        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
+        ok = count >= 30 and bot_member.status in {"member", "administrator", "creator"}
+    except TelegramError:
+        ok = False
+    cache[chat.id] = (now, ok)
+    return ok
+
+
+async def _send_global_board(message, context, state: dict) -> None:
+    ends = _parse_time(state.get("ends_at")) or _now()
+    active = bool(state.get("active")) and _now() < ends
+    entries = _leaderboard(state)[:8]
+    avatars = {uid: await _profile_photo_bytes(context, uid) for uid, _ in entries[:3]}
+    await message.reply_photo(
+        photo=_render_leaderboard(state, entries, ends, active, avatars),
+        caption="🎁 GLOBAL GIVEAWAY PRIZE LEADERBOARD · Reply /reset prize to clear points",
+    )
+
+
+async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query, user = update.callback_query, update.effective_user
+    if not query or not user or (query.data or "") != "giveaway:join:0":
+        return
+    state = await _global_state(context)
+    ends = _parse_time(state.get("ends_at"))
+    if not state.get("active") or not ends or _now() >= ends:
         await query.answer("This giveaway has ended.", show_alert=True)
         return
-
-    try:
-        member = await context.bot.get_chat_member(group_id, user.id)
-        if member.status not in {"member", "administrator", "creator"} and not bool(getattr(member, "is_member", False)):
-            await query.answer("Join the group first, then tap Join Giveaway.", show_alert=True)
-            return
-        group = await context.bot.get_chat(group_id)
-    except TelegramError:
-        await query.answer("I couldn't verify your group membership. Please try again.", show_alert=True)
-        return
-
-    if action[1] == "rules":
+    if not await _channel_member(context, user.id):
+        channel = getattr(context.application.bot_data["settings"], "music_channel", "@xyronschannel")
+        channel_url = "https://t.me/" + str(channel).lstrip("@")
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Join XYRON Channel", url=channel_url)],
+            [InlineKeyboardButton("✅ Verify Membership", callback_data="giveaway:join:0")],
+        ])
+        await query.answer("Join XYRON's channel first.", show_alert=True)
         try:
-            await context.bot.send_message(
-                chat_id=user.id,
-                text=_rules_text(group.title or "Group", _parse_time(state.get("started_at")), end),
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            )
-            await query.answer("Giveaway rules sent to your DM.")
+            await context.bot.send_message(user.id, "Join the official XYRON channel, then tap Verify.", reply_markup=keyboard)
         except TelegramError:
-            await query.answer("Open the rules link and press Start in XYRON.", show_alert=True)
+            pass
         return
-
     members = state.setdefault("members", {})
     key = str(user.id)
     if key not in members:
         members[key] = {
-            "name": user.full_name,
-            "username": user.username,
-            "score": 0.0,
-            "joined_at": _now().isoformat(),
+            "name": user.full_name, "username": user.username, "score": 0.0,
+            "joined_at": _now().isoformat(), "groups": [], "risk": 0, "flags": [],
+            "recent": [], "last_text": "", "last_at": 0, "messages": 0, "replies": 0,
+            "distinct_replies": [], "alerted": False, "channel_ok": True,
+            "channel_checked_at": _now().timestamp(),
         }
-        await repo.set_value(group_id, "giveaway", state)
-
-    name = escape(user.full_name)
-    mention = f'<a href="tg://user?id={user.id}">{name}</a>'
-    started = _parse_time(state.get("started_at"))
+        await _save_global_state(context, state)
+    await query.answer("You're registered for the global giveaway!", show_alert=True)
     try:
-        await context.bot.send_message(
-            chat_id=user.id,
-            text=_rules_text(group.title or "Group", started, end),
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-        )
-        result_text = (
-            f"✅ {mention} has joined the giveaway!\n"
-            "📩 Giveaway rules have been sent to your DM."
-        )
-        await query.edit_message_text(
-            result_text,
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-        )
-        await query.answer("You're in! Check your private chat for the rules.")
+        await context.bot.send_message(user.id, "✅ Registered! Your eligible messages in EVERY XYRON group with 30+ members count toward one global score. Stay subscribed to XYRON's channel.")
     except TelegramError:
-        me = await context.bot.get_me()
-        rules_url = f"https://t.me/{me.username}?start=gw_{group_id}"
-        result_text = (
-            f"✅ {mention} has joined the giveaway!\n"
-            f'📜 <a href="{rules_url}">Please click here to see the giveaway rules.</a>\n'
-            "<i>Open XYRON and press Start to receive them privately.</i>"
-        )
-        try:
-            await query.edit_message_text(
-                result_text,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            )
-        except TelegramError:
-            pass
-        await query.answer("You're registered! Tap the rules link and press Start in XYRON.")
+        pass
+    try:
+        await query.edit_message_text(f"✅ {escape(user.full_name)} is registered for XYRON's global giveaway.", parse_mode="HTML")
+    except TelegramError:
+        pass
+
+
+async def global_giveaway_dm_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message, user, chat = update.effective_message, update.effective_user, update.effective_chat
+    if not message or not user or not chat or chat.type != Chat.PRIVATE:
+        return
+    settings = context.application.bot_data["settings"]
+    if not settings.is_owner(user.id):
+        await message.reply_text("🔒 These giveaway controls are owner-only.")
+        return
+    args = [x.casefold() for x in context.args]
+    state = await _global_state(context)
+    if message.text and message.text.split("@", 1)[0].split()[0].casefold() == "/prize":
+        if not state:
+            await message.reply_text("No global giveaway has started yet.")
+        else:
+            try:
+                await _send_global_board(message, context, state)
+            except TelegramError:
+                logger.exception("Could not send global giveaway leaderboard in owner DM")
+                await message.reply_text("Could not render the global leaderboard.")
+        return
+    action = args[0] if args else "status"
+    if action == "start":
+        started = _now()
+        state = {"active": True, "started_at": started.isoformat(), "ends_at": (started + DURATION).isoformat(), "members": {}, "scope": "all_eligible_groups"}
+        await _save_global_state(context, state)
+        await message.reply_text("🎉 GLOBAL GIVEAWAY STARTED\nDuration: 7 days\nGroups: all XYRON groups with 30+ members\nEntry: XYRON channel subscription + one-time registration\nScoring: reply +1 · standalone text +0.5\nAll groups share one leaderboard.")
+    elif action == "end":
+        if not state.get("active"):
+            await message.reply_text("There is no active global giveaway.")
+            return
+        state["active"] = False
+        state["ended_at"] = _now().isoformat()
+        await _save_global_state(context, state)
+        await message.reply_text("🏁 Global giveaway ended. Use /prize for final results.")
+    elif action in {"reset", "clear"}:
+        for entry in state.get("members", {}).values():
+            if isinstance(entry, dict):
+                entry["score"] = 0.0
+        await _save_global_state(context, state)
+        await message.reply_text("✅ Global giveaway points reset.")
+    elif action in {"suspicious", "fraud"}:
+        flagged = [(uid, data) for uid, data in state.get("members", {}).items() if isinstance(data, dict) and int(data.get("risk", 0)) >= 20]
+        flagged.sort(key=lambda item: -int(item[1].get("risk", 0)))
+        if not flagged:
+            await message.reply_text("No accounts currently meet the suspicious-activity review threshold.")
+            return
+        lines = ["🔎 GLOBAL GIVEAWAY REVIEW"]
+        for uid, data in flagged[:15]:
+            lines.append(f"\n{data.get('name', uid)} · ID {uid}\nRisk {data.get('risk', 0)}/100 · Messages {data.get('messages', 0)}\nSignals: {', '.join(data.get('flags', [])[-4:])}")
+        await message.reply_text("\n".join(lines))
+    else:
+        ends = _parse_time(state.get("ends_at")) or _now()
+        await message.reply_text(f"GLOBAL GIVEAWAY: {'LIVE' if state.get('active') and _now() < ends else 'ENDED'}\nParticipants: {len(state.get('members', {}))}\nEnds: {ends:%d %b %Y, %H:%M UTC}\nCommands: /gw start, /gw end, /gw suspicious, /gw reset, /prize")
 
 
 async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle giveaway controls, invitations, and eligible text-message scoring."""
     message, chat, user = update.effective_message, update.effective_chat, update.effective_user
     if not message or not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP} or not user or user.is_bot:
         return
     text = (message.text or "").strip()
     if not text:
         return
-    folded = re.sub(r"\s+", " ", text).casefold()
-    command_text = re.sub(r"^/(gw|prize)(?:@\w+)?", lambda match: "/" + match.group(1), folded)
-    command_text = re.sub(r"\s+", " ", command_text).strip()
-    repo = _repo(context)
-
-    if command_text == "/gw":
-        state = (await repo.get(chat.id)).get("giveaway", {})
-        if not isinstance(state, dict) or not state.get("active"):
-            await message.reply_text("🎁 There isn't an active giveaway right now. Watch for the next one!")
-            return
-        ends_at = _parse_time(state.get("ends_at"))
-        if not ends_at or _now() >= ends_at:
-            state["active"] = False
-            state["ended_at"] = ends_at.isoformat() if ends_at else _now().isoformat()
-            await repo.set_value(chat.id, "giveaway", state)
-            await message.reply_text("🏁 This giveaway has ended.")
-            return
-        members = state.get("members", {})
-        if str(user.id) in members:
-            await message.reply_text("✅ You're already registered for this giveaway. Send /prize to check the leaderboard.")
-            return
-        me = await context.bot.get_me()
-        button = InlineKeyboardMarkup([[
-            InlineKeyboardButton("Join Giveaway", callback_data=f"giveaway:join:{chat.id}")
-        ]])
-        mention = f'<a href="tg://user?id={user.id}">{escape(user.full_name)}</a>'
-        await message.reply_text(
-            f"🎁 <b>WEEKLY GIVEAWAY</b>\n\n"
-            f"{mention}, join here to register and receive the rules privately.\n"
-            "💬 Earn points by chatting after you join.\n"
-            "🏆 Use /prize in the group to check your progress.",
-            parse_mode="HTML",
-            reply_markup=button,
-            disable_web_page_preview=True,
-        )
+    command = re.sub(r"\s+", " ", text.casefold()).strip()
+    command = re.sub(r"^/(gw|prize)(?:@\w+)?", lambda m: "/" + m.group(1), command)
+    state = await _global_state(context)
+    if command == "/gw":
+        if not state.get("active"):
+            await message.reply_text("🎁 No global giveaway is live right now.")
+        elif str(user.id) in state.get("members", {}):
+            await message.reply_text("✅ You're already registered. Your messages across all eligible XYRON groups count together.")
+        else:
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Join Global Giveaway", callback_data="giveaway:join:0")]])
+            await message.reply_text("🎁 <b>XYRON GLOBAL GIVEAWAY</b>\nRegister once. Messages in EVERY XYRON group with 30+ members count toward one global score.\nXYRON channel membership is required.", parse_mode="HTML", reply_markup=keyboard)
         return
-
-    if command_text in {"/gw start", "/gw end", "/prize"}:
-        state = (await repo.get(chat.id)).get("giveaway", {})
-        if not isinstance(state, dict):
-            state = {}
-        is_start = command_text == "/gw start"
-        is_end = command_text == "/gw end"
-        if is_start or is_end:
-            if is_start:
-                try:
-                    actor = await context.bot.get_chat_member(chat.id, user.id)
-                except TelegramError:
-                    await message.reply_text("I couldn't verify the group owner's identity. Please try again.")
-                    return
-                if actor.status != "creator":
-                    await message.reply_text("🔒 Only the group owner can start the giveaway.")
-                    return
-                if state.get("active") and (_parse_time(state.get("ends_at")) or _now()) > _now():
-                    await message.reply_text("🎁 A giveaway is already running. Use /prize to view the leaderboard.")
-                    return
-                started = _now()
-                state = {
-                    "active": True,
-                    "started_at": started.isoformat(),
-                    "ends_at": (started + DURATION).isoformat(),
-                    "members": {},
-                }
-                await repo.set_value(chat.id, "giveaway", state)
-                await message.reply_text(
-                    "🎉 <b>WEEKLY GIVEAWAY IS LIVE!</b>\n"
-                    f"🗓 <b>From:</b> {started.strftime('%d %b %Y, %H:%M UTC')}\n"
-                    f"🏁 <b>Until:</b> {(started + DURATION).strftime('%d %b %Y, %H:%M UTC')}\n"
-                    "⏳ Duration: <b>7 days</b>\n\n"
-                    "💬 Reply = 1 point · Standalone text = 0.5 point\n"
-                    "✅ Join with <b>/gw</b> before chatting to earn points.\n"
-                    "📊 Use <b>/prize</b> to see the leaderboard.",
-                    parse_mode="HTML",
-                )
-            else:
-                try:
-                    await require_admin_access(update, context, context.application.bot_data["settings"], None)
-                except AuthorizationError as exc:
-                    await message.reply_text(str(exc))
-                    return
-                if not state.get("active"):
-                    await message.reply_text("There is no active giveaway to end.")
-                    return
-                state["active"] = False
-                state["ended_at"] = _now().isoformat()
-                await repo.set_value(chat.id, "giveaway", state)
-                await message.reply_text(
-                    "🏁 <b>GIVEAWAY ENDED!</b>\nUse <b>/prize</b> to view the final top five.",
-                    parse_mode="HTML",
-                )
-            return
-
-        if not state or not state.get("started_at"):
-            await message.reply_text("🎁 No giveaway has started yet. Only the group owner can start one with <b>/gw start</b>.", parse_mode="HTML")
-            return
-        ends_at = _parse_time(state.get("ends_at")) or _now()
-        if state.get("active") and _now() >= ends_at:
-            state["active"] = False
-            state["ended_at"] = ends_at.isoformat()
-            await repo.set_value(chat.id, "giveaway", state)
-        active = bool(state.get("active"))
-        entries = _leaderboard(state)[:8]
-        avatars: dict[int, bytes | None] = {}
-        for user_id, _data in entries[:3]:
-            avatars[user_id] = await _profile_photo_bytes(context, user_id)
-        photo = _render_leaderboard(state, entries, ends_at, active, avatars)
-        try:
-            await message.reply_photo(photo=photo)
-        except TelegramError:
-            logger.exception("Could not send giveaway leaderboard image for chat_id=%s", chat.id)
-            await message.reply_text("Couldn't send the leaderboard image. Please try /prize again.")
+    if command == "/prize":
+        if not state:
+            await message.reply_text("No global giveaway has started yet.")
+        else:
+            try:
+                await _send_global_board(message, context, state)
+            except TelegramError:
+                logger.exception("Could not send global giveaway leaderboard")
+                await message.reply_text("Couldn't send the leaderboard. Please try again.")
         return
-
-    # Count only normal text messages by registered participants during the live window.
-    if command_text.startswith(("/gw", "/prize", "#giveaway")) or command_text in {"/prize", "/gw"}:
+    if text.startswith("/") or command.startswith("#giveaway") or not state.get("active"):
         return
-    state = (await repo.get(chat.id)).get("giveaway", {})
-    if not isinstance(state, dict) or not state.get("active"):
-        return
-    ends_at = _parse_time(state.get("ends_at"))
-    if not ends_at or _now() >= ends_at:
+    ends = _parse_time(state.get("ends_at"))
+    if not ends or _now() >= ends:
         state["active"] = False
-        state["ended_at"] = ends_at.isoformat() if ends_at else _now().isoformat()
-        await repo.set_value(chat.id, "giveaway", state)
+        state["ended_at"] = ends.isoformat() if ends else _now().isoformat()
+        await _save_global_state(context, state)
         return
-    if not message.text or message.text.lstrip().startswith("/"):
+    if not await _eligible_group(context, chat):
         return
-    members = state.get("members", {})
-    key = str(user.id)
-    if key not in members:
+    entry = state.get("members", {}).get(str(user.id))
+    if not isinstance(entry, dict):
         return
-    increment = 1.0 if message.reply_to_message and message.reply_to_message.from_user else 0.5
-    entry = members[key]
-    entry["name"] = user.full_name
-    entry["username"] = user.username
+    now = _now().timestamp()
+    checked = float(entry.get("channel_checked_at", 0) or 0)
+    if now - checked > 3600:
+        entry["channel_checked_at"] = now
+        entry["channel_ok"] = await _channel_member(context, user.id)
+        if not entry["channel_ok"]:
+            await _save_global_state(context, state)
+            return
+    elif entry.get("channel_ok") is False:
+        return
+    raw = text
+    normalized = re.sub(r"\s+", " ", raw).casefold()
+    recent = [x for x in entry.get("recent", []) if now - float(x.get("at", 0)) <= 120]
+    flags = list(entry.get("flags", []))
+    risk = int(entry.get("risk", 0))
+    repeated = normalized == entry.get("last_text") and now - float(entry.get("last_at", 0)) < 120
+    if repeated:
+        risk = min(100, risk + 12)
+        flags.append("Repeated identical messages")
+    if len(recent) >= 12:
+        risk = min(100, risk + 8)
+        flags.append("High message rate")
+    reply = message.reply_to_message
+    genuine_reply = bool(reply and reply.from_user and not reply.from_user.is_bot and reply.from_user.id != user.id)
+    if genuine_reply:
+        entry["replies"] = int(entry.get("replies", 0)) + 1
+        peers = list(entry.get("distinct_replies", []))
+        if reply.from_user.id not in peers:
+            peers.append(reply.from_user.id)
+        entry["distinct_replies"] = peers[-50:]
+    if int(entry.get("messages", 0)) >= 18 and int(entry.get("replies", 0)) == 0:
+        risk = min(100, risk + 10)
+        flags.append("Extended activity without replying to others")
+    if int(entry.get("messages", 0)) >= 30 and len(entry.get("distinct_replies", [])) < 2:
+        risk = min(100, risk + 5)
+        flags.append("Conversation limited to fewer than two other members")
+    isolated_activity = int(entry.get("messages", 0)) >= 18 and int(entry.get("replies", 0)) == 0
+    rapid_unanswered = len(recent) >= 12 and not genuine_reply
+    if repeated or isolated_activity or rapid_unanswered:
+        increment = 0.0
+    else:
+        increment = 1.0 if genuine_reply else 0.5
     entry["score"] = round(_score(entry) + increment, 1)
-    await repo.set_value(chat.id, "giveaway", state)
+    entry["messages"] = int(entry.get("messages", 0)) + 1
+    entry["groups"] = list(dict.fromkeys([*entry.get("groups", []), chat.id]))
+    entry["recent"] = (recent + [{"at": now, "text": normalized[:160], "group": chat.id}])[-30:]
+    entry["last_text"] = normalized[:500]
+    entry["last_at"] = now
+    entry["name"], entry["username"], entry["risk"] = user.full_name, user.username, risk
+    entry["flags"] = list(dict.fromkeys(flags))[-12:]
+    await _save_global_state(context, state)
+    if risk >= 30 and not entry.get("alerted"):
+        entry["alerted"] = True
+        await _save_global_state(context, state)
+        for owner_id in context.application.bot_data["settings"].owner_ids:
+            try:
+                await context.bot.send_message(owner_id, f"⚠️ GIVEAWAY REVIEW\nUser: {user.full_name} ({user.id})\nGroup: {chat.title} ({chat.id})\nRisk: {risk}/100\nSignals: {', '.join(entry['flags'][-4:])}\nReview only; no automatic disqualification.")
+            except TelegramError:
+                pass
