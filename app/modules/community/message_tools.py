@@ -178,9 +178,14 @@ async def userinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     except TelegramError:
         member_status = "unknown"
 
+    username_line = (
+        f"<b>Username:</b> @{html.escape(target_user.username)}\n"
+        if target_user.username else ""
+    )
     text = (
         f"<b>UID:</b> <code>{target_user.id}</code>\n"
         f"<b>Name:</b> {user_mention(target_user.id, current_name)}\n"
+        f"{username_line}"
         f"Status: {html.escape(member_status)}\n"
         f"<b>Old names:</b> {history_line(old_names)}"
     )
