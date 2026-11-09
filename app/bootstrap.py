@@ -58,7 +58,7 @@ from app.modules.appeals.handlers import (
 )
 from app.modules.community.daily import daily_command
 from app.modules.community.reset import reset_leaderboard_command
-from app.modules.community.giveaway import giveaway_callback_handler, giveaway_text_handler
+from app.modules.community.giveaway import giveaway_callback_handler, giveaway_text_handler, global_giveaway_dm_command
 from app.modules.community.handlers import (
     antiflood_command,
     spamprotector_command,
@@ -471,6 +471,8 @@ def _register_general(application: Application) -> None:
         ("ping", ping_command),
         ("daily", daily_command),
         ("reset", reset_leaderboard_command),
+        ("gw", global_giveaway_dm_command),
+        ("prize", global_giveaway_dm_command),
         ("health", health_command),
         ("id", id_command),
         ("modules", modules_command),
@@ -550,7 +552,7 @@ def _register_general(application: Application) -> None:
     ):
         application.add_handler(
             CommandHandler(command, callback, filters=filters.ChatType.PRIVATE)
-            if command == "help" else CommandHandler(command, callback)
+            if command in {"help", "gw", "prize"} else CommandHandler(command, callback)
         )
 
     for command in (
