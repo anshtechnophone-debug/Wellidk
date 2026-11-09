@@ -48,6 +48,7 @@ from app.modules.appeals.handlers import (
 )
 from app.modules.community.daily import daily_command
 from app.modules.community.giveaway import giveaway_callback_handler, giveaway_text_handler
+from app.modules.community.reset import reset_leaderboard_command
 from app.modules.community.handlers import (
     antiflood_command,
     spamprotector_command,
@@ -412,6 +413,7 @@ def _register_general(application: Application) -> None:
         ("about", about_command),
         ("ping", ping_command),
         ("daily", daily_command),
+        ("reset", reset_leaderboard_command),
         ("health", health_command),
         ("id", id_command),
         ("modules", modules_command),
