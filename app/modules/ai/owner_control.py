@@ -356,6 +356,70 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
         return
     request = _strip_address(text, bot_username)
 
+    # Telegram group-admin promotion is a separate, owner-only action.
+    # Do not let the AI planner or XYRON bot-admin role authorize it.
+    OWNER_TELEGRAM_ADMIN_ID = 8032922682
+    admin_request = bool(re.search(
+        r"\\b(?:xyron\\s+)?(?:mujhe|me|myself|khud\\s+ko)\\s+"
+        r"(?:telegram\\s+)?(?:group\\s+)?admin\\s+"
+        r"(?:bana(?:o)?|make|promote|kar\\s+do)\\b|"
+        r"\\b(?:xyron\\s+)?(?:make|promote)\\s+me\\s+(?:a\\s+)?admin\\b",
+        request,
+        re.I,
+    ))
+    if admin_request:
+        if actor.id != OWNER_TELEGRAM_ADMIN_ID:
+            return
+        if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+            return
+        try:
+            from app.modules.moderation.admin_roles import RIGHTS
+
+            bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
+            if (
+                bot_member.status != "administrator"
+                or not bool(getattr(bot_member, "can_promote_members", False))
+            ):
+                await message.reply_text(
+                    "I need Telegram's 'Add New Admins' permission before I can promote you."
+                )
+                return
+
+            current = await context.bot.get_chat_member(chat.id, OWNER_TELEGRAM_ADMIN_ID)
+            if current.status == "creator":
+                await message.reply_text("You're already the group owner.")
+                return
+
+            # Grant every administrator right that Telegram allows this bot
+            # to delegate. Explicitly disable anonymous-admin mode.
+            rights = {
+                name: bool(getattr(bot_member, name, False))
+                for name in RIGHTS
+            }
+            rights["is_anonymous"] = False
+            await context.bot.promote_chat_member(
+                chat.id,
+                OWNER_TELEGRAM_ADMIN_ID,
+                **rights,
+            )
+            verified = await context.bot.get_chat_member(chat.id, OWNER_TELEGRAM_ADMIN_ID)
+            if verified.status != "administrator" or bool(getattr(verified, "is_anonymous", False)):
+                await message.reply_text(
+                    "Telegram accepted the request, but I couldn't verify the final admin settings."
+                )
+                return
+            await message.reply_text(
+                "✅ Malik, you're now a Telegram group admin with all rights I can grant. "
+                "Anonymous admin is OFF."
+            )
+        except TelegramError as exc:
+            logger.exception(
+                "Owner Telegram admin promotion failed: chat_id=%s owner_id=%s",
+                chat.id, OWNER_TELEGRAM_ADMIN_ID,
+            )
+            await message.reply_text(f"Telegram couldn't promote you: {exc}")
+        return
+
     # Moderation history is read from the database, not volatile conversation memory.
     addressed = _addressed(text, bot_username)
     asks_mod_history = bool(re.search(
