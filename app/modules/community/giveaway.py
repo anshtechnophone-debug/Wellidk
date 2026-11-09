@@ -20,7 +20,7 @@ from app.services.group_policy import GroupPolicyRepository
 
 DURATION = timedelta(days=7)
 PRIZE_LABELS = ("VICE CREAM NFT", "₹175", "₹75")
-BACKGROUND_PATH = Path(__file__).with_name("assets") / "giveaway_background.jpg"
+MINIMUM_POINTS = (9000, 6500, 5000)
 
 
 def _repo(context: ContextTypes.DEFAULT_TYPE) -> GroupPolicyRepository:
@@ -150,37 +150,93 @@ def _fit_font(draw: ImageDraw.ImageDraw, text: str, max_width: int, size: int, b
 
 
 def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: datetime, active: bool, avatars: dict[int, bytes | None]) -> BytesIO:
-    """Composite live giveaway data into the supplied XYRON artwork."""
+    """Draw a complete leaderboard poster in Pillow; no background artwork is required."""
     width, height = 1080, 1350
-    if not BACKGROUND_PATH.is_file():
-        raise FileNotFoundError(f"Giveaway background missing: {BACKGROUND_PATH}")
-    image = Image.open(BACKGROUND_PATH).convert("RGB")
-    image = ImageOps.fit(image, (width, height), method=Image.Resampling.LANCZOS)
-    draw = ImageDraw.Draw(image)
+    image = Image.new("RGB", (width, height), (12, 15, 32))
+    pixels = image.load()
 
-    white = (250, 248, 255)
-    muted = (211, 204, 231)
-    gold = (255, 218, 116)
-    silver = (226, 232, 255)
-    bronze = (255, 202, 158)
+    # Subtle vertical navy-to-indigo gradient, drawn directly by Python.
+    for y in range(height):
+        t = y / max(1, height - 1)
+        color = (
+            int(12 + 13 * t),
+            int(15 + 5 * t),
+            int(32 + 28 * t),
+        )
+        for x in range(width):
+            pixels[x, y] = color
+
+    draw = ImageDraw.Draw(image)
+    white = (247, 247, 250)
+    muted = (171, 181, 204)
+    gold = (255, 218, 133)
+    silver = (221, 231, 246)
+    bronze = (224, 166, 126)
     accents = (gold, silver, bronze)
 
-    # Replace the artwork's empty countdown pill with a live value.
-    countdown = f"{_remaining(ends_at)} LEFT" if active else "GIVEAWAY ENDED"
-    draw.rounded_rectangle((486, 214, 827, 270), radius=25, fill=(18, 10, 42))
-    countdown_font = _fit_font(draw, countdown, 315, 27, True)
-    draw.text((656, 242), countdown, font=countdown_font, fill=(126, 245, 183) if active else gold, anchor="mm")
+    # Decorative glow rings keep the poster polished without using a template.
+    for bounds, outline in (
+        ((-180, 80, 300, 560), (43, 47, 81)),
+        ((820, 40, 1260, 480), (39, 43, 77)),
+        ((780, 1000, 1190, 1410), (37, 42, 75)),
+    ):
+        draw.ellipse(bounds, outline=outline, width=5)
 
-    # Coordinates are aligned to the 1080x1350 artwork canvas.
-    slots = (
-        {"avatar": (432, 460, 617, 645), "name": (646, 492, 1004, 588), "points": (610, 604, 950, 657), "name_size": 36},
-        {"avatar": (235, 806, 405, 976), "name": (427, 830, 918, 921), "points": (455, 934, 766, 984), "name_size": 32},
-        {"avatar": (235, 1024, 405, 1194), "name": (427, 1051, 918, 1142), "points": (455, 1154, 766, 1204), "name_size": 32},
+    title_font = _load_font(58, True)
+    sub_font = _load_font(24, True)
+    small_font = _load_font(21, False)
+    draw.text((width // 2, 76), "XYRON", font=_load_font(27, True), fill=(151, 164, 205), anchor="mm")
+    draw.text((width // 2, 145), "WEEKLY GIVEAWAY", font=title_font, fill=white, anchor="mm")
+    draw.text(
+        (width // 2, 198),
+        f"{_remaining(ends_at)} LEFT" if active else "GIVEAWAY ENDED · FINAL RESULTS",
+        font=sub_font,
+        fill=(123, 239, 183) if active else gold,
+        anchor="mm",
     )
 
-    for index, slot in enumerate(slots):
+    # NFT feature panel: original Pillow artwork, not a supplied background image.
+    nft_box = (110, 245, 970, 440)
+    draw.rounded_rectangle(nft_box, radius=34, fill=(36, 31, 45), outline=(181, 155, 111), width=3)
+    draw.rounded_rectangle((132, 265, 360, 420), radius=25, fill=(235, 225, 198), outline=(255, 245, 222), width=2)
+    draw.ellipse((188, 286, 304, 402), fill=(207, 191, 157), outline=(255, 249, 229), width=4)
+    draw.ellipse((207, 305, 285, 383), fill=(245, 237, 216), outline=(178, 157, 122), width=3)
+    draw.text((246, 344), "VC", font=_load_font(37, True), fill=(86, 72, 55), anchor="mm")
+    draw.text((395, 300), "1ST PRIZE", font=_load_font(23, True), fill=gold)
+    draw.text((395, 345), "VICE CREAM NFT", font=_fit_font(draw, "VICE CREAM NFT", 520, 42, True), fill=(255, 244, 220))
+    draw.text((395, 392), "MINIMUM TARGET  ·  9,000 POINTS", font=_load_font(20, True), fill=(222, 211, 185))
+
+    # Two smaller prize labels sit below the NFT panel.
+    prize_y = 475
+    prize_cards = (
+        ((110, prize_y, 520, prize_y + 112), silver, "2ND PRIZE", "₹175", "6,500 POINTS"),
+        ((560, prize_y, 970, prize_y + 112), bronze, "3RD PRIZE", "₹75", "5,000 POINTS"),
+    )
+    for box, accent, label, prize, target in prize_cards:
+        draw.rounded_rectangle(box, radius=25, fill=(25, 30, 51), outline=accent, width=2)
+        x1, y1, x2, y2 = box
+        draw.text((x1 + 24, y1 + 28), label, font=_load_font(19, True), fill=accent)
+        draw.text((x1 + 24, y1 + 72), prize, font=_load_font(35, True), fill=white, anchor="lm")
+        draw.text((x2 - 22, y1 + 76), target, font=_fit_font(draw, target, 190, 17, True), fill=muted, anchor="rm")
+
+    draw.text((width // 2, 635), "TOP 3 LEADERBOARD", font=_load_font(29, True), fill=white, anchor="mm")
+
+    # Equal-width podium cards keep every PFP and name aligned on the same grid.
+    card_y, card_h, card_w, gap = 685, 480, 270, 28
+    left = (width - (3 * card_w + 2 * gap)) // 2
+    slots = []
+    for index in range(3):
+        x1 = left + index * (card_w + gap)
+        slots.append((x1, card_y, x1 + card_w, card_y + card_h))
+
+    for index, box in enumerate(slots):
         rank = index + 1
         accent = accents[index]
+        x1, y1, x2, y2 = box
+        fill = (35, 34, 49) if rank == 1 else (25, 31, 50)
+        draw.rounded_rectangle(box, radius=28, fill=fill, outline=accent, width=3)
+        draw.text(((x1 + x2) // 2, y1 + 42), ("1ST", "2ND", "3RD")[index], font=_load_font(30, True), fill=accent, anchor="mm")
+
         if index < len(entries):
             user_id, data = entries[index]
             name = str(data.get("name") or "Member").strip() or "Member"
@@ -189,24 +245,26 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
         else:
             user_id, name, score, photo_bytes = None, "OPEN SPOT", 0.0, None
 
-        # Real Telegram avatar, cropped to the circular frame.
-        ax1, ay1, ax2, ay2 = slot["avatar"]
-        _draw_avatar(image, (ax1, ay1, ax2, ay2), name, photo_bytes, rank)
+        avatar_size = 142
+        avatar_x = (x1 + x2 - avatar_size) // 2
+        avatar_y = y1 + 82
+        _draw_avatar(image, (avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size), name, photo_bytes, rank)
         draw = ImageDraw.Draw(image)
 
-        # Draw directly over the blank name bar, preserving its neon outline.
-        nx1, ny1, nx2, ny2 = slot["name"]
-        draw.rounded_rectangle((nx1 + 8, ny1 + 8, nx2 - 8, ny2 - 8), radius=30, fill=(17, 9, 35))
-        clean_name = re.sub(r"\s+", " ", name)
-        name_font = _fit_font(draw, clean_name, nx2 - nx1 - 34, slot["name_size"], True)
-        draw.text(((nx1 + nx2) // 2, (ny1 + ny2) // 2), clean_name, font=name_font, fill=white, anchor="mm")
+        name = re.sub(r"\s+", " ", name)
+        name_font = _fit_font(draw, name, card_w - 38, 24, True)
+        draw.text(((x1 + x2) // 2, y1 + 270), name, font=name_font, fill=white, anchor="mm")
 
-        # Cover the decorative POINTS placeholder and replace it with the live score.
-        px1, py1, px2, py2 = slot["points"]
-        draw.rounded_rectangle((px1 + 5, py1 + 5, px2 - 5, py2 - 5), radius=22, fill=(19, 10, 37))
-        points_text = f"{score:g} POINTS" if user_id is not None else "— POINTS"
-        points_font = _fit_font(draw, points_text, px2 - px1 - 24, 25 if index == 0 else 23, True)
-        draw.text(((px1 + px2) // 2, (py1 + py2) // 2), points_text, font=points_font, fill=accent, anchor="mm")
+        score_text = f"{score:,.1f}" if user_id is not None else "—"
+        draw.text(((x1 + x2) // 2, y1 + 326), score_text, font=_load_font(39, True), fill=accent, anchor="mm")
+        draw.text(((x1 + x2) // 2, y1 + 365), "POINTS", font=_load_font(17, True), fill=muted, anchor="mm")
+        target_text = f"TARGET  {MINIMUM_POINTS[index]:,}"
+        draw.rounded_rectangle((x1 + 24, y2 - 78, x2 - 24, y2 - 30), radius=18, fill=(17, 21, 37), outline=accent, width=1)
+        draw.text(((x1 + x2) // 2, y2 - 54), target_text, font=_fit_font(draw, target_text, card_w - 56, 17, True), fill=accent, anchor="mm")
+
+    draw.text((width // 2, 1215), "REPLY  +1 POINT   ·   STANDALONE TEXT  +0.5 POINT", font=_fit_font(draw, "REPLY  +1 POINT   ·   STANDALONE TEXT  +0.5 POINT", 950, 19, True), fill=muted, anchor="mm")
+    draw.text((width // 2, 1255), "JOIN FIRST · ONLY MESSAGES AFTER JOINING COUNT", font=_load_font(17, True), fill=(137, 150, 178), anchor="mm")
+    draw.text((width // 2, 1300), "XYRON  •  7-DAY COMMUNITY GIVEAWAY", font=_load_font(17, True), fill=(111, 125, 157), anchor="mm")
 
     output = BytesIO()
     image.save(output, format="PNG", optimize=True)
