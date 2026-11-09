@@ -482,7 +482,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             avatars[user_id] = await _profile_photo_bytes(context, user_id)
         photo = _render_leaderboard(state, entries, ends_at, active, avatars)
         try:
-            await message.reply_photo(photo=photo)
+            await message.reply_photo(photo=photo, caption="🎁 GIVEAWAY PRIZE LEADERBOARD · Reply /reset prize to clear points")
         except TelegramError:
             logger.exception("Could not send giveaway leaderboard image for chat_id=%s", chat.id)
             await message.reply_text("Couldn't send the leaderboard image. Please try /prize again.")
