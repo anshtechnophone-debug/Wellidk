@@ -20,6 +20,25 @@ async def reset_leaderboard_command(
     user = update.effective_user
     if not message or not chat or not user:
         return
+    if chat.type == Chat.PRIVATE:
+        settings = context.application.bot_data["settings"]
+        if not settings.is_owner(user.id):
+            await message.reply_text("🔒 Global giveaway reset is owner-only.")
+            return
+        if len(context.args) != 1 or context.args[0].casefold() != "prize":
+            await message.reply_text("Usage: /reset prize")
+            return
+        repo = GroupPolicyRepository(context.application.bot_data["sessions"])
+        state = (await repo.get(0)).get("global_giveaway", {})
+        if not isinstance(state, dict) or not state.get("started_at"):
+            await message.reply_text("There is no global giveaway ranking to reset.")
+            return
+        for entry in state.get("members", {}).values():
+            if isinstance(entry, dict):
+                entry["score"] = 0.0
+        await repo.set_value(0, "global_giveaway", state)
+        await message.reply_text("✅ Global giveaway points reset. Participants and giveaway status are unchanged.")
+        return
     if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         await message.reply_text("Use /reset in the group where the leaderboard was posted.")
         return
