@@ -29,6 +29,8 @@ COMMANDS = (
     CommandInfo("about", "About XYRON", "/about", "Help and About"),
     CommandInfo("ping", "Check bot responsiveness", "/ping", "General"),
     CommandInfo("daily", "Show the top 10 group chatters today", "/daily", "Leaderboards"),
+    CommandInfo("gw", "Join the global giveaway or manage it in the owner DM", "/gw [start|end|suspicious|reset]", "Giveaway"),
+    CommandInfo("prize", "Show the global giveaway leaderboard", "/prize", "Giveaway"),
     CommandInfo("health", "Check database and background workers", "/health", "General"),
     CommandInfo("id", "Show Telegram IDs", "/id [reply]", "User Tools"),
     CommandInfo("admin", "Appoint a XYRON bot admin for this group (group owner only)", "/admin @username or reply (numeric ID also supported)", "Admin Tools", admin=True),
