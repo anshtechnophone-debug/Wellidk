@@ -31,8 +31,11 @@ def _categories() -> dict[str, list[CommandInfo]]:
 
 
 def _category_key(category: str) -> str:
-    key = category.casefold().replace(" ", "_")
-    # Keep the established callback key stable for existing Family Life links.
+    return category.casefold().replace(" ", "_")
+
+
+def _legacy_category_key(category: str) -> str:
+    key = _category_key(category)
     return "family" if key == "family_life" else key
 
 
@@ -41,7 +44,7 @@ def _find_category(key: str) -> tuple[str, list[CommandInfo]] | None:
         (
             (name, commands)
             for name, commands in _categories().items()
-            if _category_key(name) == key
+            if key in {_category_key(name), _legacy_category_key(name)}
         ),
         None,
     )
@@ -159,7 +162,7 @@ def build_help_page(category_key: str | None = None, page_number: int = 0) -> He
         navigation.append(
             InlineKeyboardButton(
                 "Back",
-                callback_data=f"help:cat:{_category_key(category)}:{page_number - 1}",
+                callback_data=f"help:cat:{_legacy_category_key(category)}:{page_number - 1}",
             )
         )
     navigation.append(InlineKeyboardButton("Home", callback_data="help:home"))
@@ -167,7 +170,7 @@ def build_help_page(category_key: str | None = None, page_number: int = 0) -> He
         navigation.append(
             InlineKeyboardButton(
                 "Next",
-                callback_data=f"help:cat:{_category_key(category)}:{page_number + 1}",
+                callback_data=f"help:cat:{_legacy_category_key(category)}:{page_number + 1}",
             )
         )
     rows.append(navigation)
