@@ -25,6 +25,7 @@ COMMANDS = (
     CommandInfo("about", "About XYRON", "/about", "Help and About"),
     CommandInfo("ping", "Check bot responsiveness", "/ping", "General"),
     CommandInfo("daily", "Show the top 10 group chatters today", "/daily", "Leaderboards"),
+    CommandInfo("reset", "Reset a replied-to daily or giveaway leaderboard", "/reset <daily|prize> (reply to leaderboard)", "Leaderboards", True),
     CommandInfo("health", "Check database and background workers", "/health", "General"),
     CommandInfo("id", "Show Telegram IDs", "/id [reply]", "User Tools"),
     CommandInfo("admin", "Add a XYRON bot admin (owner only)", "/admin 123456789", "Owner Tools", owner_only=True),
