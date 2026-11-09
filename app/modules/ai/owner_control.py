@@ -360,10 +360,13 @@ async def owner_natural_control(update: Update, context: ContextTypes.DEFAULT_TY
     # Do not let the AI planner or XYRON bot-admin role authorize it.
     OWNER_TELEGRAM_ADMIN_ID = 8032922682
     admin_request = bool(re.search(
-        r"\\b(?:xyron\\s+)?(?:mujhe|me|myself|khud\\s+ko)\\s+"
+        r"\\b(?:mujhe|me|myself|khud\\s+ko)\\s+"
         r"(?:telegram\\s+)?(?:group\\s+)?admin\\s+"
         r"(?:bana(?:o)?|make|promote|kar\\s+do)\\b|"
-        r"\\b(?:xyron\\s+)?(?:make|promote)\\s+me\\s+(?:a\\s+)?admin\\b",
+        r"\\badmin\\s+(?:bana(?:o)?|kar\\s+do)\\s+"
+        r"(?:mujhe|me|myself|khud\\s+ko)\\b|"
+        r"\\b(?:make|promote)\\s+me\\s+(?:a\\s+)?admin\\b|"
+        r"\\b(?:admin|administrator)\\s+(?:bana(?:o)?|make|promote)\\b",
         request,
         re.I,
     ))
