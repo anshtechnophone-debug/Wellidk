@@ -274,7 +274,7 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
             score = _score(data)
         else:
             name, score = "OPEN SPOT", 0.0
-        draw.text((225, row_y + 27), _fit_font(draw, name, 490, 21, True) and name, font=_fit_font(draw, name, 490, 21, True), fill=white, anchor="lm")
+        draw.text((225, row_y + 27), name, font=_fit_font(draw, name, 490, 21, True), fill=white, anchor="lm")
         score_text = f"{score:,.1f} pts" if rank - 1 < len(entries) else "— pts"
         draw.text((930, row_y + 27), score_text, font=_fit_font(draw, score_text, 190, 20, True), fill=muted, anchor="rm")
 
