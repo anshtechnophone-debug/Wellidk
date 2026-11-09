@@ -76,7 +76,7 @@ def _rules_text(group_title: str, started: datetime | None = None, ends: datetim
         "• Media, stickers, captions and commands: <b>0 points</b>\n\n"
         "✅ Join first. Only messages sent after joining count.\n"
         "🏆 <b>Prize targets:</b> 1st — 9,000 points (Vice Cream NFT) · 2nd — 6,500 points (Telegram Premium) · 3rd — 5,000 points (150 Telegram Stars).\n"
-        "Your rank depends on your points. Use <b>/prize</b> in the group to check the leaderboard.\\n"
+        "Your messages across all eligible XYRON groups count toward one global score. Use <b>/prize</b> to check the leaderboard.\\n"
         "⏳ The giveaway ends after 7 days."
     )
 
@@ -206,7 +206,7 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
     sub_font = _load_font(24, True)
     small_font = _load_font(21, False)
     draw.text((width // 2, 76), "XYRON", font=_load_font(27, True), fill=(151, 164, 205), anchor="mm")
-    draw.text((width // 2, 145), "WEEKLY GIVEAWAY", font=title_font, fill=white, anchor="mm")
+    draw.text((width // 2, 145), "GLOBAL GIVEAWAY", font=title_font, fill=white, anchor="mm")
     draw.text(
         (width // 2, 198),
         f"{_remaining(ends_at)} LEFT" if active else "GIVEAWAY ENDED · FINAL RESULTS",
@@ -216,8 +216,8 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
     )
 
     # Text-only grand-prize panel. No NFT artwork or embedded image data.
-    nft_box = (110, 245, 970, 440)
-    draw.rounded_rectangle(nft_box, radius=34, fill=(36, 31, 45), outline=(181, 155, 111), width=3)
+    prize_box = (110, 245, 970, 440)
+    draw.rounded_rectangle(prize_box, radius=34, fill=(36, 31, 45), outline=(181, 155, 111), width=3)
     draw.rounded_rectangle((132, 265, 948, 420), radius=25, fill=(29, 29, 48), outline=(112, 94, 119), width=2)
     draw.text((width // 2, 300), "1ST PRIZE", font=_load_font(23, True), fill=gold, anchor="mm")
     draw.text((width // 2, 348), "VICE CREAM NFT", font=_fit_font(draw, "VICE CREAM NFT", 740, 48, True), fill=(255, 244, 220), anchor="mm")
