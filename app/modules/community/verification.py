@@ -202,6 +202,26 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not is_owner and _community_chat_id() is None:
         await message.reply_text("Channel membership verification is not configured yet. Please contact the XYRON team.")
         return
+    # Human-verification deep links must reach their own two-button flow even
+    # when the user has not joined the official channel yet.
+    verification_match = _PAYLOAD.fullmatch(payload)
+    if verification_match:
+        chat_id, expected_user_id = map(int, verification_match.groups())
+        if user.id != expected_user_id:
+            await message.reply_text("This verification link belongs to another Telegram account. Open your own link from the group.")
+            return
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Join XYRON Channel", url=COMMUNITY_URL)],
+            [InlineKeyboardButton("✅ Joined — Verify", callback_data=_verification_payload(chat_id, user.id))],
+        ])
+        await message.reply_text(
+            "First join the official XYRON channel, then tap “Joined — Verify”. "
+            "I'll check your channel membership and complete your human-confirmation step together.",
+            reply_markup=keyboard,
+            disable_web_page_preview=True,
+        )
+        return
+
     if not is_owner and not await _is_community_member(context, user.id):
         await _send_community_join_prompt(message)
         return
@@ -331,10 +351,16 @@ async def start_verification(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if user.id != expected_user_id:
             await message.reply_text("This verification link belongs to another Telegram account. Open your own link from the group.")
             return
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("I am a human", callback_data=_verification_payload(chat_id, user.id))
-        ]])
-        await message.reply_text("Please confirm that you're a human to restore your group permissions.", reply_markup=keyboard)
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Join XYRON Channel", url=COMMUNITY_URL)],
+            [InlineKeyboardButton("✅ Joined — Verify", callback_data=_verification_payload(chat_id, user.id))],
+        ])
+        await message.reply_text(
+            "First join the official XYRON channel, then tap “Joined — Verify”. "
+            "I'll check your membership and complete your human-confirmation step together.",
+            reply_markup=keyboard,
+            disable_web_page_preview=True,
+        )
         return
 
     await _send_public_welcome(message, context)
@@ -361,8 +387,8 @@ async def community_access_gate(update: Update, context: ContextTypes.DEFAULT_TY
         if first == "/start":
             return
 
-    # The join button must reach its own membership-check callback.
-    if query and query.data == _COMMUNITY_CHECK:
+    # Membership confirmation callbacks must reach their dedicated handlers.
+    if query and (query.data == _COMMUNITY_CHECK or query.data.startswith("verify_")):
         return
 
     # Human verification and other private actions require a configured channel
@@ -439,6 +465,13 @@ async def verify_human_callback(update: Update, context: ContextTypes.DEFAULT_TY
     chat_id, expected_user_id = int(match.group(1)), int(match.group(2))
     if user.id != expected_user_id:
         await query.answer("This button belongs to another user.", show_alert=True)
+        return
+
+    if not await _is_community_member(context, user.id):
+        await query.answer(
+            "Join the official XYRON channel first, then tap Joined — Verify.",
+            show_alert=True,
+        )
         return
 
     try:

@@ -354,6 +354,24 @@ async def _send_global_board(message, context, state: dict) -> None:
     )
 
 
+def _giveaway_channel_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
+    channel = getattr(context.application.bot_data["settings"], "music_channel", "@xyronschannel")
+    channel_url = "https://t.me/" + str(channel).lstrip("@")
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 Join XYRON Channel", url=channel_url)],
+        [InlineKeyboardButton("✅ Joined — Confirm", callback_data="giveaway:join:0")],
+    ])
+
+
+async def _prompt_giveaway_channel(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    await context.bot.send_message(
+        user_id,
+        "⚠️ Your giveaway points are paused because you are not a member of @xyronschannel.\n\n"
+        "Join the channel, then tap Joined — Confirm. Your existing points will be kept.",
+        reply_markup=_giveaway_channel_keyboard(context),
+    )
+
+
 async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query, user = update.callback_query, update.effective_user
     if not query or not user or (query.data or "") != "giveaway:join:0":
@@ -364,38 +382,39 @@ async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAUL
         await query.answer("This giveaway has ended.", show_alert=True)
         return
     if not await _channel_member(context, user.id):
-        channel = getattr(context.application.bot_data["settings"], "music_channel", "@xyronschannel")
-        channel_url = "https://t.me/" + str(channel).lstrip("@")
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📢 Join XYRON Channel", url=channel_url)],
-            [InlineKeyboardButton("✅ Verify Membership", callback_data="giveaway:join:0")],
-        ])
-        await query.answer("Join XYRON's channel first.", show_alert=True)
+        await query.answer("Join XYRON's channel first, then confirm.", show_alert=True)
         try:
-            await context.bot.send_message(user.id, "Join the official XYRON channel, then tap Verify.", reply_markup=keyboard)
+            await _prompt_giveaway_channel(context, user.id)
         except TelegramError:
             pass
         return
     members = state.setdefault("members", {})
     key = str(user.id)
-    if key not in members:
-        members[key] = {
+    entry = members.get(key)
+    if not isinstance(entry, dict):
+        entry = {
             "name": user.full_name, "username": user.username, "score": 0.0,
             "joined_at": _now().isoformat(), "groups": [], "risk": 0, "flags": [],
             "recent": [], "last_text": "", "last_at": 0, "messages": 0, "replies": 0,
-            "distinct_replies": [], "alerted": False, "channel_ok": True,
-            "channel_checked_at": _now().timestamp(),
+            "distinct_replies": [], "alerted": False,
         }
-        await _save_global_state(context, state)
-    await query.answer("You're registered for the global giveaway!", show_alert=True)
+        members[key] = entry
+        confirmation = "✅ You're registered for the global giveaway!"
+    else:
+        confirmation = "✅ Channel membership confirmed. Your existing points are active again."
+    entry["channel_ok"] = True
+    entry["channel_checked_at"] = _now().timestamp()
+    entry["channel_prompted"] = False
+    entry["name"], entry["username"] = user.full_name, user.username
+    await _save_global_state(context, state)
+    await query.answer("Membership confirmed. Point counting is active.", show_alert=True)
     try:
-        await context.bot.send_message(user.id, "✅ Registered! Your eligible messages in EVERY XYRON group with 30+ members count toward one global score. Stay subscribed to XYRON's channel.")
+        await query.edit_message_text(confirmation)
     except TelegramError:
-        pass
-    try:
-        await query.edit_message_text(f"✅ {escape(user.full_name)} is registered for XYRON's global giveaway.", parse_mode="HTML")
-    except TelegramError:
-        pass
+        try:
+            await context.bot.send_message(user.id, confirmation)
+        except TelegramError:
+            pass
 
 
 async def global_giveaway_dm_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -496,15 +515,23 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
     if not isinstance(entry, dict) or entry.get("disqualified"):
         return
     now = _now().timestamp()
-    checked = float(entry.get("channel_checked_at", 0) or 0)
-    if now - checked > 3600:
-        entry["channel_checked_at"] = now
-        entry["channel_ok"] = await _channel_member(context, user.id)
-        if not entry["channel_ok"]:
+    # Re-check membership on every scored message so leaving the channel pauses
+    # points immediately; retain the score and require an explicit DM confirmation.
+    channel_ok = await _channel_member(context, user.id)
+    entry["channel_checked_at"] = now
+    entry["channel_ok"] = channel_ok
+    if not channel_ok:
+        if not entry.get("channel_prompted"):
+            entry["channel_prompted"] = True
             await _save_global_state(context, state)
-            return
-    elif entry.get("channel_ok") is False:
+            try:
+                await _prompt_giveaway_channel(context, user.id)
+            except TelegramError:
+                logger.info("Could not send channel rejoin prompt to giveaway participant %s", user.id)
+        else:
+            await _save_global_state(context, state)
         return
+    entry["channel_prompted"] = False
     raw = text
     normalized = re.sub(r"\s+", " ", raw).casefold()
     recent = [x for x in entry.get("recent", []) if now - float(x.get("at", 0)) <= 120]
