@@ -483,6 +483,9 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
     if int(entry.get("messages", 0)) >= 18 and int(entry.get("replies", 0)) == 0:
         risk = min(100, risk + 10)
         flags.append("Extended activity without replying to others")
+    if int(entry.get("messages", 0)) >= 30 and len(entry.get("distinct_replies", [])) < 2:
+        risk = min(100, risk + 5)
+        flags.append("Conversation limited to fewer than two other members")
     if repeated:
         increment = 0.0
     else:
