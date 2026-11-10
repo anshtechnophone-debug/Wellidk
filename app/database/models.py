@@ -189,6 +189,24 @@ class WordGameScore(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime())
 
 
+class WordDailyAttempt(Base):
+    __tablename__ = "word_daily_attempts"
+    __table_args__ = (
+        UniqueConstraint("user_id", "puzzle_date", name="uq_word_daily_user_date"),
+        Index("ix_word_daily_user_date", "user_id", "puzzle_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    puzzle_date: Mapped[date] = mapped_column(Date)
+    answer: Mapped[str] = mapped_column(String(5))
+    guesses: Mapped[list[str]] = mapped_column(json_value, default=list)
+    feedbacks: Mapped[list[str]] = mapped_column(json_value, default=list)
+    state: Mapped[str] = mapped_column(String(12), default="active")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+
 class CasualGameSession(Base):
     __tablename__ = "casual_game_sessions"
     __table_args__ = (
