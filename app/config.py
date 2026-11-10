@@ -59,7 +59,8 @@ class Settings:
 
     @property
     def owner_ids(self) -> frozenset[int]:
-        # Owner-level access is reserved exclusively for the primary OWNER_ID.\n        return frozenset({self.owner_id})
+        # Owner-level access is reserved exclusively for the primary OWNER_ID.
+        return frozenset({self.owner_id})
 
     def is_owner(self, user_id: int | None) -> bool:
         return user_id is not None and user_id in self.owner_ids
