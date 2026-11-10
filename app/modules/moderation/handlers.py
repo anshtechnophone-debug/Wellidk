@@ -693,14 +693,17 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             target_id = message.reply_to_message.from_user.id
             if args and args[0].isdecimal() and int(args[0]) == target_id:
                 args = args[1:]
-        elif args and args[0].startswith("@") and len(args[0]) > 1:
-            username = args[0]
+        elif args and (
+            args[0].startswith("@")
+            or re.fullmatch(r"[A-Za-z0-9_]{5,32}", args[0])
+        ):
+            username = args[0].lstrip("@")
             args = args[1:]
             if args:
                 raise TargetError("This command does not accept extra arguments.")
             try:
                 target_id, rest = await _resolve_target(
-                    update, context, [username], allow_name=True
+                    update, context, ["@" + username], allow_name=True
                 )
                 if rest:
                     raise TargetError("This command does not accept extra arguments.")
