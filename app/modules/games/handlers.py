@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from html import escape
+import logging
+import secrets
+
+import httpx
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
+
+logger = logging.getLogger(__name__)
 
 from app.modules.games.wordseek import WordGameError, WordSeekRepository
 
@@ -57,6 +63,81 @@ async def new6_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await _start(update, context, 6)
 
 
+_ZERO_WIDTH_CHARS = ("\\u200b", "\\u200c", "\\u200d", "\\u2060", "\\ufeff")
+_TILE_STYLES = {"🟩": "success", "🟨": None, "🟥": "danger"}
+
+
+def _zero_width_noise(minimum: int = 1, maximum: int = 6) -> str:
+    count = secrets.randbelow(maximum - minimum + 1) + minimum
+    return "".join(secrets.choice(_ZERO_WIDTH_CHARS) for _ in range(count))
+
+
+def build_wordseek_rich_feedback(
+    length: int,
+    guesses: tuple[str, ...],
+    feedbacks: tuple[str, ...],
+    max_guesses: int = 30,
+    ending_text: str = "",
+) -> str:
+    """Build WordSeek's text-only colored-tile layout using Telegram Rich Messages."""
+    rows = []
+    for guess, feedback in zip(guesses, feedbacks):
+        buttons = []
+        for letter, state in zip(guess.upper(), feedback):
+            style = _TILE_STYLES.get(state)
+            style_attr = f' style="{style}"' if style else ""
+            label = f"{_zero_width_noise()}{escape(letter)}{_zero_width_noise()}"
+            buttons.append(f'<tg-button type="disabled"{style_attr}>{label}</tg-button>')
+        rows.append(f"<p>{''.join(buttons)}</p>")
+
+    header = (
+        f"<h3>WORDSEEK · {length}-LETTER MODE</h3>"
+        f"<p><i>{len(guesses)}/{max_guesses} guesses</i></p>"
+    )
+    legend = (
+        "<p><b>Green:</b> correct position · "
+        "<b>Default:</b> correct letter, wrong position · "
+        "<b>Red:</b> letter not in the word</p>"
+    )
+    return header + "".join(rows) + legend + (f"<p>{ending_text}</p>" if ending_text else "")
+
+
+async def _send_wordseek_rich_message(
+    message, context: ContextTypes.DEFAULT_TYPE, html_text: str
+) -> None:
+    """Call Bot API 10.3 sendRichMessage, which PTB 22.8 does not wrap yet."""
+    payload = {
+        "chat_id": message.chat_id,
+        "rich_message": {"html": html_text},
+        "reply_parameters": {"message_id": message.message_id},
+    }
+    if message.message_thread_id is not None:
+        payload["message_thread_id"] = message.message_thread_id
+
+    url = f"{context.bot.base_url}{context.bot.token}/sendRichMessage"
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(url, json=payload)
+        response.raise_for_status()
+        result = response.json()
+    if not result.get("ok"):
+        raise RuntimeError(result.get("description", "Telegram rejected the rich message"))
+
+
+def _plain_wordseek_fallback(
+    length: int, guesses: tuple[str, ...], feedbacks: tuple[str, ...], ending_text: str = ""
+) -> str:
+    states = {"🟩": "correct", "🟨": "wrong position", "🟥": "not in word"}
+    lines = [f"WORDSEEK · {length}-LETTER MODE", f"{len(guesses)}/30 guesses"]
+    for guess, feedback in zip(guesses, feedbacks):
+        lines.append("  ".join(
+            f"{letter.upper()} ({states.get(state, 'unknown')})"
+            for letter, state in zip(guess, feedback)
+        ))
+    if ending_text:
+        lines.append(ending_text)
+    return "\n".join(lines)
+
+
 async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, value: str) -> None:
     message, chat, user = update.effective_message, update.effective_chat, update.effective_user
     if not message or not chat or not user:
@@ -68,29 +149,29 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
             return
         await message.reply_text(str(exc))
         return
-    from app.modules.games.wordseek_render import render_wordseek_board
 
-    caption = f"👤 <b>{escape(user.full_name)}</b> guessed · {len(result.guesses)}/30"
+    ending_text = ""
     if result.state == "won":
-        caption += (
-            "\n\n🎉 <b>Excellent! You found the word!</b>"
-            f"\n⭐ Added {result.points} points to the leaderboard."
-            f"\nStart again: /new{len(value)}"
+        ending_text = (
+            f"<b>Excellent! {escape(user.full_name)} found the word.</b> "
+            f"Added {result.points} points to the leaderboard. Start again with /new{len(value)}."
         )
     elif result.state == "lost":
-        caption += (
-            f"\n\nThe word was <b>{escape(result.answer.upper() if result.answer else '')}</b>."
-            f"\nTry again: /new{len(value)}"
-        )
+        answer = escape(result.answer.upper() if result.answer else "")
+        ending_text = f"Game over. The word was <b>{answer}</b>. Try again with /new{len(value)}."
 
-    board_image = render_wordseek_board(
-        len(value), result.guesses, result.feedbacks, max_guesses=30
+    rich_html = build_wordseek_rich_feedback(
+        len(value), result.guesses, result.feedbacks, max_guesses=30, ending_text=ending_text
     )
-    await message.reply_photo(
-        photo=board_image,
-        caption=caption,
-        parse_mode="HTML",
-    )
+    try:
+        await _send_wordseek_rich_message(message, context, rich_html)
+    except (httpx.HTTPError, RuntimeError, ValueError):
+        logger.exception("Telegram Rich Message failed; sending text-only WordSeek fallback")
+        fallback = _plain_wordseek_fallback(
+            len(value), result.guesses, result.feedbacks,
+            ending_text=ending_text.replace("<b>", "").replace("</b>", ""),
+        )
+        await message.reply_text(fallback, parse_mode=None)
 
 
 async def guess_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
