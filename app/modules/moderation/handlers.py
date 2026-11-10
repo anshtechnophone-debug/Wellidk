@@ -223,18 +223,26 @@ async def _resolve_target(
     value = args[0]
     if value.isdecimal() and int(value) > 0:
         return int(value), args[1:]
-    if value.startswith("@") and len(value) > 1:
+    username = value[1:] if value.startswith("@") else value
+    # Admins commonly type either /ban @username or /ban username. For a
+    # single username-shaped token, try the saved registry and connected
+    # music MTProto accounts even when XYRON has never seen that user.
+    username_target = bool(re.fullmatch(r"[A-Za-z0-9_]{5,32}", username)) and (
+        value.startswith("@") or (allow_name and len(args) == 1)
+    )
+    if username_target:
+        username_key = username.casefold()
         async with context.application.bot_data["sessions"]() as session:
             known = await session.scalar(
                 select(KnownUser).where(
                     KnownUser.chat_id == chat.id,
-                    KnownUser.username == value[1:].casefold(),
+                    KnownUser.username == username_key,
                 )
             )
             history_ids = set((await session.scalars(
                 select(GroupMessage.user_id).where(
                     GroupMessage.chat_id == chat.id,
-                    func.lower(GroupMessage.username) == value[1:].casefold(),
+                    func.lower(GroupMessage.username) == username_key,
                 ).distinct()
             )).all())
         if known:
@@ -244,15 +252,14 @@ async def _resolve_target(
         if len(history_ids) > 1:
             raise TargetError("That username matches multiple saved users. Reply to the correct member's message.")
 
-        # A username may belong to someone who spoke in a different group
-        # where XYRON is present. Use the central registry as a fallback so
-        # admins can moderate that user in this group without local history.
+        # The global registry is only an optimization; a connected music
+        # account is the authoritative fallback for completely unseen users.
         async with context.application.bot_data["sessions"]() as session:
             global_matches = list(
                 (
                     await session.scalars(
                         select(GlobalUser).where(
-                            func.lower(GlobalUser.username) == value[1:].casefold(),
+                            func.lower(GlobalUser.username) == username_key,
                             GlobalUser.seen_in_groups.is_(True),
                             GlobalUser.is_bot.is_(False),
                         )
@@ -268,17 +275,18 @@ async def _resolve_target(
             )
         if allow_name:
             try:
-                return await _resolve_username_via_userbot(context, value), args[1:]
+                return await _resolve_username_via_userbot(context, username), args[1:]
             except TargetError as lookup_error:
-                try:
-                    return await _resolve_name_target(context, chat.id, value), args[1:]
-                except TargetError:
-                    raise lookup_error from None
-        raise TargetError(
-            "XYRON hasn't seen this username in any group yet. "
-            "Ask the user to send a message in a group where XYRON is present, "
-            "or use their numeric Telegram ID."
-        )
+                if value.startswith("@"):
+                    try:
+                        return await _resolve_name_target(context, chat.id, value), args[1:]
+                    except TargetError:
+                        raise lookup_error from None
+        if value.startswith("@"):
+            raise TargetError(
+                "XYRON couldn't resolve this username. Make sure it is public, "
+                "or use the person's numeric Telegram ID."
+            )
     if allow_name:
         return await _resolve_name_target(context, chat.id, " ".join(args)), []
     raise TargetError("Use @username or reply to the user's message. Numeric IDs are also supported.")
