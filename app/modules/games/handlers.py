@@ -12,6 +12,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
+# HTTP request logs include full Bot API URLs, which contain the bot token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 from app.modules.games.wordseek import WordGameError, WordSeekRepository
 
@@ -63,7 +65,7 @@ async def new6_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await _start(update, context, 6)
 
 
-_ZERO_WIDTH_CHARS = ("\\u200b", "\\u200c", "\\u200d", "\\u2060", "\\ufeff")
+_ZERO_WIDTH_CHARS = ("\u200b", "\u200c", "\u200d", "\u2060", "\ufeff")
 _TILE_STYLES = {"🟩": "success", "🟨": None, "🟥": "danger"}
 
 
@@ -123,19 +125,67 @@ async def _send_wordseek_rich_message(
         raise RuntimeError(result.get("description", "Telegram rejected the rich message"))
 
 
+def build_wordseek_inline_keyboard(
+    guesses: tuple[str, ...], feedbacks: tuple[str, ...]
+) -> dict[str, list[list[dict[str, object]]]]:
+    """Build non-interactive, colored letter tiles using standard Telegram keyboards."""
+    rows: list[list[dict[str, object]]] = []
+    styles = {"🟩": "success", "🟥": "danger"}
+    for guess, feedback in zip(guesses, feedbacks):
+        row: list[dict[str, object]] = []
+        for letter, state in zip(guess.upper(), feedback):
+            tile: dict[str, object] = {"text": letter, "disabled": {}}
+            style = styles.get(state)
+            if style:
+                tile["style"] = style
+            elif state == "🟨":
+                # Telegram has no yellow button style; retain a visible yellow tile glyph.
+                tile["text"] = f"🟨 {letter}"
+            row.append(tile)
+        if row:
+            rows.append(row)
+    return {"inline_keyboard": rows}
+
+
 def _plain_wordseek_fallback(
     length: int, guesses: tuple[str, ...], feedbacks: tuple[str, ...], ending_text: str = ""
 ) -> str:
-    states = {"🟩": "correct", "🟨": "wrong position", "🟥": "not in word"}
-    lines = [f"WORDSEEK · {length}-LETTER MODE", f"{len(guesses)}/30 guesses"]
-    for guess, feedback in zip(guesses, feedbacks):
-        lines.append("  ".join(
-            f"{letter.upper()} ({states.get(state, 'unknown')})"
-            for letter, state in zip(guess, feedback)
-        ))
+    lines = [
+        f"<b>WORDSEEK · {length}-LETTER MODE</b>",
+        f"<i>{len(guesses)}/30 guesses</i>",
+        "<i>Green: correct · Yellow: wrong position · Red: not in word</i>",
+    ]
     if ending_text:
         lines.append(ending_text)
     return "\n".join(lines)
+
+
+async def _send_wordseek_keyboard_fallback(
+    message, context: ContextTypes.DEFAULT_TYPE, text: str,
+    guesses: tuple[str, ...], feedbacks: tuple[str, ...],
+) -> None:
+    payload = {
+        "chat_id": message.chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "reply_markup": build_wordseek_inline_keyboard(guesses, feedbacks),
+        "reply_parameters": {"message_id": message.message_id},
+    }
+    if message.message_thread_id is not None:
+        payload["message_thread_id"] = message.message_thread_id
+
+    url = f"{context.bot.base_url}{context.bot.token}/sendMessage"
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(url, json=payload)
+    try:
+        result = response.json()
+    except ValueError:
+        result = {}
+    if not response.is_success or not result.get("ok"):
+        description = result.get("description", "unknown Telegram API error")
+        raise RuntimeError(
+            f"Telegram colored-tile fallback failed (HTTP {response.status_code}): {description}"
+        )
 
 
 async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, value: str) -> None:
@@ -165,13 +215,18 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
     )
     try:
         await _send_wordseek_rich_message(message, context, rich_html)
-    except (httpx.HTTPError, RuntimeError, ValueError):
-        logger.exception("Telegram Rich Message failed; sending text-only WordSeek fallback")
-        fallback = _plain_wordseek_fallback(
-            len(value), result.guesses, result.feedbacks,
-            ending_text=ending_text.replace("<b>", "").replace("</b>", ""),
+    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+        # Never log the exception itself: HTTP client exceptions can contain the bot token URL.
+        logger.warning(
+            "Telegram Rich Message unavailable (%s); using colored inline-keyboard tiles",
+            type(exc).__name__,
         )
-        await message.reply_text(fallback, parse_mode=None)
+        fallback = _plain_wordseek_fallback(
+            len(value), result.guesses, result.feedbacks, ending_text=ending_text
+        )
+        await _send_wordseek_keyboard_fallback(
+            message, context, fallback, result.guesses, result.feedbacks
+        )
 
 
 async def guess_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
