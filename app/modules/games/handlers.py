@@ -12,6 +12,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
+# HTTP request logs include full Bot API URLs, which contain the bot token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 from app.modules.games.wordseek import WordGameError, WordSeekRepository
 
