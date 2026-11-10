@@ -8,6 +8,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from app.modules.games.wordseek import WordGameError, WordSeekRepository
+from app.modules.games.wordseek_daily import DailyWordError, DailyWordResult, WordSeekDailyRepository
 
 
 def _games(context: ContextTypes.DEFAULT_TYPE) -> WordSeekRepository:
@@ -98,6 +99,86 @@ async def guess_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.effective_message.reply_text("Usage: /guess <word>")
         return
     await _submit_guess(update, context, context.args[0])
+
+
+def _daily_games(context: ContextTypes.DEFAULT_TYPE) -> WordSeekDailyRepository:
+    return WordSeekDailyRepository(context.application.bot_data["sessions"])
+
+
+async def _send_daily_board(message, user, result: DailyWordResult) -> None:
+    from app.modules.games.wordseek_render import render_wordseek_board
+
+    caption = f"📅 <b>DAILY WORDSEEK</b> · {len(result.guesses)}/6 guesses"
+    if result.state == "won":
+        caption += f"\n\n🎉 <b>Solved in {len(result.guesses)}/6!</b>"
+    elif result.state == "lost":
+        caption += f"\n\nThe word was <b>{escape(result.answer or '') .upper()}</b>."
+    else:
+        caption += f"\n\n{result.guesses_left} guesses left. Send your next 5-letter word."
+    if result.state in {"won", "lost"}:
+        caption += "\n\n<b>Your share grid</b>\n<code>" + "\n".join(result.feedbacks) + "</code>"
+    board = render_wordseek_board(5, result.guesses, result.feedbacks, max_guesses=6)
+    await message.reply_photo(photo=board, caption=caption, parse_mode="HTML")
+
+
+async def dailyword_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message, chat, user = update.effective_message, update.effective_chat, update.effective_user
+    if not message or not chat or not user:
+        return
+    if chat.type != "private":
+        await message.reply_text("Today's daily puzzle is personal. Open XYRON's private chat and use /dailyword.")
+        return
+    result = await _daily_games(context).start(user.id)
+    if result.guesses:
+        await _send_daily_board(message, user, result)
+    else:
+        await message.reply_text(
+            "📅 <b>WORDSEEK DAILY</b>\n\n"
+            "One shared 5-letter puzzle for everyone. You get 6 guesses, and your progress is saved.\n"
+            "Send a 5-letter word to make your first guess.\n\n"
+            "🟩 Correct spot   🟨 Wrong spot   🟥 Not in word",
+            parse_mode="HTML",
+        )
+
+
+async def dailyword_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message, chat, user = update.effective_message, update.effective_chat, update.effective_user
+    if not message or not chat or chat.type != "private" or not user or not message.text:
+        return
+    value = message.text.strip()
+    if not value.isalpha() or len(value) != 5:
+        return
+    try:
+        result = await _daily_games(context).guess(user.id, value)
+    except DailyWordError as exc:
+        if "Start today's puzzle first" in str(exc):
+            return
+        await message.reply_text(str(exc))
+        return
+    await _send_daily_board(message, user, result)
+
+
+async def wordstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    message = update.effective_message
+    if not user or not message:
+        return
+    stats = await _daily_games(context).stats(user.id)
+    distribution = stats["distribution"]
+    bars = []
+    for attempts in range(1, 7):
+        count = distribution[str(attempts)]
+        bars.append(f"{attempts}: {'🟩' * min(count, 12) if count else '—'} {count}")
+    await message.reply_text(
+        "📊 <b>YOUR WORDSEEK DAILY STATS</b>\n\n"
+        f"Played: <b>{stats['played']}</b>\n"
+        f"Won: <b>{stats['wins']}</b>\n"
+        f"Win rate: <b>{stats['win_rate']}%</b>\n"
+        f"Current streak: <b>{stats['current_streak']}</b>\n"
+        f"Best streak: <b>{stats['best_streak']}</b>\n\n"
+        "<b>Guess distribution</b>\n" + "\n".join(bars),
+        parse_mode="HTML",
+    )
 
 
 async def wordseek_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
