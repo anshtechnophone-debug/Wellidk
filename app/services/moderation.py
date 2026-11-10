@@ -228,7 +228,7 @@ class ModerationRepository:
         events = await self.recent_events(chat_id, limit=1000)
         latest: dict[int, ModerationEvent] = {}
         ending_actions = {"unban", "auto_unban", "kick", "kickme"}
-        ban_actions = {"ban", "tban", "warn_limit_ban"}
+        ban_actions = {"ban", "tban", "pending_ban", "warn_limit_ban"}
         for event in events:
             if event.target_id in latest:
                 continue
