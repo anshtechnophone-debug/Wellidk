@@ -9,6 +9,8 @@ from io import BytesIO
 from zoneinfo import ZoneInfo
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
+
+from app.services.image_fonts import font_for_text
 from sqlalchemy import func, select
 from telegram import Update
 from telegram.constants import ChatType
@@ -34,23 +36,7 @@ ACCENTS = (GOLD, SILVER, BRONZE)
 
 
 def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    paths = (
-        (
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
-        )
-        if bold
-        else (
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-        )
-    )
-    for path in paths:
-        try:
-            return ImageFont.truetype(path, size=size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+    return font_for_text("XYRON", size, bold)
 
 
 async def _avatar_bytes(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bytes | None:
@@ -91,7 +77,7 @@ def _draw_avatar(
         avatar = Image.new("RGB", (size, size), accent)
         adraw = ImageDraw.Draw(avatar)
         initials = "".join(part[0] for part in name.split()[:2] if part).upper()[:2] or "?"
-        font = _font(size_font, True)
+        font = font_for_text(name, size_font, True)
         bounds = adraw.textbbox((0, 0), initials, font=font)
         adraw.text(
             ((size - (bounds[2] - bounds[0])) / 2, (size - (bounds[3] - bounds[1])) / 2 - bounds[1]),
@@ -165,6 +151,7 @@ def _render_daily(
         draw.text((540, 382), "♛  #1  CHAMPION", font=label_font, fill=(24, 29, 48), anchor="mm")
         _draw_avatar(image, (470, 423, 610, 563), name, avatars.get(uid), GOLD, 34)
         draw = ImageDraw.Draw(image)
+        name_font = font_for_text(name, 30, True)
         draw.text((540, 576), _fit_text(draw, name, name_font, 590), font=name_font, fill=WHITE, anchor="mt")
         draw.text((540, 620), f"{count:,} MESSAGES", font=count_font, fill=GOLD, anchor="mt")
     else:
@@ -186,7 +173,8 @@ def _render_daily(
             _draw_avatar(image, ((x1 + x2) // 2 - 44, podium_y1 + 70, (x1 + x2) // 2 + 44, podium_y1 + 158), name, avatars.get(uid), accent, 24)
             draw = ImageDraw.Draw(image)
             center = (x1 + x2) // 2
-            draw.text((center, podium_y1 + 166), _fit_text(draw, name, _font(21, True), x2 - x1 - 34), font=_font(21, True), fill=WHITE, anchor="mt")
+            side_name_font = font_for_text(name, 21, True)
+            draw.text((center, podium_y1 + 166), _fit_text(draw, name, side_name_font, x2 - x1 - 34), font=side_name_font, fill=WHITE, anchor="mt")
             draw.text((center, podium_y1 + 199), f"{count:,} msgs", font=_font(22, True), fill=accent, anchor="mt")
         else:
             draw.text(((x1 + x2) // 2, podium_y1 + 130), "OPEN SPOT", font=name_font, fill=MUTED, anchor="mm")
@@ -208,6 +196,7 @@ def _render_daily(
             name = (display_name or (f"@{username}" if username else f"User {uid}")).strip()
             _draw_avatar(image, (132, y + 13, 194, y + 75), name, avatars.get(uid), (105, 170, 222), 19)
             draw = ImageDraw.Draw(image)
+            row_name_font = font_for_text(name, 23, True)
             draw.text((211, y + 20), _fit_text(draw, name, row_name_font, 520), font=row_name_font, fill=WHITE)
             draw.text((211, y + 53), f"RANK #{rank}", font=tiny_font, fill=MUTED)
             draw.text((WIDTH - 76, y + 44), f"{count:,}", font=row_count_font, fill=(119, 222, 199), anchor="rm")
