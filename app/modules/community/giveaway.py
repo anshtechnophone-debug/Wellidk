@@ -11,6 +11,8 @@ from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+from app.services.image_fonts import font_for_text
+
 from telegram import Chat, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
@@ -86,29 +88,7 @@ logger = logging.getLogger(__name__)
 
 def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     """Prefer broad Unicode fonts so Telegram display names don't become tofu boxes."""
-    paths = (
-        (
-            "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
-        )
-        if bold
-        else (
-            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-        )
-    )
-    for path in paths:
-        try:
-            return ImageFont.truetype(path, size=size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+    return font_for_text("XYRON", size, bold)
 
 
 def _display_name(value: object) -> str:
@@ -163,11 +143,11 @@ def _fit_font(draw: ImageDraw.ImageDraw, text: str, max_width: int, size: int, b
     """Shrink text until it fits its designated panel."""
     current = size
     while current > 13:
-        font = _load_font(current, bold)
+        font = font_for_text(text, current, bold)
         if draw.textbbox((0, 0), text, font=font)[2] <= max_width:
             return font
         current -= 1
-    return _load_font(13, bold)
+    return font_for_text(text, 13, bold)
 
 
 def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: datetime, active: bool, avatars: dict[int, bytes | None]) -> BytesIO:
