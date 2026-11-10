@@ -469,7 +469,7 @@ class WordSeekRepository:
             return True
 
     async def player_state(self, chat_id: int | None, user_id: int) -> dict[str, int | None]:
-        """Return a player's all-length points, solved games, and rank in this chat."""
+        """Return a player's all-length points, solved games, and global rank."""
         async with self.sessions() as session:
             query = select(
                 WordGameScore.user_id,
