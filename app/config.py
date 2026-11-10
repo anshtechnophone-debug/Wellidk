@@ -22,7 +22,7 @@ def _parse_ids(value: str) -> frozenset[int]:
 class Settings:
     bot_token: str
     owner_id: int
-    secondary_owner_ids: frozenset[int] = frozenset({8797066795})
+    secondary_owner_ids: frozenset[int] = frozenset()
     database_url: str = DEFAULT_DATABASE_URL
     owner_admin_required: bool = True
     protected_user_ids: frozenset[int] = frozenset()
@@ -59,7 +59,7 @@ class Settings:
 
     @property
     def owner_ids(self) -> frozenset[int]:
-        return frozenset({self.owner_id, *self.secondary_owner_ids})
+        # Owner-level access is reserved exclusively for the primary OWNER_ID.\n        return frozenset({self.owner_id})
 
     def is_owner(self, user_id: int | None) -> bool:
         return user_id is not None and user_id in self.owner_ids
@@ -188,7 +188,7 @@ class Settings:
         return cls(
             bot_token=token,
             owner_id=owner_id,
-            secondary_owner_ids=_parse_ids(os.getenv("SECONDARY_OWNER_IDS", "8797066795")),
+            # Ignore legacy SECONDARY_OWNER_IDS values so they cannot grant access.\n            secondary_owner_ids=frozenset(),
             database_url=os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL),
             owner_admin_required=owner_admin_required == "true",
             protected_user_ids=_parse_ids(os.getenv("PROTECTED_USER_IDS", "")),
