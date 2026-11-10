@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import math
+import random
+import unicodedata
 from io import BytesIO
+
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 from app.services.image_fonts import font_for_text
-import math
-import random
 
 
 def _font(size: int, bold: bool = False):
@@ -21,7 +23,7 @@ def _fit(draw, text, max_width, start=58, minimum=25, bold=True):
 
 
 def _clean(value, fallback):
-    return " ".join(str(value or fallback).split())
+    return unicodedata.normalize("NFKC", " ".join(str(value or fallback).split()))
 
 
 def make_player_cover(title: str, artist: str, requested_by: str, bot_username: str = "") -> BytesIO:
