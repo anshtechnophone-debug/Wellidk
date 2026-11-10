@@ -215,11 +215,11 @@ async def wordstate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     message, chat, user = update.effective_message, update.effective_chat, update.effective_user
     if not message or not chat or not user:
         return
-    state = await _games(context).player_state(chat.id, user.id)
+    state = await _games(context).player_state(None, user.id)
     rank = f"#{state['rank']} of {state['players']}" if state["rank"] is not None else "Unranked"
     await message.reply_text(
         "🧩 <b>YOUR WORDSEEK STATE</b>\n\n"
-        f"🏆 Chat rank: <b>{rank}</b>\n"
+        f"🏆 Global rank: <b>{rank}</b>\n"
         f"⭐ Total points: <b>{state['points']}</b>\n"
         f"✅ Words solved: <b>{state['wins']}</b>\n\n"
         "Use /wordrank to open the full leaderboard.",
