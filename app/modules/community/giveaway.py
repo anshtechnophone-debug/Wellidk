@@ -350,7 +350,7 @@ async def _send_global_board(message, context, state: dict) -> None:
     avatars = {uid: await _profile_photo_bytes(context, uid) for uid, _ in entries[:3]}
     await message.reply_photo(
         photo=_render_leaderboard(state, entries, ends, active, avatars),
-        caption="🎁 GLOBAL GIVEAWAY PRIZE LEADERBOARD · Reply /reset prize to clear points",
+        caption="🎁 GLOBAL GIVEAWAY PRIZE LEADERBOARD",
     )
 
 
