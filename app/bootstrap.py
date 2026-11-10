@@ -557,7 +557,7 @@ def _register_general(application: Application) -> None:
     ):
         application.add_handler(
             CommandHandler(command, callback, filters=filters.ChatType.PRIVATE)
-            if command in {"help", "gw", "prize", "dailyword", "wordstats"} else CommandHandler(command, callback)
+            if command in {"help", "gw", "prize", "wordstats"} else CommandHandler(command, callback)
         )
 
     for command in (
