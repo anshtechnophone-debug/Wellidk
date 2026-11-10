@@ -6,7 +6,7 @@ import random
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.database.models import WordGameScore, WordGameSession
@@ -265,6 +265,21 @@ for _length, _bonus in _BONUS_WORDS.items():
 for length, words in _EXTRA_WORDS.items():
     _WORDS[length] = tuple(dict.fromkeys([*_WORDS[length], *words]))
 _VALID_WORDS = {length: {word for word in words if len(word) == length and word.isalpha()} for length, words in _WORDS.items()}
+
+# Extended offline dictionary: common English words filtered to the supported lengths.
+# Keeping this local makes validation fast and independent of network availability.
+from pathlib import Path
+
+_WORDLIST_PATH = Path(__file__).with_name("wordseek_words.txt")
+try:
+    with _WORDLIST_PATH.open(encoding="utf-8") as _wordlist_file:
+        for _line in _wordlist_file:
+            _candidate = _line.strip().casefold()
+            if len(_candidate) in _VALID_WORDS and _candidate.isalpha():
+                _VALID_WORDS[len(_candidate)].add(_candidate)
+except OSError:
+    # The built-in fallback list remains usable if the optional data file is absent.
+    pass
 MAX_GUESSES = 30
 SESSION_TIMEOUT = timedelta(minutes=15)
 
@@ -453,6 +468,31 @@ class WordSeekRepository:
             game.state = "cancelled"
             game.active_key = None
             return True
+
+    async def player_state(self, chat_id: int, user_id: int) -> dict[str, int | None]:
+        """Return a player's all-length points, solved games, and rank in this chat."""
+        async with self.sessions() as session:
+            result = await session.execute(
+                select(
+                    WordGameScore.user_id,
+                    func.sum(WordGameScore.points).label("points"),
+                    func.count(WordGameScore.id).label("wins"),
+                )
+                .where(WordGameScore.chat_id == chat_id)
+                .group_by(WordGameScore.user_id)
+                .order_by(func.sum(WordGameScore.points).desc(), WordGameScore.user_id)
+            )
+            rows = [(int(row.user_id), int(row.points), int(row.wins)) for row in result]
+
+        for position, (ranked_user_id, points, wins) in enumerate(rows, 1):
+            if ranked_user_id == user_id:
+                return {
+                    "points": points,
+                    "wins": wins,
+                    "rank": position,
+                    "players": len(rows),
+                }
+        return {"points": 0, "wins": 0, "rank": None, "players": len(rows)}
 
     async def leaderboard(
         self, chat_id: int | None, limit: int = 10, *, period: str = "all", length: int = 4
