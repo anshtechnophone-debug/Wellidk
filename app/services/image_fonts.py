@@ -24,6 +24,11 @@ _FONT_FILES = {
     "arabic": ("NotoSansArabic-Bold.ttf", "NotoSansArabic-Regular.ttf"),
     "thai": ("NotoSansThai-Bold.ttf", "NotoSansThai-Regular.ttf"),
     "cjk": ("NotoSansCJK-Bold.ttc", "NotoSansCJK-Regular.ttc"),
+    "hebrew": ("NotoSansHebrew-Bold.ttf", "NotoSansHebrew-Regular.ttf"),
+    "myanmar": ("NotoSansMyanmar-Bold.ttf", "NotoSansMyanmar-Regular.ttf"),
+    "sinhala": ("NotoSansSinhala-Bold.ttf", "NotoSansSinhala-Regular.ttf"),
+    "khmer": ("NotoSansKhmer-Bold.ttf", "NotoSansKhmer-Regular.ttf"),
+    "lao": ("NotoSansLao-Bold.ttf", "NotoSansLao-Regular.ttf"),
 }
 
 _SCRIPT_RANGES = (
@@ -40,12 +45,17 @@ _SCRIPT_RANGES = (
     ("cjk", 0xF900, 0xFAFF),
     ("arabic", 0x0600, 0x06FF),
     ("arabic", 0x0750, 0x077F),
+    ("hebrew", 0x0590, 0x05FF),
+    ("myanmar", 0x1000, 0x109F),
+    ("sinhala", 0x0D80, 0x0DFF),
+    ("khmer", 0x1780, 0x17FF),
+    ("lao", 0x0E80, 0x0EFF),
 )
 
 def script_for_text(text: str) -> str:
     """Pick the best single font family for the dominant non-Latin script."""
     counts: dict[str, int] = {}
-    for char in str(text or ""):
+    for char in unicodedata.normalize("NFKC", str(text or "")):
         cp = ord(char)
         for script, start, end in _SCRIPT_RANGES:
             if start <= cp <= end:
