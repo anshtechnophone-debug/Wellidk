@@ -65,7 +65,7 @@ async def new6_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await _start(update, context, 6)
 
 
-_ZERO_WIDTH_CHARS = ("\\u200b", "\\u200c", "\\u200d", "\\u2060", "\\ufeff")
+_ZERO_WIDTH_CHARS = ("\u200b", "\u200c", "\u200d", "\u2060", "\ufeff")
 _TILE_STYLES = {"🟩": "success", "🟨": None, "🟥": "danger"}
 
 
