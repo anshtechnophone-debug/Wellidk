@@ -149,6 +149,7 @@ from app.modules.moderation.handlers import (
     unban_command,
     unbanall_command,
     unmute_command,
+    pending_moderation_join_handler,
     warn_command,
     warning_query_command,
 )
@@ -722,6 +723,13 @@ def _register_general(application: Application) -> None:
             ChatMemberHandler.CHAT_MEMBER,
         ),
         group=11,
+    )
+    application.add_handler(
+        ChatMemberHandler(
+            pending_moderation_join_handler,
+            ChatMemberHandler.CHAT_MEMBER,
+        ),
+        group=10,
     )
 
     # Enforce the two-reactions-per-message rule for identifiable reactions.
