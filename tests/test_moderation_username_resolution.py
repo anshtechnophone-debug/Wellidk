@@ -5,6 +5,7 @@ import pytest
 
 from app.modules.moderation.handlers import (
     TargetError,
+    _resolve_target,
     _resolve_username_via_userbot,
 )
 
@@ -64,3 +65,49 @@ async def test_rejects_malformed_username_before_lookup():
         await _resolve_username_via_userbot(_context(client), "@bad-name")
 
     client.get_entity.assert_not_awaited()
+
+
+class _EmptyRows:
+    def all(self):
+        return []
+
+
+class _EmptySession:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def scalar(self, _statement):
+        return None
+
+    async def scalars(self, _statement):
+        return _EmptyRows()
+
+
+@pytest.mark.asyncio
+async def test_resolves_unseen_username_without_at_prefix_for_moderation():
+    client = SimpleNamespace(
+        is_connected=lambda: True,
+        get_entity=AsyncMock(
+            return_value=SimpleNamespace(
+                id=987654321, first_name="New", username="unseenuser"
+            )
+        ),
+    )
+    context = _context(client)
+    context.application.bot_data["sessions"] = _EmptySession
+
+    update = SimpleNamespace(
+        effective_message=SimpleNamespace(reply_to_message=None),
+        effective_chat=SimpleNamespace(id=-1001234567890),
+    )
+
+    user_id, remaining = await _resolve_target(
+        update, context, ["unseenuser"], allow_name=True
+    )
+
+    assert user_id == 987654321
+    assert remaining == []
+    client.get_entity.assert_awaited_once_with("@unseenuser")
