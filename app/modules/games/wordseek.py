@@ -468,19 +468,19 @@ class WordSeekRepository:
             game.active_key = None
             return True
 
-    async def player_state(self, chat_id: int, user_id: int) -> dict[str, int | None]:
+    async def player_state(self, chat_id: int | None, user_id: int) -> dict[str, int | None]:
         """Return a player's all-length points, solved games, and rank in this chat."""
         async with self.sessions() as session:
-            result = await session.execute(
-                select(
-                    WordGameScore.user_id,
-                    func.sum(WordGameScore.points).label("points"),
-                    func.count(WordGameScore.id).label("wins"),
-                )
-                .where(WordGameScore.chat_id == chat_id)
-                .group_by(WordGameScore.user_id)
-                .order_by(func.sum(WordGameScore.points).desc(), WordGameScore.user_id)
+            query = select(
+                WordGameScore.user_id,
+                func.sum(WordGameScore.points).label("points"),
+                func.count(WordGameScore.id).label("wins"),
+            ).group_by(WordGameScore.user_id).order_by(
+                func.sum(WordGameScore.points).desc(), WordGameScore.user_id
             )
+            if chat_id is not None:
+                query = query.where(WordGameScore.chat_id == chat_id)
+            result = await session.execute(query)
             rows = [(int(row.user_id), int(row.points), int(row.wins)) for row in result]
 
         for position, (ranked_user_id, points, wins) in enumerate(rows, 1):
