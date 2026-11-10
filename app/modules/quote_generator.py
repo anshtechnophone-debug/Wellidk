@@ -12,8 +12,8 @@ from telegram import Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
-from app.services.image_fonts import font_for_text
 from app.modules.quote_features import quote_delete_command, quote_keyboard, save_group_quote, save_quote_sticker
+from app.services.image_fonts import font_for_text
 
 logger = logging.getLogger(__name__)
 WIDTH = 512
