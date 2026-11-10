@@ -8,6 +8,8 @@ import os
 import unicodedata
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
+
+from app.services.image_fonts import font_for_text
 from telegram import Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
@@ -29,19 +31,7 @@ def _plain_unicode(value: str) -> str:
 
 
 def _font(size: int, bold: bool = False):
-    filename = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
-    liberation = "LiberationSans-Bold.ttf" if bold else "LiberationSans-Regular.ttf"
-    candidates = (
-        f"/usr/share/fonts/truetype/dejavu/{filename}",
-        f"/usr/share/fonts/truetype/liberation2/{liberation}",
-        f"/usr/share/fonts/truetype/noto/{'NotoSans-Bold.ttf' if bold else 'NotoSans-Regular.ttf'}",
-    )
-    for path in candidates:
-        try:
-            return ImageFont.truetype(path, size=size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+    return font_for_text("XYRON", size, bold)
 
 
 def _emoji_font():
@@ -169,11 +159,12 @@ def _render_sticker(quote: str, author: str, username: str | None, avatar_data, 
     bubble_left, bubble_right = 58, WIDTH - 8
     text_left = bubble_left + 22
     text_width = bubble_right - text_left - 18
-    name_font, message_font = _font(22, True), _font(31)
+    name_font = font_for_text(author, 22, True)
+    message_font = font_for_text(quote, 31)
     probe = ImageDraw.Draw(Image.new("RGBA", (WIDTH, 512), (0, 0, 0, 0)))
     lines = _wrap(probe, quote, message_font, text_width)
     while len(lines) > 4 and message_font.size > 25:
-        message_font = _font(message_font.size - 2)
+        message_font = font_for_text(quote, message_font.size - 2)
         lines = _wrap(probe, quote, message_font, text_width)
     if len(lines) > 4:
         lines = lines[:4]
