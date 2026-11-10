@@ -10,15 +10,13 @@ from html import escape
 from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
-
-from app.services.image_fonts import font_for_text
-
 from telegram import Chat, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from app.core.permissions import AuthorizationError, require_admin_access
 from app.services.group_policy import GroupPolicyRepository
+from app.services.image_fonts import font_for_text
 
 DURATION = timedelta(days=7)
 PRIZE_LABELS = ("VICE CREAM NFT", "TELEGRAM PREMIUM", "150 TELEGRAM STARS")
@@ -238,7 +236,7 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
 
         if index < len(entries):
             user_id, data = entries[index]
-            name = str(data.get("name") or "Member").strip() or "Member"
+            name = _display_name(data.get("name"))
             score = _score(data)
             photo_bytes = avatars.get(user_id)
         else:
@@ -269,7 +267,7 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
         draw.text((145, row_y + 27), f"#{rank}", font=_load_font(22, True), fill=muted, anchor="lm")
         if rank - 1 < len(entries):
             user_id, data = entries[rank - 1]
-            name = re.sub(r"\s+", " ", str(data.get("name") or "Member").strip() or "Member")
+            name = re.sub(r"\s+", " ", _display_name(data.get("name")) )
             score = _score(data)
         else:
             name, score = "OPEN SPOT", 0.0
