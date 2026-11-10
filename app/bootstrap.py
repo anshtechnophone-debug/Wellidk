@@ -626,7 +626,7 @@ def _register_general(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(ttt_callback_handler, pattern=r"^ttt:(?:join|move):"), group=0)
     application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
 
-    # Private-chat daily WordSeek guesses are isolated from group rounds.
+    # Private WordSeek rounds use the same text-guess handler as group rounds.
     application.add_handler(
         MessageHandler(
             filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND,
