@@ -112,7 +112,7 @@ async def _send_daily_board(message, user, result: DailyWordResult) -> None:
     if result.state == "won":
         caption += f"\n\n🎉 <b>Solved in {len(result.guesses)}/6!</b>"
     elif result.state == "lost":
-        caption += f"\n\nThe word was <b>{escape(result.answer or '') .upper()}</b>."
+        caption += f"\n\nThe word was <b>{escape((result.answer or '').upper())}</b>."
     else:
         caption += f"\n\n{result.guesses_left} guesses left. Send your next 5-letter word."
     if result.state in {"won", "lost"}:
@@ -146,16 +146,20 @@ async def dailyword_text_handler(update: Update, context: ContextTypes.DEFAULT_T
     if not message or not chat or chat.type != "private" or not user or not message.text:
         return
     value = message.text.strip()
-    if not value.isalpha() or len(value) != 5:
+    if not value.isalpha() or len(value) not in (4, 5, 6):
         return
-    try:
-        result = await _daily_games(context).guess(user.id, value)
-    except DailyWordError as exc:
-        if "Start today's puzzle first" in str(exc):
+    if len(value) == 5:
+        try:
+            result = await _daily_games(context).guess(user.id, value)
+        except DailyWordError as exc:
+            if "Start today's puzzle first" not in str(exc):
+                await message.reply_text(str(exc))
+                return
+        else:
+            await _send_daily_board(message, user, result)
             return
-        await message.reply_text(str(exc))
-        return
-    await _send_daily_board(message, user, result)
+    # Private solo rounds use the same plain-word input as group rounds.
+    await _submit_guess(update, context, value)
 
 
 async def wordstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
