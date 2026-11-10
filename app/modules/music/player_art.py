@@ -2,32 +2,22 @@ from __future__ import annotations
 
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+from app.services.image_fonts import font_for_text
 import math
 import random
 
 
 def _font(size: int, bold: bool = False):
-    paths = (
-        ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-         "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"]
-        if bold else
-        ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-         "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"]
-    )
-    for path in paths:
-        try:
-            return ImageFont.truetype(path, size=size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+    return font_for_text("XYRON", size, bold)
 
 
 def _fit(draw, text, max_width, start=58, minimum=25, bold=True):
     for size in range(start, minimum - 1, -2):
-        font = _font(size, bold)
+        font = font_for_text(text, size, bold)
         if draw.textbbox((0, 0), text, font=font)[2] <= max_width:
             return font
-    return _font(minimum, bold)
+    return font_for_text(text, minimum, bold)
 
 
 def _clean(value, fallback):
