@@ -133,9 +133,7 @@ from app.modules.games.handlers import (
     new5_command,
     new6_command,
     wordseek_text_handler,
-    dailyword_command,
-    dailyword_text_handler,
-    wordstats_command,
+    wordstate_command,
 )
 from app.modules.moderation.bot_admins import admin_command, unadmin_command, botadminlist_command, demote_command, pin_command
 from app.modules.moderation.handlers import (
@@ -507,8 +505,7 @@ def _register_general(application: Application) -> None:
         ("guess", guess_command),
         ("wordcancel", wordcancel_command),
         ("wordrank", wordrank_command),
-        ("dailyword", dailyword_command),
-        ("wordstats", wordstats_command),
+        ("wordstate", wordstate_command),
         ("rules", rules_command),
         ("setrules", setrules_command),
         ("save", save_command),
@@ -557,7 +554,7 @@ def _register_general(application: Application) -> None:
     ):
         application.add_handler(
             CommandHandler(command, callback, filters=filters.ChatType.PRIVATE)
-            if command in {"help", "gw", "prize", "wordstats"} else CommandHandler(command, callback)
+            if command in {"help", "gw", "prize"} else CommandHandler(command, callback)
         )
 
     for command in (
@@ -633,7 +630,7 @@ def _register_general(application: Application) -> None:
     application.add_handler(
         MessageHandler(
             filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND,
-            dailyword_text_handler,
+            wordseek_text_handler,
         ),
         group=-3,
     )
@@ -831,7 +828,7 @@ async def _post_init(application: Application) -> None:
     # without /help. The full command catalogue is available in private chats.
     await application.bot.set_my_commands([], scope=BotCommandScopeDefault())
     await application.bot.set_my_commands(
-        [command for command in bot_commands() if command.command not in {"help", "start", "wordstats"}],
+        [command for command in bot_commands() if command.command not in {"help", "start"}],
         scope=BotCommandScopeAllGroupChats(),
     )
     await application.bot.set_my_commands(
