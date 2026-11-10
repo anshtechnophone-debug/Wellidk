@@ -481,6 +481,10 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
         ))
         if not target_absent:
             raise
+    if target_absent and (normalized == "tban" or temporary_mute):
+        raise TargetError(
+            "Temporary bans/mutes require the user to be in the group. Use /ban or /mute for a pending action."
+        )
     if normalized in {"mute", "tmute"}:
         defaults = await _current_default_permissions(context, chat.id)
         existing_snapshot = await repository.restriction_permissions(chat.id, target_id)
