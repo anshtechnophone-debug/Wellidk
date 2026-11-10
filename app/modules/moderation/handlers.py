@@ -85,7 +85,7 @@ async def _user_label(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id:
             ).limit(1)
         )
         if known:
-            display_name = known.first_name
+            display_name = known.first_name or (f"@{known.username}" if known.username else None)
         if not display_name:
             history = (await session.execute(
                 select(GroupMessage.display_name)
@@ -434,6 +434,19 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
     target_id, remaining = await _resolve_target(
         update, context, command, allow_name=True
     )
+    # Preserve the resolved username in this group's registry so later
+    # /unban and /unmute commands can still identify the pending target.
+    username_token = command[0].lstrip("@").casefold() if command else ""
+    if re.fullmatch(r"[a-z0-9_]{5,32}", username_token):
+        async with context.application.bot_data["sessions"].begin() as session:
+            known = await session.get(KnownUser, (chat.id, target_id))
+            if known is None:
+                session.add(KnownUser(
+                    chat_id=chat.id, user_id=target_id, username=username_token,
+                    first_name="", last_seen=datetime.now(UTC),
+                ))
+            elif not known.username:
+                known.username = username_token
     duration = None
     if (
         normalized == "mute"
@@ -734,7 +747,7 @@ async def _resolve_historical_ban_username(
             (await session.scalars(
                 select(ModerationEvent.target_id).where(
                     ModerationEvent.chat_id == chat_id,
-                    ModerationEvent.action.in_(("ban", "tban")),
+                    ModerationEvent.action.in_(("ban", "tban", "pending_ban")),
                 ).distinct()
             )).all()
         )
