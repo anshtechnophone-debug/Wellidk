@@ -831,7 +831,7 @@ async def _post_init(application: Application) -> None:
     # without /help. The full command catalogue is available in private chats.
     await application.bot.set_my_commands([], scope=BotCommandScopeDefault())
     await application.bot.set_my_commands(
-        [command for command in bot_commands() if command.command not in {"help", "start"}],
+        [command for command in bot_commands() if command.command not in {"help", "start", "wordstats"}],
         scope=BotCommandScopeAllGroupChats(),
     )
     await application.bot.set_my_commands(
