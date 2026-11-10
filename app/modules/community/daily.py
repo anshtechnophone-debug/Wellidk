@@ -4,19 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import unicodedata
 from datetime import datetime, time, timedelta, timezone
 from io import BytesIO
 from zoneinfo import ZoneInfo
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
-
-from app.services.image_fonts import font_for_text
 from sqlalchemy import func, select
 from telegram import Update
 from telegram.constants import ChatType
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
+from app.services.image_fonts import font_for_text
 from app.services.group_history import GroupMessage
 from app.services.group_policy import GroupPolicyRepository
 
@@ -145,7 +145,7 @@ def _render_daily(
     # First place: centered, larger, and visually dominant.
     if rows:
         uid, display_name, username, count = rows[0]
-        name = (display_name or (f"@{username}" if username else f"User {uid}")).strip()
+        name = unicodedata.normalize("NFKC", (display_name or (f"@{username}" if username else f"User {uid}")).strip())
         draw.rounded_rectangle((206, 340, 874, 648), radius=34, fill=(31, 39, 69), outline=GOLD, width=4)
         draw.rounded_rectangle((394, 358, 686, 406), radius=22, fill=GOLD)
         draw.text((540, 382), "♛  #1  CHAMPION", font=label_font, fill=(24, 29, 48), anchor="mm")
