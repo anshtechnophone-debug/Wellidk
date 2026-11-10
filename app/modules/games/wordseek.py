@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -268,8 +269,6 @@ _VALID_WORDS = {length: {word for word in words if len(word) == length and word.
 
 # Extended offline dictionary: common English words filtered to the supported lengths.
 # Keeping this local makes validation fast and independent of network availability.
-from pathlib import Path
-
 _WORDLIST_PATH = Path(__file__).with_name("wordseek_words.txt")
 try:
     with _WORDLIST_PATH.open(encoding="utf-8") as _wordlist_file:
