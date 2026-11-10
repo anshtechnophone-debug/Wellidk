@@ -451,12 +451,23 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
     settings: Settings = context.application.bot_data["settings"]
     await ensure_target_is_moderatable(
         context, chat.id, target_id, access.actor, settings,
-        allow_absent=normalized in {"ban", "tban"},
+        allow_absent=normalized in {"ban", "tban", "mute", "tmute"},
     )
 
     repository = _repository(context)
     previous_permissions: dict[str, bool] | None = None
     created_snapshot = False
+    target_absent = False
+    try:
+        await context.bot.get_chat_member(chat.id, target_id)
+    except BadRequest as exc:
+        detail = str(exc).casefold()
+        target_absent = any(term in detail for term in (
+            "user not participant", "user_not_participant", "chat member not found",
+            "user not found", "participant_id_invalid", "participant id invalid",
+        ))
+        if not target_absent:
+            raise
     if normalized in {"mute", "tmute"}:
         defaults = await _current_default_permissions(context, chat.id)
         existing_snapshot = await repository.restriction_permissions(chat.id, target_id)
@@ -468,34 +479,57 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
             raise TargetError(
                 "This member has a permanent XYRON mute; unmute them before a temporary mute."
             )
-        previous_permissions, is_new_snapshot = await _pre_restriction_permissions(
-            context, chat.id, target_id, repository, defaults
-        )
+        if target_absent:
+            previous_permissions, is_new_snapshot = defaults, True
+        else:
+            previous_permissions, is_new_snapshot = await _pre_restriction_permissions(
+                context, chat.id, target_id, repository, defaults
+            )
         if is_new_snapshot:
             created_snapshot = await repository.remember_permissions(
                 chat.id, target_id, actor_user.id, previous_permissions
             )
 
+    pending = False
     try:
         if normalized in {"ban", "tban", "kick"}:
-            await context.bot.ban_chat_member(
-                chat.id,
-                target_id,
-                until_date=expiration_from_now(duration)
-                if normalized == "tban" and duration
-                else None,
-            )
-            if normalized == "kick":
+            if target_absent and normalized in {"tban"}:
+                raise TargetError("Temporary bans require the user to be in the group. Use /ban for a pending ban.")
+            try:
+                await context.bot.ban_chat_member(
+                    chat.id,
+                    target_id,
+                    until_date=expiration_from_now(duration)
+                    if normalized == "tban" and duration
+                    else None,
+                )
+            except BadRequest as exc:
+                detail = str(exc).casefold()
+                absent = any(term in detail for term in (
+                    "user not participant", "user_not_participant", "chat member not found",
+                    "user not found", "participant_id_invalid", "participant id invalid",
+                ))
+                if normalized != "ban" or not absent:
+                    raise
+                await repository.record(chat.id, actor_user.id, target_id, "pending_ban", reason)
+                pending = True
+            if normalized == "kick" and not pending:
                 await context.bot.unban_chat_member(chat.id, target_id, only_if_banned=True)
         else:
-            await context.bot.restrict_chat_member(
-                chat.id,
-                target_id,
-                permissions=ChatPermissions(**{name: False for name in PERMISSION_NAMES}),
-                until_date=expiration_from_now(duration) if temporary_mute and duration else None,
-            )
+            if target_absent and normalized in {"tmute"}:
+                raise TargetError("Temporary mutes require the user to be in the group. Use /mute for a pending mute.")
+            if target_absent:
+                await repository.record(chat.id, actor_user.id, target_id, "pending_mute", reason)
+                pending = True
+            else:
+                await context.bot.restrict_chat_member(
+                    chat.id,
+                    target_id,
+                    permissions=ChatPermissions(**{name: False for name in PERMISSION_NAMES}),
+                    until_date=expiration_from_now(duration) if temporary_mute and duration else None,
+                )
     except TelegramError:
-        if created_snapshot:
+        if created_snapshot and not pending:
             await repository.forget_permissions(chat.id, target_id)
         raise
 
@@ -504,7 +538,8 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
     elif normalized == "mute":
         await repository.cancel_temporary(chat.id, target_id, "unmute")
 
-    await repository.record(chat.id, actor_user.id, target_id, normalized, reason)
+    if not pending:
+        await repository.record(chat.id, actor_user.id, target_id, normalized, reason)
     try:
         await ActivityLogRepository(context.application.bot_data["sessions"]).record(
             chat_id=chat.id,
@@ -553,7 +588,11 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
         await _remove_command(update, context)
     else:
         label = (
-            "Temporarily muted"
+            "Ban scheduled"
+            if pending and normalized == "ban"
+            else "Mute scheduled"
+            if pending and normalized == "mute"
+            else "Temporarily muted"
             if temporary_mute
             else {
                 "ban": "Banned",
@@ -566,6 +605,64 @@ async def _moderate(update: Update, context: ContextTypes.DEFAULT_TYPE, action: 
         suffix = f" for {duration}" if duration else ""
         await _reply_html(
             update, f"{label} {await _user_label(context, chat.id, target_id)}{suffix}." + (f" Reason: {html.escape(reason)}" if reason else "")
+        )
+
+
+async def pending_moderation_join_handler(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Apply group-scoped pending bans/mutes as soon as a target joins."""
+    change = update.chat_member
+    chat = update.effective_chat
+    if not change or not chat or not change.new_chat_member:
+        return
+    old_status = getattr(change.old_chat_member, "status", "")
+    new_status = getattr(change.new_chat_member, "status", "")
+    if new_status not in {ChatMember.MEMBER, ChatMember.RESTRICTED}:
+        return
+    if old_status not in {ChatMember.LEFT, ChatMember.BANNED, "left", "kicked"}:
+        return
+    target = getattr(change.new_chat_member, "user", None)
+    if target is None or target.is_bot:
+        return
+    sessions = context.application.bot_data.get("sessions")
+    if sessions is None:
+        return
+    try:
+        async with sessions() as session:
+            event = await session.scalar(
+                select(ModerationEvent)
+                .where(
+                    ModerationEvent.chat_id == chat.id,
+                    ModerationEvent.target_id == target.id,
+                )
+                .order_by(ModerationEvent.created_at.desc(), ModerationEvent.id.desc())
+                .limit(1)
+            )
+        if event is None or event.action not in {"pending_ban", "pending_mute"}:
+            return
+        repository = _repository(context)
+        if event.action == "pending_ban":
+            await context.bot.ban_chat_member(chat.id, target.id)
+            await repository.record(chat.id, event.actor_id, target.id, "ban", event.reason)
+            logger.info("Applied pending ban in chat %s for user %s", chat.id, target.id)
+            return
+        defaults = await _current_default_permissions(context, chat.id)
+        if await repository.restriction_permissions(chat.id, target.id) is None:
+            await repository.remember_permissions(
+                chat.id, target.id, event.actor_id, defaults
+            )
+        await context.bot.restrict_chat_member(
+            chat.id,
+            target.id,
+            permissions=ChatPermissions(**{name: False for name in PERMISSION_NAMES}),
+        )
+        await repository.record(chat.id, event.actor_id, target.id, "mute", event.reason)
+        logger.info("Applied pending mute in chat %s for user %s", chat.id, target.id)
+    except TelegramError:
+        logger.exception(
+            "Could not apply pending moderation in chat %s for user %s",
+            chat.id, getattr(getattr(change.new_chat_member, "user", None), "id", None),
         )
 
 
@@ -608,7 +705,7 @@ async def moderation_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def _require_target_admin(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
+    update: Update, context: ContextTypes.DEFAULT_TYPE, *, allow_absent: bool = False
 ) -> tuple[int, AdminAccess]:
     access = await require_admin_access(
         update, context, context.application.bot_data["settings"], "can_restrict_members"
@@ -622,6 +719,7 @@ async def _require_target_admin(
         target_id,
         access.actor,
         context.application.bot_data["settings"],
+        allow_absent=allow_absent,
     )
     return target_id, access
 
@@ -737,16 +835,28 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
-        target_id, _ = await _require_target_admin(update, context)
+        target_id, _ = await _require_target_admin(update, context, allow_absent=True)
         chat_id, actor_id = update.effective_chat.id, update.effective_user.id
         repository = _repository(context)
         defaults = await _current_default_permissions(context, chat_id)
         saved = await repository.restriction_permissions(chat_id, target_id)
-        await context.bot.restrict_chat_member(
-            chat_id,
-            target_id,
-            permissions=bounded_permissions(saved if saved is not None else defaults, defaults),
-        )
+        try:
+            await context.bot.get_chat_member(chat_id, target_id)
+            target_absent = False
+        except BadRequest as exc:
+            detail = str(exc).casefold()
+            target_absent = any(term in detail for term in (
+                "user not participant", "user_not_participant", "chat member not found",
+                "user not found", "participant_id_invalid", "participant id invalid",
+            ))
+            if not target_absent:
+                raise
+        if not target_absent:
+            await context.bot.restrict_chat_member(
+                chat_id,
+                target_id,
+                permissions=bounded_permissions(saved if saved is not None else defaults, defaults),
+            )
         await repository.cancel_temporary(chat_id, target_id, "unmute")
         await repository.forget_permissions(chat_id, target_id)
         await repository.record(chat_id, actor_id, target_id, "unmute", None)
