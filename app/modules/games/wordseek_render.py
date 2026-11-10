@@ -8,6 +8,8 @@ from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFont
 
+from app.services.image_fonts import font_for_text
+
 
 WIDTH = 900
 BG_TOP = (12, 20, 35)
@@ -21,18 +23,7 @@ MUTED = (157, 174, 195)
 
 
 def _font(size: int, bold: bool = False):
-    paths = (
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
-        else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf" if bold
-        else "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-    )
-    for path in paths:
-        try:
-            return ImageFont.truetype(path, size=size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+    return font_for_text("WORDSEEK", size, bold)
 
 
 def render_wordseek_board(
