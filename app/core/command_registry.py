@@ -23,6 +23,7 @@ COMMANDS = (
     CommandInfo("broadcast", "Copy a replied message to known private users", "/broadcast <seconds> (reply)", "Owner Tools", owner_only=True),
     CommandInfo("broadcast_stop", "Stop an active owner broadcast", "/broadcast_stop", "Owner Tools", owner_only=True),
     CommandInfo("q", "Create a quote sticker from a replied message", "/q [1-3] (reply)", "Quotes"),
+    CommandInfo("d", "Delete a saved quote sticker and stop future automatic matches", "/d q (reply to quote sticker)", "Quotes"),
     CommandInfo("qrand", "Show a random saved quote from this group", "/qrand", "Quotes"),
     CommandInfo("qtop", "Show this group's top-rated saved quotes", "/qtop", "Quotes"),
     CommandInfo("help", "Browse commands by category", "/help", "Help and About"),
