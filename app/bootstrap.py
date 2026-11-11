@@ -466,6 +466,7 @@ def _register_general(application: Application) -> None:
         ("pin", pin_command),
         ("start", start_command),
         ("q", quote_command),
+        ("d", quote_command),
         ("qrand", quote_random_command),
         ("qtop", quote_top_command),
         ("help", help_command),
