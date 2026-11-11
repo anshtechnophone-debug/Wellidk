@@ -202,7 +202,10 @@ async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     command_message = update.effective_message
     if not command_message:
         return
-    if context.args and context.args[0].casefold() == "delete":
+    if context.args and context.args[0].casefold() in {"delete", "q"}:
+        if len(context.args) != 1:
+            await command_message.reply_text("Usage: reply to a quote sticker with /d q.")
+            return
         await quote_delete_command(update, context)
         return
     source = command_message.reply_to_message
