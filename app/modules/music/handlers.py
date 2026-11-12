@@ -384,7 +384,7 @@ class MusicPlugin:
             await self.calls.play(chat_id, stream["path"])
         except Exception:
             if stream_task:
-                stream_task.cancel()
+                await self._cancel_track_stream({"_stream_task": stream_task})
             raise
         self.players[chat_id] = {
             "id": str(track["id"]),
