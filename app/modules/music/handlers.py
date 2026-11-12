@@ -291,7 +291,10 @@ class MusicPlugin:
                 },
                 {"text": "⏭ Next", "callback_data": "music:player:skip"},
             ],
-            [{"text": "■ Stop", "callback_data": "music:player:stop"}],
+            [
+                {"text": "♫ Playlist", "callback_data": "music:playlist:open"},
+                {"text": "■ Stop", "callback_data": "music:player:stop"},
+            ],
         ]}
 
     async def _send_player_card(self, chat_id, cover, caption):
@@ -363,6 +366,12 @@ class MusicPlugin:
         if current and str(current.get("id")) == str(track_id):
             current["path"] = final_path
             current["_stream_ready"] = True
+
+    async def _cancel_track_stream(self, track):
+        task = track.get("_stream_task") if track else None
+        if task and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     async def _start_track(self, chat_id, track, status_message_id):
         stream = await self.source.prepare_selected_stream(track)
@@ -477,7 +486,8 @@ class MusicPlugin:
     async def _on_stream_end(self, _, update: StreamEnded):
         chat_id = update.chat_id
         await self._stop_progress(chat_id)
-        self.players.pop(chat_id, None)
+        ended = self.players.pop(chat_id, None)
+        await self._cancel_track_stream(ended)
         await self._play_next(chat_id)
 
     async def _on_call_left(self, _, update: ChatUpdate):
@@ -490,6 +500,7 @@ class MusicPlugin:
         self._intentional_leave_until.pop(chat_id, None)
         await self._stop_progress(chat_id)
         track = self.players.pop(chat_id, None)
+        await self._cancel_track_stream(track)
         self.queues[chat_id].clear()
         self.playlist_sessions.pop(chat_id, None)
         if track:
@@ -997,14 +1008,16 @@ class MusicPlugin:
             elif action == "skip":
                 await self._leave_call(chat_id)
                 await self._stop_progress(chat_id)
-                self.players.pop(chat_id, None)
+                old_track = self.players.pop(chat_id, None)
+                await self._cancel_track_stream(old_track)
                 await self._play_next(chat_id)
                 return
             elif action == "stop":
                 self.queues[chat_id].clear()
                 self.playlist_sessions.pop(chat_id, None)
                 await self._stop_progress(chat_id)
-                self.players.pop(chat_id, None)
+                old_track = self.players.pop(chat_id, None)
+                await self._cancel_track_stream(old_track)
                 await self._leave_call(chat_id)
                 await self._edit_player_card(
                     chat_id, query.message.message_id,
@@ -1064,7 +1077,8 @@ class MusicPlugin:
                 except Exception:
                     pass
                 await self._stop_progress(chat_id)
-                self.players.pop(chat_id, None)
+                old_track = self.players.pop(chat_id, None)
+                await self._cancel_track_stream(old_track)
                 await self._play_next(chat_id)
                 await message.reply_text("⏭ Skipped.")
             elif action == "stop":
@@ -1072,6 +1086,7 @@ class MusicPlugin:
                 self.playlist_sessions.pop(chat_id, None)
                 await self._stop_progress(chat_id)
                 track = self.players.pop(chat_id, None)
+                await self._cancel_track_stream(track)
                 try:
                     await self._leave_call(chat_id)
                 except Exception:
