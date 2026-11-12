@@ -486,8 +486,9 @@ class MusicPlugin:
     async def _on_stream_end(self, _, update: StreamEnded):
         chat_id = update.chat_id
         await self._stop_progress(chat_id)
-        ended = self.players.pop(chat_id, None)
-        await self._cancel_track_stream(ended)
+        # The stream reader has reached EOF; let the local cache writer finish
+        # and hand off the finished file to the independent channel uploader.
+        self.players.pop(chat_id, None)
         await self._play_next(chat_id)
 
     async def _on_call_left(self, _, update: ChatUpdate):
