@@ -1065,6 +1065,24 @@ class MusicPlugin:
             await self._edit_player_card(
                 chat_id, query.message.message_id, self._render_player(chat_id)
             )
+        except RuntimeError as exc:
+            if "No voice-player session is assigned to this group" in str(exc):
+                track = self.players.pop(chat_id, None)
+                await self._stop_progress(chat_id)
+                await self._cancel_track_stream(track)
+                try:
+                    await self._edit_player_card(
+                        chat_id,
+                        query.message.message_id,
+                        "⏹ <b>Playback has already ended. Start a new track with /play.</b>",
+                        with_keyboard=False,
+                    )
+                except Exception:
+                    log.debug("Could not refresh stale music controls", exc_info=True)
+                await self._callback_notice(query, "Playback has ended. Use /play to start again.")
+                return
+            log.exception("Music player control failed")
+            await self._callback_notice(query, f"Action failed: {type(exc).__name__}")
         except Exception as exc:
             log.exception("Music player control failed")
             await self._callback_notice(query, f"Action failed: {type(exc).__name__}")
