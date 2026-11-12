@@ -26,7 +26,7 @@ async def test_different_members_can_host_independent_tictactoe_games(tmp_path):
         )
         application = SimpleNamespace(
             bot_data={"sessions": sessions},
-            create_task=Mock(),
+            create_task=Mock(side_effect=lambda coroutine, name=None: coroutine.close()),
         )
         await tictactoe_command(update, SimpleNamespace(application=application))
         return message
