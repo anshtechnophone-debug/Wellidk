@@ -235,8 +235,8 @@ COMMANDS = (
     CommandInfo(
         "rps", "Play non-wagering Rock Paper Scissors", "/rps <rock|paper|scissors>", "Fun"
     ),
-    CommandInfo("tictactoe", "Start Tic-Tac-Toe against XYRON", "/tictactoe", "Games"),
-    CommandInfo("tttmove", "Play a Tic-Tac-Toe square", "/tttmove <1-9>", "Games"),
+    CommandInfo("tictactoe", "Create or join a group Tic-Tac-Toe match", "/tictactoe", "Games"),
+    CommandInfo("tttmove", "Use the inline Tic-Tac-Toe board to play", "/tttmove (inline board)", "Games"),
     CommandInfo("tttcancel", "Cancel Tic-Tac-Toe", "/tttcancel", "Games"),
     CommandInfo("wordchain", "Start a local Word Chain game", "/wordchain", "Word Games"),
     CommandInfo("chain", "Submit the next Word Chain word", "/chain <word>", "Word Games"),
