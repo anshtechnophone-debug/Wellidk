@@ -402,6 +402,16 @@ class SongsxSource:
             temporary.unlink(missing_ok=True)
             fifo_path.unlink(missing_ok=True)
 
+    def discard_selection(self, track: dict | None):
+        """Release an unconsumed search result if the requesting command is cancelled."""
+        if not track:
+            return
+        context = self.pending.pop(str(track.get("id", "")), None)
+        if context:
+            lock = context.get("lock")
+            if lock and lock.locked():
+                lock.release()
+
     async def resolve_selected(self, track: dict) -> dict:
         """Click the first result and retain its Telegram message without downloading it."""
         if track.get("_cached_path") or track.get("_audio_message"):
