@@ -287,6 +287,10 @@ class SongsxSource:
                             "cache_message_id": int(cached.get("cache_message_id")),
                         },
                     }
+            for client in clients:
+                cached_track = await self._find_cached_channel_track(client, query)
+                if cached_track:
+                    return cached_track
         else:
             for client in clients:
                 cached_track = await self._find_cached_channel_track(client, query)
