@@ -55,6 +55,7 @@ class MultiCallPool:
         slot = self.chat_to_slot.pop(chat_id, None)
         if slot is not None:
             self.slot_to_chat.pop(slot, None)
+            self._search_released.set()
 
     def is_client_busy(self, client):
         try:
@@ -162,6 +163,7 @@ class MultiCallPool:
                     self.chat_to_slot[chat_id] = preferred
                     self.slot_to_chat[preferred] = chat_id
                     self._searching_clients.discard(preferred_client)
+                    self._search_released.set()
                     return self.instances[preferred]
             for index, instance in enumerate(self.instances):
                 client = self.clients[index]
