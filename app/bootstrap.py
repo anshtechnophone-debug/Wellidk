@@ -683,9 +683,27 @@ def _register_general(application: Application) -> None:
         group=0,
     )
 
+    # Only dispatch expensive media handlers for messages that can contain media.
+    visual_media_filter = (
+        filters.PHOTO
+        | filters.VIDEO
+        | filters.ANIMATION
+        | filters.Document.ALL
+        | filters.Sticker.ALL
+        | filters.VIDEO_NOTE
+        | filters.PAID_MEDIA
+    )
+    cleanup_media_filter = (
+        visual_media_filter
+        | filters.AUDIO
+    )
+
     # Inspect actual image/video/sticker/gift content before delayed media cleanup.
     application.add_handler(
-        MessageHandler(filters.ChatType.GROUPS & filters.ALL, visual_media_moderation_handler),
+        MessageHandler(
+            filters.ChatType.GROUPS & visual_media_filter,
+            visual_media_moderation_handler,
+        ),
         group=2,
     )
 
@@ -702,7 +720,7 @@ def _register_general(application: Application) -> None:
     # Schedule deletion for supported media types when this group enables it.
     application.add_handler(
         MessageHandler(
-            filters.ChatType.GROUPS & filters.ALL,
+            filters.ChatType.GROUPS & cleanup_media_filter,
             delayed_media_delete_handler,
         ),
         group=6,
