@@ -199,9 +199,10 @@ class SongsxSource:
             raise RuntimeError("No free voice-player account is currently available.")
         key = self._key(query)
         cached = self.index.get(key)
-        if cached and key == self._key(
-            f"{cached.get('title', '')} {cached.get('artist', '')}"
-        ):
+        if cached and key in {
+            self._key(cached.get("title", "")),
+            self._key(f"{cached.get('title', '')} {cached.get('artist', '')}"),
+        }:
             for client in clients:
                 restored = await self._restore_from_channel(client, cached)
                 if restored:
