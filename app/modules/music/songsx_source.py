@@ -339,6 +339,15 @@ class SongsxSource:
         except Exception:
             log.info("Background music cache upload failed", exc_info=True)
 
+    @staticmethod
+    def _write_all(pipe, data):
+        view = memoryview(data)
+        while view:
+            written = pipe.write(view)
+            if not written:
+                raise BrokenPipeError("The audio stream reader closed.")
+            view = view[written:]
+
     async def _stream_audio_to_fifo(
         self, client, audio_message, fifo_path: Path, temporary: Path,
         destination: Path, context: dict, duration: int,
@@ -354,6 +363,7 @@ class SongsxSource:
                     if exc.errno != errno.ENXIO:
                         raise
                     await asyncio.sleep(0.05)
+            os.set_blocking(descriptor, True)
             with os.fdopen(descriptor, "wb", buffering=0) as pipe:
                 descriptor = None
                 with temporary.open("wb") as saved:
@@ -363,7 +373,7 @@ class SongsxSource:
                         if not chunk:
                             continue
                         saved.write(chunk)
-                        await asyncio.to_thread(pipe.write, chunk)
+                        await asyncio.to_thread(self._write_all, pipe, chunk)
                 if temporary.stat().st_size < 10_000:
                     raise RuntimeError("The audio stream was incomplete.")
             temporary.replace(destination)
