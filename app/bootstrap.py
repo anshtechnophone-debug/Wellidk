@@ -18,6 +18,7 @@ from telegram import (
 from telegram.ext import (
     Application,
     ApplicationBuilder,
+    AIORateLimiter,
     CallbackQueryHandler,
     ChatMemberHandler,
     CommandHandler,
@@ -903,6 +904,7 @@ def build_application(settings: Settings | None = None) -> Application:
     application = (
         ApplicationBuilder()
         .token(resolved.bot_token)
+        .rate_limiter(AIORateLimiter(max_retries=3))
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
         .build()
