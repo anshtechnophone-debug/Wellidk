@@ -454,14 +454,16 @@ class SongsxSource:
             await client(GetBotCallbackAnswerRequest(
                 peer=peer, msg_id=context["message_id"], data=context["button_data"]
             ))
-            deadline = asyncio.get_running_loop().time() + 25
+            # Songsx may take longer to replace its result keyboard with the
+            # selected audio message during busy periods.
+            deadline = asyncio.get_running_loop().time() + 40
             audio_message = None
             while asyncio.get_running_loop().time() < deadline:
                 selected = await client.get_messages(peer, ids=context["message_id"])
                 if selected and self._is_audio(selected):
                     audio_message = selected
                     break
-                recent = await client.get_messages(peer, limit=15)
+                recent = await client.get_messages(peer, limit=30)
                 audio_message = next(
                     (
                         item for item in sorted(recent, key=lambda item: item.id)
