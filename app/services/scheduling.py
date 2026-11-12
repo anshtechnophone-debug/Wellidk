@@ -6,7 +6,7 @@ import asyncio
 import logging
 
 from telegram import ChatMember, ChatPermissions
-from telegram.error import TelegramError
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import Application
 
 from app.core.permissions import bounded_permissions
@@ -76,6 +76,22 @@ async def expiration_worker(application: Application, stop_event: asyncio.Event)
                         "Unknown temporary action %s for record %s", action.action, action.id
                     )
                 await repository.delete_temporary(action.id)
+            except BadRequest as exc:
+                if "member not found" in str(exc).casefold():
+                    # Telegram cannot restore permissions for a user who has left
+                    # or is no longer present in this group. Retrying cannot help.
+                    await repository.delete_temporary(action.id)
+                    if action.action == "unmute":
+                        await repository.forget_permissions(action.chat_id, action.target_id)
+                    logger.info(
+                        "Discarded expired temporary action %s: target is no longer in group %s",
+                        action.id, action.chat_id,
+                    )
+                    continue
+                await repository.note_expiration_failure(action.id)
+                logger.exception(
+                    "Temporary action %s failed; it remains queued for retry", action.id
+                )
             except TelegramError:
                 await repository.note_expiration_failure(action.id)
                 logger.exception(
