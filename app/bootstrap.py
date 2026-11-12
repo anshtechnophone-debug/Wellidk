@@ -16,9 +16,9 @@ from telegram import (
     Update,
 )
 from telegram.ext import (
+    AIORateLimiter,
     Application,
     ApplicationBuilder,
-    AIORateLimiter,
     CallbackQueryHandler,
     ChatMemberHandler,
     CommandHandler,
