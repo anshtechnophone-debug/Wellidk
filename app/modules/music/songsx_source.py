@@ -202,6 +202,48 @@ class SongsxSource:
             log.debug("Cached channel track could not be opened", exc_info=True)
             return None
 
+    async def _find_cached_channel_track(self, client, query: str):
+        """Find an exact title match in the cache channel even if the local index is missing."""
+        try:
+            peer = await self._cache_peer(client)
+            query_key = self._key(query)
+            async for message in client.iter_messages(peer, search=query, limit=30):
+                if not self._is_audio(message):
+                    continue
+                caption = (getattr(message, "message", "") or "").strip()
+                first_line = caption.splitlines()[0] if caption else ""
+                if " — " in first_line:
+                    title, artist = first_line.split(" — ", 1)
+                elif " - " in first_line:
+                    title, artist = first_line.split(" - ", 1)
+                else:
+                    title, artist = first_line, "Unknown artist"
+                title_key = self._key(title)
+                full_key = self._key(f"{title} {artist}")
+                if query_key not in {title_key, full_key}:
+                    continue
+                duration = int(
+                    getattr(getattr(message, "audio", None), "duration", 0) or 0
+                )
+                return {
+                    "id": "cache_" + secrets.token_hex(5),
+                    "name": title or query,
+                    "artist_name": artist or "Unknown artist",
+                    "duration": duration,
+                    "_source": "cache",
+                    "_audio_message": message,
+                    "_music_client": client,
+                    "_stream_context": {
+                        "title": title or query,
+                        "artist": artist or "Unknown artist",
+                        "query": "cache",
+                        "cache_message_id": int(message.id),
+                    },
+                }
+        except Exception:
+            log.debug("Cache-channel search failed for a free account", exc_info=True)
+        return None
+
     async def search_first(self, query: str, clients: list) -> dict | None:
         """Return the first matching result from all supplied free accounts in parallel.
 
@@ -244,6 +286,11 @@ class SongsxSource:
                             "cache_message_id": int(cached.get("cache_message_id")),
                         },
                     }
+        else:
+            for client in clients:
+                cached_track = await self._find_cached_channel_track(client, query)
+                if cached_track:
+                    return cached_track
 
         tasks = [asyncio.create_task(self._search_one(query, client)) for client in clients]
         winner = None
