@@ -42,6 +42,8 @@ def _find_category(key: str) -> tuple[str, list[CommandInfo]] | None:
 
 
 def _example(command: CommandInfo) -> str:
+    if command.name == "mute":
+        return "/mute 123456789 30m spam"
     if command.name in {"dban", "dkick", "dmute"}:
         return f"Reply to the target's message, then send /{command.name} spam"
     if command.name == "report":

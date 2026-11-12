@@ -29,15 +29,17 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             update, context, context.application.bot_data["settings"], "can_delete_messages"
         )
         await context.bot.delete_message(chat.id, message.reply_to_message.message_id)
-        await ActivityLogRepository(context.application.bot_data["sessions"]).record(
-            chat_id=chat.id,
-            event_type="message_deletion",
-            actor_id=update.effective_user.id if update.effective_user else None,
-            message_id=message.reply_to_message.message_id,
-            action="delete",
-            status="success",
-            details={"command": "/del"},
-        )
+        sessions = getattr(getattr(context, "application", None), "bot_data", {}).get("sessions")
+        if sessions is not None:
+            await ActivityLogRepository(sessions).record(
+                chat_id=chat.id,
+                event_type="message_deletion",
+                actor_id=update.effective_user.id if update.effective_user else None,
+                message_id=message.reply_to_message.message_id,
+                action="delete",
+                status="success",
+                details={"command": "/del"},
+            )
         await _reply(update, "Message deleted.")
     except AuthorizationError as exc:
         await _reply(update, str(exc))
@@ -138,23 +140,21 @@ async def userinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await _reply(update, f"Telegram could not find that member: {exc.message}")
             return
 
-    sessions = context.application.bot_data.get("sessions")
-    if sessions is None:
-        await _reply(update, "User history is temporarily unavailable.")
-        return
-
-    async with sessions() as session:
-        rows = (
-            await session.execute(
-                select(GroupMessage.display_name, GroupMessage.username)
-                .where(
-                    GroupMessage.chat_id == chat.id,
-                    GroupMessage.user_id == target_user.id,
+    sessions = getattr(getattr(context, "application", None), "bot_data", {}).get("sessions")
+    rows = []
+    if sessions is not None:
+        async with sessions() as session:
+            rows = (
+                await session.execute(
+                    select(GroupMessage.display_name, GroupMessage.username)
+                    .where(
+                        GroupMessage.chat_id == chat.id,
+                        GroupMessage.user_id == target_user.id,
+                    )
+                    .order_by(GroupMessage.sent_at.desc())
+                    .limit(500)
                 )
-                .order_by(GroupMessage.sent_at.desc())
-                .limit(500)
-            )
-        ).all()
+            ).all()
 
     current_name = target_user.full_name.strip() or "Unavailable"
     current_username = f"@{target_user.username}" if target_user.username else "Unavailable"
@@ -177,9 +177,16 @@ async def userinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     def history_line(values: list[str]) -> str:
         return ", ".join(html.escape(value) for value in values[:10]) if values else "No history recorded"
 
+    try:
+        current_member = await context.bot.get_chat_member(chat.id, target_user.id)
+        member_status = str(current_member.status).casefold()
+    except TelegramError:
+        member_status = "unknown"
+
     text = (
         f"<b>UID:</b> <code>{target_user.id}</code>\n"
         f"<b>Name:</b> {html.escape(current_name)}\n"
+        f"Status: {html.escape(member_status)}\n"
         f"<b>Username:</b> {html.escape(current_username)}\n"
         f"<b>Old names:</b> {history_line(old_names)}\n"
         f"<b>Old usernames:</b> {history_line(old_usernames)}"

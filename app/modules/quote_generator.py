@@ -184,7 +184,8 @@ def _render_sticker(quote: str, author: str, username: str | None, avatar_data, 
     line_height = message_font.size + 7
     bubble_height = max(88, 13 + name_height + 5 + len(lines) * line_height + 13)
     bubble_height = min(250, bubble_height)
-    image = Image.new("RGBA", (WIDTH, bubble_height + 20), (0, 0, 0, 0))
+    # Leave a transparent footer so Telegram's media timestamp does not cover the final quote line.
+    image = Image.new("RGBA", (WIDTH, bubble_height + 64), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
     top, bottom = 8, 8 + bubble_height
     draw.rounded_rectangle((bubble_left, top, bubble_right, bottom), radius=29, fill=bubble_color + (255,), outline=(91, 73, 91, 210), width=2)

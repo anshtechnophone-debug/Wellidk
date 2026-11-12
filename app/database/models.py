@@ -69,6 +69,22 @@ class KnownUser(Base):
     last_seen: Mapped[datetime] = mapped_column(UTCDateTime())
 
 
+class GlobalUser(Base):
+    """Global index of Telegram users XYRON has actually encountered."""
+    __tablename__ = "global_users"
+    __table_args__ = (Index("ix_global_users_username", "username"),)
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    first_name: Mapped[str] = mapped_column(String(255), default="")
+    last_name: Mapped[str] = mapped_column(String(255), default="")
+    is_bot: Mapped[bool] = mapped_column(Boolean, default=False)
+    seen_in_private: Mapped[bool] = mapped_column(Boolean, default=False)
+    seen_in_groups: Mapped[bool] = mapped_column(Boolean, default=False)
+    first_seen: Mapped[datetime] = mapped_column(UTCDateTime())
+    last_seen: Mapped[datetime] = mapped_column(UTCDateTime())
+
+
 class ModerationEvent(Base):
     __tablename__ = "moderation_events"
     __table_args__ = (Index("ix_moderation_events_group_created", "chat_id", "created_at"),)
@@ -282,3 +298,44 @@ class BotAdmin(Base):
     added_by: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
 
+
+class FamilyRelationship(Base):
+    """Global, permanent directed family edge; every relationship is stored reciprocally."""
+    __tablename__ = "family_relationships"
+    __table_args__ = (
+        UniqueConstraint("user_id", "related_user_id", "relation", name="uq_family_edge"),
+        Index("ix_family_relationship_user", "user_id", "relation"),
+        Index("ix_family_relationship_related", "related_user_id", "relation"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    related_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    relation: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
+
+
+class FamilyRequest(Base):
+    """Persistent consent request for marriage or divorce."""
+    __tablename__ = "family_requests"
+    __table_args__ = (Index("ix_family_requests_target_status", "target_id", "status"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    requester_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    target_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    requester_role: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class BroadcastRecipient(Base):
+    """Private users who have interacted with XYRON and can receive owner broadcasts."""
+    __tablename__ = "broadcast_recipients"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    first_seen: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
+    last_seen: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
