@@ -432,7 +432,7 @@ class MusicPlugin:
             self.players.pop(chat_id, None)
             self.playlist_sessions.pop(chat_id, None)
             try:
-                await self.calls.leave_call(chat_id)
+                await self._leave_call(chat_id)
             except Exception:
                 pass
             if status_message_id:
@@ -664,7 +664,7 @@ class MusicPlugin:
             except Exception:
                 pass
         try:
-            await self.calls.leave_call(chat_id)
+            await self._leave_call(chat_id)
         except Exception:
             pass
         self.players.pop(chat_id, None)
@@ -696,7 +696,7 @@ class MusicPlugin:
             await self._stop_progress(chat_id)
             self.players.pop(chat_id, None)
             try:
-                await self.calls.leave_call(chat_id)
+                await self._leave_call(chat_id)
             except Exception:
                 pass
             try:
@@ -1067,7 +1067,7 @@ class MusicPlugin:
                 await message.reply_text("▶️ Playback resumed.")
             elif action == "skip":
                 try:
-                    await self.calls.leave_call(chat_id)
+                    await self._leave_call(chat_id)
                 except Exception:
                     pass
                 await self._stop_progress(chat_id)
@@ -1080,7 +1080,7 @@ class MusicPlugin:
                 await self._stop_progress(chat_id)
                 track = self.players.pop(chat_id, None)
                 try:
-                    await self.calls.leave_call(chat_id)
+                    await self._leave_call(chat_id)
                 except Exception:
                     pass
                 if track:
