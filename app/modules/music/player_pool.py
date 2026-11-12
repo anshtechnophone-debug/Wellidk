@@ -41,6 +41,12 @@ class MultiCallPool:
             for client in clients or ():
                 self._searching_clients.discard(client)
 
+    def release_slot(self, chat_id):
+        """Release an account mapping after Telegram reports that the VC ended externally."""
+        slot = self.chat_to_slot.pop(chat_id, None)
+        if slot is not None:
+            self.slot_to_chat.pop(slot, None)
+
     def is_client_busy(self, client):
         try:
             return self.clients.index(client) in self.slot_to_chat
