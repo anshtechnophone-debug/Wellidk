@@ -7,12 +7,15 @@ They must never create noisy error messages in public groups.
 from __future__ import annotations
 
 import logging
+import time
 
 from telegram import Update
-from telegram.error import BadRequest, TelegramError
+from telegram.error import BadRequest, RetryAfter, TelegramError, TimedOut
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
+_REPORT_COOLDOWN_SECONDS = 60.0
+_last_reports: dict[str, float] = {}
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -20,10 +23,24 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     if error is None:
         return
 
-    # Telegram raises this when an edit tries to apply content/markup that is
-    # already present. It is an idempotent no-op, not a failed command.
-    if isinstance(error, BadRequest) and "message is not modified" in str(error).casefold():
-        logger.debug("Ignored harmless unchanged-message edit")
+    detail = str(error).casefold()
+
+    # These are expected transient Telegram conditions. Reporting every
+    # occurrence creates a second flood and does not help the owner diagnose it.
+    if isinstance(error, RetryAfter):
+        logger.warning("Telegram rate limit reached; retry after %s seconds", error.retry_after)
+        return
+    if isinstance(error, TimedOut):
+        logger.warning("Telegram request timed out; update will not be error-DM'd")
+        return
+    if isinstance(error, BadRequest) and any(marker in detail for marker in (
+        "message is not modified",
+        "query is too old",
+        "response timeout expired",
+        "peer_id_invalid",
+        "message to be replied not found",
+    )):
+        logger.debug("Ignored expected stale/unavailable Telegram operation: %s", error)
         return
 
     if isinstance(error, TelegramError):
@@ -49,6 +66,20 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         f"User: {user.full_name} (ID: {user.id})"
         if user else "User: unavailable"
     )
+    report_key = f"{type(error).__name__}:{detail[:180]}:{chat.id if chat else 'none'}"
+    now = time.monotonic()
+    previous = _last_reports.get(report_key, 0.0)
+    if now - previous < _REPORT_COOLDOWN_SECONDS:
+        logger.debug("Suppressed duplicate owner error report: %s", report_key)
+        return
+    _last_reports[report_key] = now
+    # Bound the in-memory deduplication cache during long-running deployments.
+    if len(_last_reports) > 1000:
+        cutoff = now - _REPORT_COOLDOWN_SECONDS
+        for key, sent_at in list(_last_reports.items()):
+            if sent_at < cutoff:
+                _last_reports.pop(key, None)
+
     report = (
         "⚠️ XYRON update error\n"
         f"{location}\n"
