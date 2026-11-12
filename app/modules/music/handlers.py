@@ -997,6 +997,9 @@ class MusicPlugin:
                 if not track:
                     await self._callback_notice(query, "Nothing is playing.")
                     return
+                if not track.get("_stream_ready", True):
+                    await self._callback_notice(query, "Track is still loading. Try again shortly.")
+                    return
                 await self._leave_call(chat_id)
                 await self._ensure_player_in_group(chat_id)
                 await self.calls.play(chat_id, track["path"], volume=track.get("volume", 100))
@@ -1038,6 +1041,9 @@ class MusicPlugin:
                 track = self.players.get(chat_id)
                 if not track:
                     await self._callback_notice(query, "Nothing is playing.")
+                    return
+                if not track.get("_stream_ready", True):
+                    await self._callback_notice(query, "Track is still loading. Try again shortly.")
                     return
                 volume = max(
                     0, min(200, int(track.get("volume", 100))
@@ -1183,6 +1189,8 @@ class MusicPlugin:
         chat_id = update.effective_chat.id
         if chat_id not in self.players:
             return await message.reply_text("Nothing is playing right now.")
+        if not self.players[chat_id].get("_stream_ready", True):
+            return await message.reply_text("Track is still loading. Try again shortly.")
         volume = max(0, min(200, int(context.args[0])))
         try:
             track = self.players[chat_id]
