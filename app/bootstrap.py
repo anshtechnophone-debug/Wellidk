@@ -940,7 +940,7 @@ def build_application(settings: Settings | None = None) -> Application:
             ),
             Module(
                 "music",
-                "Songsx-powered voice-chat music player",
+                "Voice-chat music player",
                 register_music,
             ),
         ),
