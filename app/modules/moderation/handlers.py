@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import time
 import re
 import unicodedata
 from difflib import SequenceMatcher
@@ -1112,6 +1113,13 @@ async def track_known_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     ):
         return
     user = message.from_user
+    now = time.monotonic()
+    cache = context.application.bot_data.setdefault("_xyron_known_user_refresh", {})
+    key = (chat.id, user.id)
+    previous = cache.get(key, 0.0)
+    if now - previous < 60:
+        return
+
     async with context.application.bot_data["sessions"].begin() as session:
         group = await session.get(Group, chat.id)
         if group is None:
@@ -1136,6 +1144,12 @@ async def track_known_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     last_seen=datetime.now(UTC),
                 )
             )
+    cache[key] = now
+    if len(cache) > 5000:
+        cutoff = now - 300
+        for cached_key, refreshed_at in list(cache.items()):
+            if refreshed_at < cutoff:
+                cache.pop(cached_key, None)
 
 
 # Imported allowlist: 255 IDs with no Cyrillic, Han, Hiragana, Katakana, or Hangul characters in their exported display names.
