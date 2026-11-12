@@ -216,7 +216,7 @@ class MusicPlugin:
             return True
         return False
 
-    async def _ensure_player_in_group(self, chat_id: int):
+    async def _ensure_player_in_group(self, chat_id: int, preferred_client=None):
         if chat_id >= 0:
             raise RuntimeError("Music playback is available in groups, not private chats.")
         if not self.accounts.clients:
@@ -229,7 +229,7 @@ class MusicPlugin:
         )
         try:
             return await self.calls.ensure_member(
-                chat_id, invite.invite_link, preferred_client=self.accounts.clients[0]
+                chat_id, invite.invite_link, preferred_client=preferred_client
             )
         finally:
             try:
@@ -259,53 +259,39 @@ class MusicPlugin:
             else int(time.monotonic() - track["started_at"])
         )
         elapsed = min(duration, int(elapsed_now)) if duration else int(elapsed_now)
-        remaining = max(0, duration - elapsed) if duration else 0
         esc = lambda value: html.escape(str(value or ""))
         title = esc(track.get("title", "Unknown title"))
         artist = esc(track.get("artist", "Unknown artist"))
         requester = esc(track.get("requested_by", "A group member"))
-        username = self.public_username or "xyronrobot"
         if duration:
             timeline = (
                 f"<code>{self._fmt_time(elapsed)}</code>  "
-                f"{self._progress_bar(elapsed, duration)}  "
+                f"{self._progress_bar(elapsed, duration, width=12)}  "
                 f"<code>{self._fmt_time(duration)}</code>"
             )
-            remaining_line = f"⏳ <b>{self._fmt_time(remaining)}</b> left"
         else:
             timeline = f"<code>{self._fmt_time(elapsed)}</code>  🔴 LIVE"
-            remaining_line = "⏳ Live stream"
-        status = "⏸ <b>PAUSED</b>" if track.get("paused") else "🟢 <b>NOW PLAYING</b>"
-        requested_username = esc(track.get("requested_by_username", ""))
+        status = "⏸ Paused" if track.get("paused") else "🟢 Playing"
+        loading = " · ⬇️ buffering" if not track.get("_stream_ready", True) else ""
         return (
-            f"🎧 <b>XYRON MUSIC</b>  ·  {status}\n"
+            f"🎧 <b>XYRON MUSIC</b> · {status}{loading}\n"
             f"🎵 <b>{title}</b>\n"
             f"🎤 {artist}\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            f"{timeline}\n{remaining_line}  ·  🔊 {track.get('volume', 100)}%\n"
-            f"👤 <b>Requested by:</b> {requester} {requested_username}\n"
-            f"✨ <a href=\"https://t.me/{username}\">@{username}</a>"
+            f"{timeline}\n"
+            f"👤 {requester}"
         )
 
     def _player_keyboard(self, chat_id):
         paused = bool(self.players.get(chat_id, {}).get("paused"))
         return {"inline_keyboard": [
             [
-                {"text": "↻  REPLAY", "callback_data": "music:player:replay", "style": "success"},
-                {"text": "▶  RESUME" if paused else "Ⅱ  PAUSE",
-                 "callback_data": "music:player:resume" if paused else "music:player:pause",
-                 "style": "success" if paused else "primary"},
+                {
+                    "text": "▶ Resume" if paused else "Ⅱ Pause",
+                    "callback_data": "music:player:resume" if paused else "music:player:pause",
+                },
+                {"text": "⏭ Next", "callback_data": "music:player:skip"},
             ],
-            [
-                {"text": "⏭  NEXT", "callback_data": "music:player:skip", "style": "primary"},
-                {"text": "☷  QUEUE", "callback_data": "music:player:queue", "style": "primary"},
-            ],
-            [
-                {"text": "－  VOLUME", "callback_data": "music:player:vol_down", "style": "primary"},
-                {"text": "＋  VOLUME", "callback_data": "music:player:vol_up", "style": "primary"},
-            ],
-            [{"text": "🎼  MY PLAYLIST", "callback_data": "music:playlist:open", "style": "primary"}],
-            [{"text": "■  STOP PLAYBACK", "callback_data": "music:player:stop", "style": "danger"}],
+            [{"text": "■ Stop", "callback_data": "music:player:stop"}],
         ]}
 
     async def _send_player_card(self, chat_id, cover, caption):
@@ -367,25 +353,52 @@ class MusicPlugin:
                 log.debug("Player progress refresh failed for chat %s", chat_id, exc_info=True)
             await asyncio.sleep(10)
 
+    def _on_music_stream_ready(self, chat_id, track_id, task):
+        try:
+            final_path = task.result()
+        except Exception:
+            log.warning("A music stream could not be fully cached", exc_info=True)
+            return
+        current = self.players.get(chat_id)
+        if current and str(current.get("id")) == str(track_id):
+            current["path"] = final_path
+            current["_stream_ready"] = True
+
     async def _start_track(self, chat_id, track, status_message_id):
-        audio_path = await self.source.download_selected(track)
-        await self._ensure_player_in_group(chat_id)
-        await self.calls.play(chat_id, str(audio_path))
+        stream = await self.source.prepare_selected_stream(track)
+        stream_task = stream.get("task")
+        try:
+            await self._ensure_player_in_group(
+                chat_id, preferred_client=track.get("_music_client")
+            )
+            await self.calls.play(chat_id, stream["path"])
+        except Exception:
+            if stream_task:
+                stream_task.cancel()
+            raise
         self.players[chat_id] = {
             "id": str(track["id"]),
             "title": track.get("name", "Unknown title"),
             "artist": track.get("artist_name", "Unknown artist"),
             "requested_by": track.get("requested_by", "A group member"),
             "requested_by_username": track.get("requested_by_username", ""),
-            "duration": int(track.get("duration") or 0),
+            "duration": int(stream.get("duration") or track.get("duration") or 0),
             "started_at": time.monotonic(),
             "message_id": status_message_id,
-            "path": str(audio_path),
+            "path": stream["path"],
             "volume": 100,
             "paused": False,
             "paused_elapsed": 0,
+            "_stream_ready": stream_task is None,
+            "_stream_task": stream_task,
             "_playlist_item_id": track.get("_playlist_item_id"),
         }
+        if stream_task:
+            stream_task.add_done_callback(
+                lambda task: self._on_music_stream_ready(
+                    chat_id, track["id"], task
+                )
+            )
         cover = make_player_cover(
             title=self.players[chat_id]["title"],
             artist=self.players[chat_id]["artist"],
@@ -416,15 +429,10 @@ class MusicPlugin:
                     return
                 except Exception as exc:
                     log.exception("Could not start queued music track")
-                    detail = str(exc)
-                    if "no active group call" in detail.lower():
-                        detail = "No active voice chat. Start the group's voice chat first."
-                    elif "invite" in detail.lower() or "chat_admin_required" in detail.lower():
-                        detail = f"Please make @xyronrobot an admin with Invite Users permission ({type(exc).__name__})."
                     await self.bot.send_message(
                         chat_id,
-                        f"⚠️ Could not play <b>{html.escape(str(track.get('name', 'track')))}</b>: "
-                        f"{html.escape(detail[:700])}",
+                        f"⚠️ Could not start <b>{html.escape(str(track.get('name', 'track')))}</b>. "
+                        "Please check the voice chat and try again.",
                         parse_mode="HTML",
                     )
                     status_message_id = None
@@ -833,83 +841,68 @@ class MusicPlugin:
         chat_id = update.effective_chat.id
         user = update.effective_user
         status = await message.reply_text(
-            f"🔎 Finding tracks for <b>{html.escape(query_text)}</b>…", parse_mode="HTML"
+            f"🔎 Finding <b>{html.escape(query_text)}</b>…", parse_mode="HTML"
         )
+        search_clients = await self.calls.claim_search_clients()
+        if not search_clients:
+            return await status.edit_text(
+                "⏳ All music players are busy right now. Please try again shortly."
+            )
         try:
-            if user and self.user_store:
-                record = await self.user_store.get_user(user.id)
-                preference = record.get("preferences", {}).get(
-                    self._preference_key(chat_id, query_text)
+            selected = await self.source.search_first(query_text, search_clients)
+            if not selected:
+                return await status.edit_text(
+                    "🎵 I couldn't find that track. Try another song title or artist."
                 )
-                if preference:
-                    preferred_query = (
-                        f"{preference.get('title', '')} {preference.get('artist', '')}"
-                    ).strip()
-                    preferred_results = await self.source.search(
-                        preferred_query, self.accounts.clients
-                    )
-                    expected_title = SongsxSource._key(preference.get("title", ""))
-                    expected_artist = SongsxSource._key(preference.get("artist", ""))
-                    selected_preference = next(
-                        (
-                            item for item in preferred_results
-                            if SongsxSource._key(item.get("name", "")) == expected_title
-                            and SongsxSource._key(item.get("artist_name", "")) == expected_artist
-                        ),
-                        None,
-                    )
-                    if selected_preference:
-                        selected_preference["requested_by"] = user.full_name
-                        selected_preference["requested_by_username"] = (
-                            f"@{user.username}" if user.username else ""
-                        )
-                        self.queues[chat_id].append(selected_preference)
-                        if chat_id not in self.players:
-                            await status.edit_text("⚡ Loading your previously selected song…")
-                            await self._play_next(chat_id, status.message_id)
-                        else:
-                            await status.edit_text(
-                                f"➕ Added your saved choice to the queue: "
-                                f"<b>{html.escape(selected_preference.get('name', 'Track'))}</b>",
-                                parse_mode="HTML",
-                            )
-                        return
+            selected["requested_by"] = user.full_name if user else "Telegram user"
+            selected["requested_by_username"] = (
+                f"@{user.username}" if user and user.username else ""
+            )
+            selected["_search_query"] = query_text
 
-            results = (await self.source.search(query_text, self.accounts.clients))[:7]
-            if not results:
-                return await status.edit_text("Songsx returned no tracks. Try another title or artist.")
-            requester = user.full_name if user else "Telegram user"
-            username = f"@{user.username}" if user and user.username else ""
-            for item in results:
-                item["requested_by"] = requester
-                item["requested_by_username"] = username
-                item["_search_query"] = query_text
-            if len(results) > 1:
-                self.search_cache[chat_id] = {str(item["id"]): item for item in results}
-                await self._edit_song_choices(chat_id, status.message_id, results)
-                return
-            selected = results[0]
-            if user:
-                await self._remember_choice(chat_id, user, query_text, selected)
+            def same_track(left, title, artist):
+                left_title = left.get("title", left.get("name", ""))
+                left_artist = left.get("artist", left.get("artist_name", ""))
+                return (
+                    SongsxSource._key(left_title) == SongsxSource._key(title)
+                    and SongsxSource._key(left_artist) == SongsxSource._key(artist)
+                )
+
+            title = selected.get("name", "")
+            artist = selected.get("artist_name", "")
+            current = self.players.get(chat_id)
+            if (
+                (current and same_track(current, title, artist))
+                or any(same_track(item, title, artist) for item in self.queues[chat_id])
+            ):
+                return await status.edit_text("🎵 That track is already playing or queued.")
+
+            if user and self.user_store:
+                asyncio.create_task(
+                    self._remember_choice(chat_id, user, query_text, selected)
+                )
+
             self.queues[chat_id].append(selected)
-            if chat_id not in self.players:
-                await status.edit_text("⏳ Preparing your selected track and voice chat…")
-                await self._play_next(chat_id, status.message_id)
-            else:
+            if current or self.locks[chat_id].locked():
                 await status.edit_text(
-                    f"➕ Added to queue: <b>{html.escape(selected.get('name', 'Track'))}</b> "
-                    f"— {html.escape(selected.get('artist_name', 'Unknown artist'))}",
+                    f"➕ Added <b>{html.escape(title)}</b> to the queue.",
                     parse_mode="HTML",
                 )
-        except Exception as exc:
-            log.exception("Songsx search/play failed")
+                return
+            await status.edit_text("▶️ Starting playback…")
+            await self._play_next(chat_id, status.message_id)
+        except Exception:
+            log.exception("Music request could not be completed")
             try:
                 await status.edit_text(
-                    f"❌ Couldn't search Songsx or play that track: {type(exc).__name__}: {html.escape(str(exc)[:500])}",
-                    parse_mode="HTML",
+                    "⚠️ Couldn't load that track. Please try another search."
                 )
             except Exception:
                 pass
+        finally:
+            await self.calls.release_search_clients(search_clients)
+
+
 
     async def choose_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -1188,7 +1181,7 @@ class MusicPlugin:
     async def music_help_command(self, update, context):
         await update.effective_message.reply_text(
             "🎧 <b>XYRON MUSIC</b>\n\n"
-            "• /play &lt;song name&gt; — search Songsx and play\n"
+            "• /play &lt;song name&gt; — play a song\n"
             "• /myplaylist — open, play, or manage your personal playlist\n"
             "• /pause — pause playback\n• /resume — resume playback\n"
             "• /skip — skip current track\n• /stop — stop and clear queue\n"
