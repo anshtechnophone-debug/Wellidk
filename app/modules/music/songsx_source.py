@@ -467,6 +467,7 @@ class SongsxSource:
                         "id": token, "name": title.strip(),
                         "artist_name": artist.strip(), "duration": 0,
                         "_source": "songsx",
+                        "_music_client": client,
                         "source_url": f"https://t.me/{self.bot_username}",
                     })
                     if len(choices) >= 7:
