@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import UTC, datetime
 
 from telegram import Chat, Update
@@ -59,7 +60,22 @@ async def track_global_user(
     chat = update.effective_chat
     if message is None or user is None:
         return
-    await _record_user(user, chat, context.application.bot_data.get("sessions"))
+    if chat is not None:
+        now = time.monotonic()
+        cache = context.application.bot_data.setdefault("_xyron_global_user_refresh", {})
+        key = (user.id, chat.type)
+        previous = cache.get(key, 0.0)
+        if now - previous < 60:
+            return
+        await _record_user(user, chat, context.application.bot_data.get("sessions"))
+        cache[key] = now
+        if len(cache) > 5000:
+            cutoff = now - 300
+            for cached_key, refreshed_at in list(cache.items()):
+                if refreshed_at < cutoff:
+                    cache.pop(cached_key, None)
+    else:
+        await _record_user(user, chat, context.application.bot_data.get("sessions"))
 
 
 async def track_global_chat_member(
