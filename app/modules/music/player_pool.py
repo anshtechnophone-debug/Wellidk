@@ -21,9 +21,31 @@ class MultiCallPool:
         self._update_handlers = []
         self._started = False
         self._handoff_handler = None
+        self._searching_clients = set()
 
     def set_handoff_handler(self, handler):
         self._handoff_handler = handler
+
+    async def claim_search_clients(self):
+        """Reserve every currently free account for one parallel search request."""
+        async with self._allocation_lock:
+            clients = [
+                client for index, client in enumerate(self.clients)
+                if index not in self.slot_to_chat and client not in self._searching_clients
+            ]
+            self._searching_clients.update(clients)
+            return clients
+
+    async def release_search_clients(self, clients):
+        async with self._allocation_lock:
+            for client in clients or ():
+                self._searching_clients.discard(client)
+
+    def is_client_busy(self, client):
+        try:
+            return self.clients.index(client) in self.slot_to_chat
+        except ValueError:
+            return True
 
     def _register_update_handler(self, instance, update_filter, handler):
         async def wrapped(_, update, _handler=handler):
@@ -66,6 +88,7 @@ class MultiCallPool:
                     pass
             instance = self.instances.pop(index)
             self.clients.pop(index)
+            self._searching_clients.discard(client)
             if self._started:
                 try:
                     await instance.stop()
@@ -104,6 +127,7 @@ class MultiCallPool:
         self._started = False
         self.chat_to_slot.clear()
         self.slot_to_chat.clear()
+        self._searching_clients.clear()
 
     async def _instance_for(self, chat_id, allocate=False, preferred_client=None):
         slot = self.chat_to_slot.get(chat_id)
@@ -120,31 +144,15 @@ class MultiCallPool:
                 if preferred not in self.slot_to_chat:
                     self.chat_to_slot[chat_id] = preferred
                     self.slot_to_chat[preferred] = chat_id
+                    self._searching_clients.discard(preferred_client)
                     return self.instances[preferred]
             for index, instance in enumerate(self.instances):
-                if index not in self.slot_to_chat:
+                client = self.clients[index]
+                if index not in self.slot_to_chat and client not in self._searching_clients:
                     self.chat_to_slot[chat_id] = index
                     self.slot_to_chat[index] = chat_id
                     return instance
-            if self.instances:
-                index = 0
-                previous_chat = self.slot_to_chat.get(index)
-                if previous_chat is not None:
-                    try:
-                        await self.instances[index].leave_call(previous_chat)
-                    except Exception:
-                        pass
-                    self.chat_to_slot.pop(previous_chat, None)
-                    self.slot_to_chat.pop(index, None)
-                    if self._handoff_handler:
-                        try:
-                            await self._handoff_handler(previous_chat, chat_id)
-                        except Exception:
-                            pass
-                self.chat_to_slot[chat_id] = index
-                self.slot_to_chat[index] = chat_id
-                return self.instances[index]
-        raise RuntimeError("No voice-player account is connected. Use /addaccount.")
+        raise RuntimeError("All voice-player accounts are currently busy. Please try again shortly.")
 
     async def ensure_member(self, chat_id, invite_link, preferred_client=None):
         await self._instance_for(chat_id, allocate=True, preferred_client=preferred_client)
