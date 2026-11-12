@@ -190,6 +190,18 @@ class SongsxSource:
                 lock.release()
             raise
 
+    async def _cached_channel_message(self, client, record):
+        message_id = record.get("cache_message_id")
+        if not message_id:
+            return None
+        try:
+            peer = await self._cache_peer(client)
+            message = await client.get_messages(peer, ids=int(message_id))
+            return message if message and self._is_audio(message) else None
+        except Exception:
+            log.debug("Cached channel track could not be opened", exc_info=True)
+            return None
+
     async def search_first(self, query: str, clients: list) -> dict | None:
         """Return the first matching result from all supplied free accounts in parallel.
 
@@ -204,16 +216,33 @@ class SongsxSource:
             self._key(f"{cached.get('title', '')} {cached.get('artist', '')}"),
         }:
             for client in clients:
-                restored = await self._restore_from_channel(client, cached)
-                if restored:
+                local_path = Path(cached.get("path", ""))
+                if local_path.is_file() and local_path.stat().st_size > 10_000:
                     return {
                         "id": "cache_" + secrets.token_hex(5),
                         "name": cached.get("title", query),
                         "artist_name": cached.get("artist", "Unknown artist"),
                         "duration": int(cached.get("duration", 0) or 0),
                         "_source": "cache",
-                        "_cached_path": restored,
+                        "_cached_path": str(local_path),
                         "_music_client": client,
+                    }
+                cached_message = await self._cached_channel_message(client, cached)
+                if cached_message:
+                    return {
+                        "id": "cache_" + secrets.token_hex(5),
+                        "name": cached.get("title", query),
+                        "artist_name": cached.get("artist", "Unknown artist"),
+                        "duration": int(cached.get("duration", 0) or 0),
+                        "_source": "cache",
+                        "_audio_message": cached_message,
+                        "_music_client": client,
+                        "_stream_context": {
+                            "title": cached.get("title", query),
+                            "artist": cached.get("artist", "Unknown artist"),
+                            "query": "cache",
+                            "cache_message_id": int(cached.get("cache_message_id")),
+                        },
                     }
 
         tasks = [asyncio.create_task(self._search_one(query, client)) for client in clients]
@@ -277,7 +306,7 @@ class SongsxSource:
                 "title": context["title"],
                 "artist": context["artist"],
                 "duration": duration,
-                "cache_message_id": None,
+                "cache_message_id": context.get("cache_message_id"),
             }
             for alias in (
                 context["title"],
@@ -288,19 +317,20 @@ class SongsxSource:
                     self.index[alias_key] = record
             self._save_index()
 
-            # Cache upload is deliberately detached from the playback start.
-            try:
-                cache_peer = await self._cache_peer(client)
-                cache_message = await client.send_file(
-                    cache_peer,
-                    str(destination),
-                    caption=f"{context['title']} — {context['artist']}"[:900],
-                    force_document=False,
-                )
-                record["cache_message_id"] = getattr(cache_message, "id", None)
-                self._save_index()
-            except Exception:
-                log.info("Background music cache upload failed", exc_info=True)
+            # Tracks already in the channel are never uploaded a second time.
+            if not record["cache_message_id"]:
+                try:
+                    cache_peer = await self._cache_peer(client)
+                    cache_message = await client.send_file(
+                        cache_peer,
+                        str(destination),
+                        caption=f"{context['title']} — {context['artist']}"[:900],
+                        force_document=False,
+                    )
+                    record["cache_message_id"] = getattr(cache_message, "id", None)
+                    self._save_index()
+                except Exception:
+                    log.info("Background music cache upload failed", exc_info=True)
             return str(destination)
         finally:
             if descriptor is not None:
