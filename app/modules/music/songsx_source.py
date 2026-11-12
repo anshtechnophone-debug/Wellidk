@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import errno
 import re
 import secrets
 import unicodedata
@@ -27,6 +29,7 @@ class SongsxSource:
         self.index = self._load_index()
         self.pending: dict[str, dict] = {}
         self._lock = asyncio.Lock()
+        self._client_locks = {}
         self._peer_cache = {}
 
     def _load_index(self) -> dict:
@@ -132,6 +135,263 @@ class SongsxSource:
         except Exception:
             log.exception("Could not restore cached track from the music cache channel")
             return None
+
+    def _client_lock(self, client):
+        return self._client_locks.setdefault(id(client), asyncio.Lock())
+
+    async def _search_one(self, query: str, client):
+        """Search from one free account and keep its bot conversation exclusive until selection."""
+        lock = self._client_lock(client)
+        await lock.acquire()
+        try:
+            peer = await client.get_entity("@" + self.bot_username)
+            sent = await client.send_message(peer, query)
+            keyboard = await self._wait_for_keyboard(client, peer, sent.id, timeout=15)
+            selected = next(
+                (
+                    (button, (getattr(button, "text", "") or "").strip())
+                    for row in (keyboard.buttons or [])
+                    for button in row
+                    if getattr(button, "data", None) and (getattr(button, "text", "") or "").strip()
+                ),
+                None,
+            )
+            if not selected:
+                lock.release()
+                return None
+            button, label = selected
+            if " — " in label:
+                title, artist = label.split(" — ", 1)
+            elif " - " in label:
+                title, artist = label.split(" - ", 1)
+            else:
+                title, artist = label, "Unknown artist"
+            token = secrets.token_urlsafe(9).replace("-", "_")
+            self.pending[token] = {
+                "client": client,
+                "peer": peer,
+                "message_id": keyboard.id,
+                "button_data": button.data,
+                "query": query,
+                "title": title.strip(),
+                "artist": artist.strip(),
+                "lock": lock,
+            }
+            return {
+                "id": token,
+                "name": title.strip(),
+                "artist_name": artist.strip(),
+                "duration": 0,
+                "_source": "songsx",
+                "_music_client": client,
+            }
+        except BaseException:
+            if lock.locked():
+                lock.release()
+            raise
+
+    async def search_first(self, query: str, clients: list) -> dict | None:
+        """Return the first matching result from all supplied free accounts in parallel.
+
+        Exact cache hits are resolved before any external search is started.
+        """
+        if not clients:
+            raise RuntimeError("No free voice-player account is currently available.")
+        key = self._key(query)
+        cached = self.index.get(key)
+        if cached and key == self._key(
+            f"{cached.get('title', '')} {cached.get('artist', '')}"
+        ):
+            for client in clients:
+                restored = await self._restore_from_channel(client, cached)
+                if restored:
+                    return {
+                        "id": "cache_" + secrets.token_hex(5),
+                        "name": cached.get("title", query),
+                        "artist_name": cached.get("artist", "Unknown artist"),
+                        "duration": int(cached.get("duration", 0) or 0),
+                        "_source": "cache",
+                        "_cached_path": restored,
+                        "_music_client": client,
+                    }
+
+        tasks = [asyncio.create_task(self._search_one(query, client)) for client in clients]
+        winner = None
+        try:
+            for completed in asyncio.as_completed(tasks):
+                try:
+                    result = await completed
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    log.debug("A music account search did not return a result", exc_info=True)
+                    continue
+                if result:
+                    winner = result
+                    break
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, dict) and result is not winner:
+                    context = self.pending.pop(str(result.get("id", "")), None)
+                    if context:
+                        lock = context.get("lock")
+                        if lock and lock.locked():
+                            lock.release()
+        return winner
+
+    async def _stream_audio_to_fifo(
+        self, client, audio_message, fifo_path: Path, temporary: Path,
+        destination: Path, context: dict, duration: int,
+    ) -> str:
+        descriptor = None
+        try:
+            while descriptor is None:
+                try:
+                    descriptor = os.open(
+                        str(fifo_path), os.O_WRONLY | os.O_NONBLOCK
+                    )
+                except OSError as exc:
+                    if exc.errno != errno.ENXIO:
+                        raise
+                    await asyncio.sleep(0.05)
+            with os.fdopen(descriptor, "wb", buffering=0) as pipe:
+                descriptor = None
+                with temporary.open("wb") as saved:
+                    async for chunk in client.iter_download(
+                        audio_message.media, request_size=512 * 1024
+                    ):
+                        if not chunk:
+                            continue
+                        saved.write(chunk)
+                        await asyncio.to_thread(pipe.write, chunk)
+                if temporary.stat().st_size < 10_000:
+                    raise RuntimeError("The audio stream was incomplete.")
+            temporary.replace(destination)
+            record = {
+                "path": str(destination),
+                "title": context["title"],
+                "artist": context["artist"],
+                "duration": duration,
+                "cache_message_id": None,
+            }
+            for alias in (
+                context["title"],
+                f"{context['title']} {context['artist']}",
+            ):
+                alias_key = self._key(alias)
+                if alias_key:
+                    self.index[alias_key] = record
+            self._save_index()
+
+            # Cache upload is deliberately detached from the playback start.
+            try:
+                cache_peer = await self._cache_peer(client)
+                cache_message = await client.send_file(
+                    cache_peer,
+                    str(destination),
+                    caption=f"{context['title']} — {context['artist']}"[:900],
+                    force_document=False,
+                )
+                record["cache_message_id"] = getattr(cache_message, "id", None)
+                self._save_index()
+            except Exception:
+                log.info("Background music cache upload failed", exc_info=True)
+            return str(destination)
+        finally:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+            temporary.unlink(missing_ok=True)
+            fifo_path.unlink(missing_ok=True)
+
+    async def prepare_selected_stream(self, track: dict) -> dict:
+        """Prepare a playable source immediately; fresh audio downloads into a FIFO while playing."""
+        cached_path = track.get("_cached_path")
+        if cached_path and Path(cached_path).is_file():
+            return {
+                "path": str(cached_path),
+                "duration": int(track.get("duration", 0) or 0),
+                "task": None,
+                "final_path": str(cached_path),
+            }
+
+        token = str(track.get("id", ""))
+        context = self.pending.get(token)
+        if not context:
+            raise RuntimeError("The selected track is no longer available. Please try again.")
+        client, peer = context["client"], context["peer"]
+        lock = context.get("lock")
+        if lock is None:
+            lock = self._client_lock(client)
+            await lock.acquire()
+        try:
+            baseline = await client.get_messages(peer, limit=1)
+            baseline_id = baseline[0].id if baseline else context["message_id"]
+            await client(GetBotCallbackAnswerRequest(
+                peer=peer, msg_id=context["message_id"], data=context["button_data"]
+            ))
+            deadline = asyncio.get_running_loop().time() + 25
+            audio_message = None
+            while asyncio.get_running_loop().time() < deadline:
+                selected = await client.get_messages(peer, ids=context["message_id"])
+                if selected and self._is_audio(selected):
+                    audio_message = selected
+                    break
+                recent = await client.get_messages(peer, limit=15)
+                audio_message = next(
+                    (
+                        item for item in sorted(recent, key=lambda item: item.id)
+                        if item.id > baseline_id and self._is_audio(item)
+                    ),
+                    None,
+                )
+                if audio_message:
+                    break
+                await asyncio.sleep(0.2)
+            if not audio_message:
+                raise TimeoutError("The selected track could not be prepared.")
+        finally:
+            if lock.locked():
+                lock.release()
+            self.pending.pop(token, None)
+
+        file_info = getattr(audio_message, "file", None)
+        size = getattr(file_info, "size", 0) or 0
+        if size > 100 * 1024 * 1024:
+            raise RuntimeError("The selected audio is too large to play.")
+        duration = int(
+            getattr(getattr(audio_message, "audio", None), "duration", 0) or 0
+        )
+        safe_name = re.sub(
+            r"[^a-zA-Z0-9_-]+", "_", context["title"]
+        )[:55] or "track"
+        unique = secrets.token_hex(8)
+        fifo_path = self.media_dir / f"stream_{unique}.fifo"
+        temporary = self.media_dir / f"stream_{unique}.part"
+        destination = self.media_dir / (
+            f"songsx_{getattr(audio_message, 'id', unique)}_{safe_name}"
+            f"{getattr(file_info, 'ext', None) or '.mp3'}"
+        )
+        os.mkfifo(fifo_path, 0o600)
+        task = asyncio.create_task(
+            self._stream_audio_to_fifo(
+                client, audio_message, fifo_path, temporary,
+                destination, context, duration,
+            ),
+            name=f"xyron-music-stream-{unique}",
+        )
+        return {
+            "path": str(fifo_path),
+            "duration": duration,
+            "task": task,
+            "final_path": str(destination),
+        }
 
     async def search(self, query: str, clients: list) -> list[dict]:
         if not clients:
