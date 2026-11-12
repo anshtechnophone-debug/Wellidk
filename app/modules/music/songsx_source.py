@@ -31,6 +31,7 @@ class SongsxSource:
         self._lock = asyncio.Lock()
         self._client_locks = {}
         self._peer_cache = {}
+        self._background_uploads = set()
 
     def _load_index(self) -> dict:
         try:
@@ -320,6 +321,20 @@ class SongsxSource:
                             lock.release()
         return winner
 
+    async def _upload_to_cache(self, client, destination: Path, record: dict, context: dict):
+        try:
+            cache_peer = await self._cache_peer(client)
+            cache_message = await client.send_file(
+                cache_peer,
+                str(destination),
+                caption=f"{context['title']} — {context['artist']}"[:900],
+                force_document=False,
+            )
+            record["cache_message_id"] = getattr(cache_message, "id", None)
+            self._save_index()
+        except Exception:
+            log.info("Background music cache upload failed", exc_info=True)
+
     async def _stream_audio_to_fifo(
         self, client, audio_message, fifo_path: Path, temporary: Path,
         destination: Path, context: dict, duration: int,
@@ -364,20 +379,15 @@ class SongsxSource:
                     self.index[alias_key] = record
             self._save_index()
 
-            # Tracks already in the channel are never uploaded a second time.
+            # The local file is ready for replay. Channel upload runs independently
+            # so a stream-end/stop event cannot cancel the cache operation.
             if not record["cache_message_id"]:
-                try:
-                    cache_peer = await self._cache_peer(client)
-                    cache_message = await client.send_file(
-                        cache_peer,
-                        str(destination),
-                        caption=f"{context['title']} — {context['artist']}"[:900],
-                        force_document=False,
-                    )
-                    record["cache_message_id"] = getattr(cache_message, "id", None)
-                    self._save_index()
-                except Exception:
-                    log.info("Background music cache upload failed", exc_info=True)
+                upload_task = asyncio.create_task(
+                    self._upload_to_cache(client, destination, record, context),
+                    name=f"xyron-music-cache-upload-{destination.stem}",
+                )
+                self._background_uploads.add(upload_task)
+                upload_task.add_done_callback(self._background_uploads.discard)
             return str(destination)
         finally:
             if descriptor is not None:
