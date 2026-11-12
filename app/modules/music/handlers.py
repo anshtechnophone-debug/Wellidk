@@ -18,7 +18,7 @@ from telegram.ext import (
     Application, CallbackQueryHandler, CommandHandler, ContextTypes,
 )
 from pytgcalls import filters as call_filters
-from pytgcalls.types import StreamEnded
+from pytgcalls.types import ChatUpdate, StreamEnded
 
 from app.modules.music.account_manager import AccountManager
 from app.modules.music.channel_store import ChannelMusicStore
@@ -68,6 +68,9 @@ class MusicPlugin:
         self.http: aiohttp.ClientSession | None = None
         self._started = False
         self.calls.on_update(call_filters.stream_end())(self._on_stream_end)
+        self.calls.on_update(
+            call_filters.chat_update(ChatUpdate.Status.DISCARDED_CALL)
+        )(self._on_call_discarded)
 
     async def start(self):
         if self._started:
@@ -352,7 +355,7 @@ class MusicPlugin:
                 )
             except Exception:
                 log.debug("Player progress refresh failed for chat %s", chat_id, exc_info=True)
-            await asyncio.sleep(3)
+            await asyncio.sleep(10)
 
     async def _start_track(self, chat_id, track, status_message_id):
         audio_path = await self.source.download_selected(track)
@@ -458,6 +461,24 @@ class MusicPlugin:
         await self._stop_progress(chat_id)
         self.players.pop(chat_id, None)
         await self._play_next(chat_id)
+
+    async def _on_call_discarded(self, _, update: ChatUpdate):
+        """Drop queued tracks when an administrator ends the group's voice chat."""
+        chat_id = update.chat_id
+        await self._stop_progress(chat_id)
+        track = self.players.pop(chat_id, None)
+        self.queues[chat_id].clear()
+        self.playlist_sessions.pop(chat_id, None)
+        if track:
+            try:
+                await self._edit_player_card(
+                    chat_id,
+                    track["message_id"],
+                    "⏹ <b>Voice chat ended. Playback and the old queue were cleared.</b>",
+                    with_keyboard=False,
+                )
+            except Exception:
+                log.debug("Could not update ended voice-chat player card", exc_info=True)
 
     @staticmethod
     def _preference_key(chat_id: int, query: str) -> str:
