@@ -60,6 +60,7 @@ class MusicPlugin:
         )
         self.queues = defaultdict(deque)
         self.players = {}
+        self.starting_tracks = {}
         self.playlist_sessions = {}
         self.user_store = None
         self.progress_tasks = {}
@@ -433,10 +434,11 @@ class MusicPlugin:
                 if not message_id:
                     sent = await self.bot.send_message(chat_id, "⏳ Loading next track…")
                     message_id = sent.message_id
+                self.starting_tracks[chat_id] = track
                 try:
                     await self._start_track(chat_id, track, message_id)
                     return
-                except Exception as exc:
+                except Exception:
                     log.exception("Could not start queued music track")
                     await self.bot.send_message(
                         chat_id,
@@ -445,6 +447,9 @@ class MusicPlugin:
                         parse_mode="HTML",
                     )
                     status_message_id = None
+                finally:
+                    if self.starting_tracks.get(chat_id) is track:
+                        self.starting_tracks.pop(chat_id, None)
             await self._stop_progress(chat_id)
             self.players.pop(chat_id, None)
             self.playlist_sessions.pop(chat_id, None)
@@ -885,8 +890,10 @@ class MusicPlugin:
             title = selected.get("name", "")
             artist = selected.get("artist_name", "")
             current = self.players.get(chat_id)
+            starting = self.starting_tracks.get(chat_id)
             if (
                 (current and same_track(current, title, artist))
+                or (starting and same_track(starting, title, artist))
                 or any(same_track(item, title, artist) for item in self.queues[chat_id])
             ):
                 return await status.edit_text("🎵 That track is already playing or queued.")
