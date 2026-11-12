@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
-import time
 import re
+import time
 import unicodedata
 from difflib import SequenceMatcher
 from datetime import UTC, datetime, timedelta
