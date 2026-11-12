@@ -22,24 +22,33 @@ class MultiCallPool:
         self._started = False
         self._handoff_handler = None
         self._searching_clients = set()
+        self._search_released = asyncio.Event()
+        self._search_released.set()
 
     def set_handoff_handler(self, handler):
         self._handoff_handler = handler
 
     async def claim_search_clients(self):
-        """Reserve every currently free account for one parallel search request."""
-        async with self._allocation_lock:
-            clients = [
-                client for index, client in enumerate(self.clients)
-                if index not in self.slot_to_chat and client not in self._searching_clients
-            ]
-            self._searching_clients.update(clients)
-            return clients
+        """Reserve all free accounts; wait only when another search temporarily owns them."""
+        while True:
+            async with self._allocation_lock:
+                clients = [
+                    client for index, client in enumerate(self.clients)
+                    if index not in self.slot_to_chat and client not in self._searching_clients
+                ]
+                if clients:
+                    self._searching_clients.update(clients)
+                    return clients
+                if not self._searching_clients:
+                    return []
+                self._search_released.clear()
+            await self._search_released.wait()
 
     async def release_search_clients(self, clients):
         async with self._allocation_lock:
             for client in clients or ():
                 self._searching_clients.discard(client)
+            self._search_released.set()
 
     def release_slot(self, chat_id):
         """Release an account mapping after Telegram reports that the VC ended externally."""
@@ -95,6 +104,7 @@ class MultiCallPool:
             instance = self.instances.pop(index)
             self.clients.pop(index)
             self._searching_clients.discard(client)
+            self._search_released.set()
             if self._started:
                 try:
                     await instance.stop()
@@ -134,6 +144,7 @@ class MultiCallPool:
         self.chat_to_slot.clear()
         self.slot_to_chat.clear()
         self._searching_clients.clear()
+        self._search_released.set()
 
     async def _instance_for(self, chat_id, allocate=False, preferred_client=None):
         slot = self.chat_to_slot.get(chat_id)
