@@ -110,6 +110,7 @@ from app.modules.games.handlers import (
     guess_command,
     wordcancel_command,
     wordrank_command,
+    wordrank_callback,
     wordseek_command,
     new4_command,
     new5_command,
@@ -561,6 +562,7 @@ def _register_general(application: Application) -> None:
         group=0,
     )
     application.add_handler(CallbackQueryHandler(quote_vote_callback, pattern=r"^qv:\d+:(?:up|down)$"), group=0)
+    application.add_handler(CallbackQueryHandler(wordrank_callback, pattern=r"^wr:(?:p|s|l):"), group=0)
 
     # WordSeek accepts ordinary text guesses only while that user has an active game.
     application.add_handler(
