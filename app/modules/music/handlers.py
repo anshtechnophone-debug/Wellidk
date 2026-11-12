@@ -69,8 +69,8 @@ class MusicPlugin:
         self._started = False
         self.calls.on_update(call_filters.stream_end())(self._on_stream_end)
         self.calls.on_update(
-            call_filters.chat_update(ChatUpdate.Status.DISCARDED_CALL)
-        )(self._on_call_discarded)
+            call_filters.chat_update(ChatUpdate.Status.LEFT_CALL)
+        )(self._on_call_left)
 
     async def start(self):
         if self._started:
@@ -462,7 +462,7 @@ class MusicPlugin:
         self.players.pop(chat_id, None)
         await self._play_next(chat_id)
 
-    async def _on_call_discarded(self, _, update: ChatUpdate):
+    async def _on_call_left(self, _, update: ChatUpdate):
         """Drop queued tracks when an administrator ends the group's voice chat."""
         chat_id = update.chat_id
         await self._stop_progress(chat_id)
