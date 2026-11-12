@@ -374,12 +374,12 @@ class MusicPlugin:
             await asyncio.gather(task, return_exceptions=True)
 
     async def _start_track(self, chat_id, track, status_message_id):
+        await self._ensure_player_in_group(
+            chat_id, preferred_client=track.get("_music_client")
+        )
         stream = await self.source.prepare_selected_stream(track)
         stream_task = stream.get("task")
         try:
-            await self._ensure_player_in_group(
-                chat_id, preferred_client=track.get("_music_client")
-            )
             await self.calls.play(chat_id, stream["path"])
         except Exception:
             if stream_task:
@@ -865,6 +865,7 @@ class MusicPlugin:
                 return await status.edit_text(
                     "🎵 I couldn't find that track. Try another song title or artist."
                 )
+            await self.source.resolve_selected(selected)
             selected["requested_by"] = user.full_name if user else "Telegram user"
             selected["requested_by_username"] = (
                 f"@{user.username}" if user and user.username else ""
