@@ -50,11 +50,12 @@ class MultiCallPool:
                 self._searching_clients.discard(client)
             self._search_released.set()
 
-    def release_slot(self, chat_id):
+    async def release_slot(self, chat_id):
         """Release an account mapping after Telegram reports that the VC ended externally."""
-        slot = self.chat_to_slot.pop(chat_id, None)
-        if slot is not None:
-            self.slot_to_chat.pop(slot, None)
+        async with self._allocation_lock:
+            slot = self.chat_to_slot.pop(chat_id, None)
+            if slot is not None:
+                self.slot_to_chat.pop(slot, None)
             self._search_released.set()
 
     def is_client_busy(self, client):
