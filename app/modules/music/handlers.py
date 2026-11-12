@@ -862,6 +862,7 @@ class MusicPlugin:
             f"🔎 Finding <b>{html.escape(query_text)}</b>…", parse_mode="HTML"
         )
         search_clients = await self.calls.claim_search_clients()
+        selected = None
         if not search_clients:
             return await status.edit_text(
                 "⏳ All music players are busy right now. Please try again shortly."
@@ -921,6 +922,7 @@ class MusicPlugin:
             except Exception:
                 pass
         finally:
+            self.source.discard_selection(selected)
             await self.calls.release_search_clients(search_clients)
 
 
