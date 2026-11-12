@@ -64,6 +64,7 @@ class MusicPlugin:
         self.user_store = None
         self.progress_tasks = {}
         self.locks = defaultdict(asyncio.Lock)
+        self._intentional_leave_until = {}
         self.search_cache = defaultdict(dict)
         self.http: aiohttp.ClientSession | None = None
         self._started = False
@@ -339,6 +340,15 @@ class MusicPlugin:
             "disable_web_page_preview": True,
         })
 
+    async def _leave_call(self, chat_id):
+        """Leave deliberately without treating our own leave event as VC shutdown."""
+        self._intentional_leave_until[chat_id] = time.monotonic() + 3
+        try:
+            await self.calls.leave_call(chat_id)
+        except Exception:
+            self._intentional_leave_until.pop(chat_id, None)
+            raise
+
     async def _stop_progress(self, chat_id):
         task = self.progress_tasks.pop(chat_id, None)
         if task and task is not asyncio.current_task():
@@ -465,6 +475,11 @@ class MusicPlugin:
     async def _on_call_left(self, _, update: ChatUpdate):
         """Drop queued tracks when an administrator ends the group's voice chat."""
         chat_id = update.chat_id
+        intentional_until = self._intentional_leave_until.get(chat_id, 0)
+        if intentional_until >= time.monotonic():
+            self._intentional_leave_until.pop(chat_id, None)
+            return
+        self._intentional_leave_until.pop(chat_id, None)
         await self._stop_progress(chat_id)
         track = self.players.pop(chat_id, None)
         self.queues[chat_id].clear()
