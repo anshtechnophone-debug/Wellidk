@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -18,11 +19,12 @@ from app.database.models import (
 from app.modules.games.casual import CasualGameError, CasualGameRepository, rps_transition
 
 
-def _ttt_active_key(chat_id: int) -> str:
-    return f"{chat_id}:tictactoe"
+def _ttt_active_key(chat_id: int, user_id: int) -> str:
+    # One independent invitation per starter; other members can host games concurrently.
+    return f"{chat_id}:{user_id}:tictactoe"
 
 
-_TTT_TIMEOUT = timedelta(minutes=15)
+_TTT_TIMEOUT = timedelta(minutes=3)
 
 
 def _games(context: ContextTypes.DEFAULT_TYPE) -> CasualGameRepository:
@@ -96,13 +98,28 @@ def _ttt_keyboard(game: CasualGameSession) -> InlineKeyboardMarkup | None:
     return InlineKeyboardMarkup(rows)
 
 
-async def _get_active_ttt(session, chat_id: int):
+async def _get_active_ttt(session, chat_id: int, user_id: int):
     return await session.scalar(
         select(CasualGameSession).where(
-            CasualGameSession.active_key == _ttt_active_key(chat_id),
+            CasualGameSession.active_key == _ttt_active_key(chat_id, user_id),
             CasualGameSession.game_type == "tictactoe",
         )
     )
+
+
+async def _expire_ttt_game(application, game_id: int, chat_id: int, message_id: int) -> None:
+    """Expire a Tic-Tac-Toe session and remove its board after three minutes."""
+    await asyncio.sleep(_TTT_TIMEOUT.total_seconds())
+    sessions = application.bot_data["sessions"]
+    async with sessions.begin() as session:
+        game = await session.get(CasualGameSession, game_id)
+        if game and game.status in {"waiting", "active"}:
+            game.status = "expired"
+            game.active_key = None
+    try:
+        await application.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except TelegramError:
+        pass
 
 
 async def _private_start_seen(sessions, user_id: int) -> bool:
@@ -170,9 +187,9 @@ async def tictactoe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     sessions = context.application.bot_data["sessions"]
     now = datetime.now(UTC)
     async with sessions.begin() as session:
-        old = await _get_active_ttt(session, chat.id)
+        old = await _get_active_ttt(session, chat.id, user.id)
         if old and old.expires_at > now:
-            await message.reply_text("A Tic-Tac-Toe game is already active in this group.")
+            await message.reply_text("You already have a Tic-Tac-Toe game running here.")
             return
         if old:
             old.status = "expired"
@@ -181,7 +198,7 @@ async def tictactoe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             chat_id=chat.id,
             user_id=user.id,
             game_type="tictactoe",
-            active_key=_ttt_active_key(chat.id),
+            active_key=_ttt_active_key(chat.id, user.id),
             state={
                 "player1_id": user.id,
                 "player1_name": user.full_name,
@@ -209,6 +226,10 @@ async def tictactoe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             state = dict(game.state)
             state["message_id"] = sent.message_id
             game.state = state
+    context.application.create_task(
+        _expire_ttt_game(context.application, game_id, chat.id, sent.message_id),
+        name=f"xyron-ttt-expiry-{game_id}",
+    )
 
 
 async def ttt_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -350,7 +371,7 @@ async def tttcancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     sessions = context.application.bot_data["sessions"]
     async with sessions.begin() as session:
-        game = await _get_active_ttt(session, chat.id)
+        game = await _get_active_ttt(session, chat.id, user.id)
         if not game:
             cancelled = False
         else:
