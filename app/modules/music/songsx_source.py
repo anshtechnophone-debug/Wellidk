@@ -366,6 +366,7 @@ class SongsxSource:
             os.set_blocking(descriptor, True)
             with os.fdopen(descriptor, "wb", buffering=0) as pipe:
                 descriptor = None
+                pipe_available = True
                 with temporary.open("wb") as saved:
                     async for chunk in client.iter_download(
                         audio_message.media, request_size=512 * 1024
@@ -373,7 +374,19 @@ class SongsxSource:
                         if not chunk:
                             continue
                         saved.write(chunk)
-                        await asyncio.to_thread(self._write_all, pipe, chunk)
+                        if pipe_available:
+                            try:
+                                await asyncio.to_thread(self._write_all, pipe, chunk)
+                            except (BrokenPipeError, OSError) as exc:
+                                if isinstance(exc, OSError) and exc.errno not in {
+                                    errno.EPIPE, errno.EBADF
+                                }:
+                                    raise
+                                pipe_available = False
+                                log.warning(
+                                    "Voice player closed the live audio stream; "
+                                    "finishing the cache download for recovery."
+                                )
                 if temporary.stat().st_size < 10_000:
                     raise RuntimeError("The audio stream was incomplete.")
             temporary.replace(destination)
