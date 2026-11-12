@@ -237,9 +237,11 @@ async def ttt_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     user = update.effective_user
     if not query or not query.data or not user:
         return
+    # Database checks below can take longer than Telegram's callback deadline.
+    await query.answer("Processing…")
     parts = query.data.split(":")
     if len(parts) < 3:
-        await query.answer("This game button is invalid.", show_alert=True)
+        await query.message.reply_text("This game button is invalid.")
         return
     action, game_id = parts[1], int(parts[2])
     sessions = context.application.bot_data["sessions"]
@@ -248,7 +250,6 @@ async def ttt_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         if not await _private_start_seen(sessions, user.id):
             me = await context.bot.get_me()
             url = f"https://t.me/{me.username}?start=tttj_{game_id}"
-            await query.answer("Start XYRON once in private, then you'll be added automatically.")
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text=f"{user.mention_html()}, start XYRON to join this game, then return here.",
@@ -256,23 +257,21 @@ async def ttt_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("Open XYRON", url=url)
                 ]]),
-                reply_to_message_id=query.message.message_id,
             )
             return
         joined_id, error = await _join_game(sessions, game_id, user.id, user.full_name)
         if error:
-            await query.answer(error, show_alert=True)
+            await query.message.reply_text(error)
             return
-        await query.answer("You're in! You are O.")
         await _refresh_ttt_message(context, joined_id)
         return
 
     if action != "move" or len(parts) != 4:
-        await query.answer("Unknown game action.", show_alert=True)
+        await query.message.reply_text("Unknown game action.")
         return
     position = int(parts[3])
     if not 0 <= position <= 8:
-        await query.answer("Invalid square.", show_alert=True)
+        await query.message.reply_text("Invalid square.")
         return
 
     now = datetime.now(UTC)
@@ -321,9 +320,8 @@ async def ttt_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                         state["turn"] = int(next_player)
                     game.state = state
     if result_text:
-        await query.answer(result_text, show_alert=True)
+        await query.message.reply_text(result_text)
         return
-    await query.answer()
     await _refresh_ttt_message(context, game_id)
 
 
