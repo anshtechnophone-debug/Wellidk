@@ -499,6 +499,7 @@ class MusicPlugin:
             self._intentional_leave_until.pop(chat_id, None)
             return
         self._intentional_leave_until.pop(chat_id, None)
+        self.calls.release_slot(chat_id)
         await self._stop_progress(chat_id)
         track = self.players.pop(chat_id, None)
         await self._cancel_track_stream(track)
