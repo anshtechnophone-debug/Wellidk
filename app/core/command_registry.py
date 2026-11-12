@@ -254,7 +254,7 @@ COMMANDS = (
         "Admin Logs",
         True,
     ),
-    CommandInfo("play", "Search Songsx and play a track in the group voice chat", "/play <song name>", "Music"),
+    CommandInfo("play", "Play a track in the group voice chat", "/play <song name>", "Music"),
     CommandInfo("myplaylist", "Open your personal music playlist", "/myplaylist", "Music"),
     CommandInfo("pause", "Pause music playback", "/pause", "Music", True),
     CommandInfo("resume", "Resume music playback", "/resume", "Music", True),
