@@ -311,17 +311,10 @@ class SongsxSource:
             temporary.unlink(missing_ok=True)
             fifo_path.unlink(missing_ok=True)
 
-    async def prepare_selected_stream(self, track: dict) -> dict:
-        """Prepare a playable source immediately; fresh audio downloads into a FIFO while playing."""
-        cached_path = track.get("_cached_path")
-        if cached_path and Path(cached_path).is_file():
-            return {
-                "path": str(cached_path),
-                "duration": int(track.get("duration", 0) or 0),
-                "task": None,
-                "final_path": str(cached_path),
-            }
-
+    async def resolve_selected(self, track: dict) -> dict:
+        """Click the first result and retain its Telegram message without downloading it."""
+        if track.get("_cached_path") or track.get("_audio_message"):
+            return track
         token = str(track.get("id", ""))
         context = self.pending.get(token)
         if not context:
@@ -362,13 +355,40 @@ class SongsxSource:
                 lock.release()
             self.pending.pop(token, None)
 
+        track["_audio_message"] = audio_message
+        track["_music_client"] = client
+        track["_stream_context"] = {
+            "title": context["title"],
+            "artist": context["artist"],
+            "query": context.get("query", ""),
+        }
+        track["name"] = context["title"]
+        track["artist_name"] = context["artist"]
+        track["duration"] = int(
+            getattr(getattr(audio_message, "audio", None), "duration", 0) or 0
+        )
+        return track
+
+    async def prepare_selected_stream(self, track: dict) -> dict:
+        """Create a FIFO so playback starts while the selected Telegram audio is downloaded."""
+        cached_path = track.get("_cached_path")
+        if cached_path and Path(cached_path).is_file():
+            return {
+                "path": str(cached_path),
+                "duration": int(track.get("duration", 0) or 0),
+                "task": None,
+                "final_path": str(cached_path),
+            }
+
+        await self.resolve_selected(track)
+        audio_message = track["_audio_message"]
+        client = track["_music_client"]
+        context = track["_stream_context"]
         file_info = getattr(audio_message, "file", None)
         size = getattr(file_info, "size", 0) or 0
         if size > 100 * 1024 * 1024:
             raise RuntimeError("The selected audio is too large to play.")
-        duration = int(
-            getattr(getattr(audio_message, "audio", None), "duration", 0) or 0
-        )
+        duration = int(track.get("duration", 0) or 0)
         safe_name = re.sub(
             r"[^a-zA-Z0-9_-]+", "_", context["title"]
         )[:55] or "track"
