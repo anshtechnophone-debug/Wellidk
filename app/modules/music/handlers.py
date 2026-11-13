@@ -635,7 +635,8 @@ class MusicPlugin:
             except Exception:
                 log.debug("Could not auto-delete playlist message %s in chat %s", message_id, chat_id, exc_info=True)
             finally:
-                self.playlist_cleanup_tasks.pop(key, None)
+                if self.playlist_cleanup_tasks.get(key) is asyncio.current_task():
+                    self.playlist_cleanup_tasks.pop(key, None)
 
         self.playlist_cleanup_tasks[key] = asyncio.create_task(
             cleanup(), name=f"xyron-playlist-cleanup-{chat_id}-{message_id}"
@@ -653,7 +654,7 @@ class MusicPlugin:
                 text, parse_mode="HTML", reply_markup=markup,
                 disable_web_page_preview=True,
             )
-        self._schedule_playlist_cleanup(query.message.chat_id, query.message.message_id)
+        self._schedule_playlist_cleanup(query.message.chat.id, query.message.message_id)
 
     async def _send_playlist_view(self, chat_id: int, record: dict, page: int = 0):
         result = await self._api("sendMessage", {
