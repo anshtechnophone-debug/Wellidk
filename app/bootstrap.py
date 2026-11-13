@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 
 from telegram import (
     BotCommandScopeAllGroupChats,
@@ -25,6 +26,7 @@ from telegram.ext import (
     ContextTypes,
     MessageHandler,
     MessageReactionHandler,
+    TypeHandler,
     filters,
 )
 
@@ -171,6 +173,52 @@ from app.services.reminder_worker import reminder_worker
 from app.services.scheduling import expiration_worker
 
 logger = logging.getLogger(__name__)
+
+
+async def _log_command_update_diagnostic(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Log command update identity and age to diagnose rare delayed/duplicate replies."""
+    message = update.effective_message
+    raw = (message.text or message.caption or "").strip() if message else ""
+    if not raw.startswith("/"):
+        return
+
+    command = raw.split(maxsplit=1)[0].split("@")[0].lower()
+    chat = update.effective_chat
+    user = update.effective_user
+    message_age = (
+        max(0.0, time.time() - message.date.timestamp())
+        if message and message.date else None
+    )
+
+    recent_ids = context.application.bot_data.setdefault(
+        "_xyron_recent_diagnostic_update_ids", set()
+    )
+    recent_order = context.application.bot_data.setdefault(
+        "_xyron_recent_diagnostic_update_order", deque()
+    )
+    duplicate = update.update_id in recent_ids
+    if not duplicate:
+        recent_ids.add(update.update_id)
+        recent_order.append(update.update_id)
+        while len(recent_order) > 5000:
+            expired_id = recent_order.popleft()
+            recent_ids.discard(expired_id)
+
+    log = logger.warning if duplicate else logger.info
+    log(
+        "COMMAND_UPDATE_DIAGNOSTIC duplicate=%s update_id=%s message_id=%s "
+        "chat_id=%s user_id=%s command=%s message_age_seconds=%s",
+        duplicate,
+        update.update_id,
+        message.message_id if message else None,
+        chat.id if chat else None,
+        user.id if user else None,
+        command,
+        round(message_age, 3) if message_age is not None else None,
+    )
 
 
 async def collect_group_message(
@@ -929,6 +977,13 @@ def build_application(settings: Settings | None = None) -> Application:
     )
 
     application.bot_data["settings"] = resolved
+
+    # Runs before feature handlers and records command identity/age. This is
+    # diagnostic only: it does not suppress, retry, or alter command handling.
+    application.add_handler(
+        TypeHandler(Update, _log_command_update_diagnostic),
+        group=-100,
+    )
 
     load_modules(
         application,
