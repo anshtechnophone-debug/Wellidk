@@ -161,6 +161,7 @@ from app.modules.reminders.handlers import (
 )
 from app.services.group_history import GroupHistoryRepository, GroupMessage, group_history_retention_worker
 from app.services.background_tasks import BackgroundTaskQueue
+from app.services.update_processor import PerChatUpdateProcessor
 from app.services.activity_log import ActivityEvent, ActivityLogRepository, activity_retention_worker
 from app.services.reminder_worker import reminder_worker
 from app.services.scheduling import expiration_worker
@@ -801,6 +802,8 @@ def build_application(settings: Settings | None = None) -> Application:
     application = (
         ApplicationBuilder()
         .token(resolved.bot_token)
+        # Run up to 32 updates at once, while preserving order within each chat.
+        .concurrent_updates(PerChatUpdateProcessor(max_concurrent_updates=32))
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
         .build()
