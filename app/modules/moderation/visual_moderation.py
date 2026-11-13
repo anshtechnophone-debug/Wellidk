@@ -12,6 +12,7 @@ import io
 import logging
 import subprocess
 import tempfile
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -90,18 +91,35 @@ def _media_file_ids(message) -> tuple[list[str], bool]:
     return ids, is_video
 
 
-async def _download_media(context, file_id: str) -> bytes | None:
+async def _download_media(context, file_id: str, *, chat_id: int, message_id: int) -> bytes | None:
     try:
         telegram_file = await context.bot.get_file(file_id)
         size = getattr(telegram_file, "file_size", None)
         if size is not None and size > _MAX_DOWNLOAD_BYTES:
+            logger.warning(
+                "SMARTGC_VISUAL stage=download result=skipped reason=file_too_large "
+                "chat_id=%s message_id=%s size=%s limit=%s",
+                chat_id, message_id, size, _MAX_DOWNLOAD_BYTES,
+            )
             return None
         data = bytes(await telegram_file.download_as_bytearray())
         if not data or len(data) > _MAX_DOWNLOAD_BYTES:
+            logger.warning(
+                "SMARTGC_VISUAL stage=download result=skipped reason=empty_or_too_large "
+                "chat_id=%s message_id=%s bytes=%s limit=%s",
+                chat_id, message_id, len(data), _MAX_DOWNLOAD_BYTES,
+            )
             return None
+        logger.info(
+            "SMARTGC_VISUAL stage=download result=ok chat_id=%s message_id=%s bytes=%s",
+            chat_id, message_id, len(data),
+        )
         return data
     except TelegramError:
-        logger.info("Smart GC could not download a media attachment", exc_info=True)
+        logger.warning(
+            "SMARTGC_VISUAL stage=download result=failed chat_id=%s message_id=%s",
+            chat_id, message_id, exc_info=True,
+        )
         return None
 
 
@@ -149,9 +167,20 @@ def _extract_video_frames(data: bytes) -> list[bytes]:
     return frames
 
 
-async def _moderation_flags(api_key: str, images: list[bytes]) -> bool:
+async def _moderation_flags(
+    api_key: str, images: list[bytes], *, chat_id: int, message_id: int
+) -> bool:
     if not images:
+        logger.warning(
+            "SMARTGC_VISUAL stage=moderation result=skipped reason=no_decodable_frames "
+            "chat_id=%s message_id=%s",
+            chat_id, message_id,
+        )
         return False
+    logger.info(
+        "SMARTGC_VISUAL stage=moderation result=requesting chat_id=%s message_id=%s images=%s",
+        chat_id, message_id, len(images),
+    )
     encoded = [
         {
             "type": "image_url",
@@ -171,17 +200,29 @@ async def _moderation_flags(api_key: str, images: list[bytes]) -> bool:
             response.raise_for_status()
             payload = response.json()
     except (httpx.HTTPError, ValueError):
-        logger.warning("Smart GC visual moderation request failed", exc_info=True)
+        logger.warning(
+            "SMARTGC_VISUAL stage=moderation result=api_error chat_id=%s message_id=%s",
+            chat_id, message_id, exc_info=True,
+        )
         return False
 
-    for result in payload.get("results", []):
+    results = payload.get("results", [])
+    sexual_scores: list[float] = []
+    for result in results:
         scores = result.get("category_scores") or {}
         try:
-            if float(scores.get("sexual", 0.0)) >= _SEXUAL_THRESHOLD:
-                return True
+            sexual_scores.append(float(scores.get("sexual", 0.0)))
         except (TypeError, ValueError):
             continue
-    return False
+    max_score = max(sexual_scores, default=0.0)
+    flagged = max_score >= _SEXUAL_THRESHOLD
+    logger.info(
+        "SMARTGC_VISUAL stage=moderation result=%s chat_id=%s message_id=%s "
+        "api_results=%s max_sexual_score=%.4f threshold=%.2f",
+        "flagged" if flagged else "clear",
+        chat_id, message_id, len(results), max_score, _SEXUAL_THRESHOLD,
+    )
+    return flagged
 
 
 def _permissions_from_member(member) -> dict[str, bool]:
@@ -286,16 +327,40 @@ async def enqueue_visual_media_moderation(
         not message or not chat or not user or user.is_bot
         or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}
     ):
+        logger.debug(
+            "SMARTGC_VISUAL stage=enqueue result=skipped reason=not_human_group_message"
+        )
         return
     queue = context.application.bot_data.get("visual_moderation_queue")
     if queue is None:
+        logger.error(
+            "SMARTGC_VISUAL stage=enqueue result=failed reason=queue_missing "
+            "chat_id=%s message_id=%s",
+            chat.id, message.message_id,
+        )
         return
+    media_kind = (
+        "sticker" if message.sticker else
+        "photo" if message.photo else
+        "video" if message.video else
+        "animation" if message.animation else
+        "video_note" if message.video_note else
+        "document" if message.document else
+        "paid_media" if getattr(message, "paid_media", None) else
+        "other"
+    )
     try:
         queue.put_nowait((update, context))
+        logger.info(
+            "SMARTGC_VISUAL stage=enqueue result=queued chat_id=%s message_id=%s "
+            "user_id=%s media_kind=%s queue_size=%s",
+            chat.id, message.message_id, user.id, media_kind, queue.qsize(),
+        )
     except asyncio.QueueFull:
-        logger.warning(
-            "Smart GC visual queue full; skipped media inspection chat_id=%s message_id=%s",
-            chat.id, message.message_id,
+        logger.error(
+            "SMARTGC_VISUAL stage=enqueue result=failed reason=queue_full "
+            "chat_id=%s message_id=%s queue_size=%s",
+            chat.id, message.message_id, queue.qsize(),
         )
 
 
@@ -307,8 +372,24 @@ async def visual_moderation_worker(application, stop_event: asyncio.Event) -> No
             update, context = await asyncio.wait_for(queue.get(), timeout=1.0)
         except asyncio.TimeoutError:
             continue
+        started = time.monotonic()
+        message = update.effective_message
+        chat = update.effective_chat
+        logger.info(
+            "SMARTGC_VISUAL stage=worker result=started chat_id=%s message_id=%s queue_size=%s",
+            chat.id if chat else None,
+            message.message_id if message else None,
+            queue.qsize(),
+        )
         try:
             await visual_media_moderation_handler(update, context)
+            logger.info(
+                "SMARTGC_VISUAL stage=worker result=finished chat_id=%s message_id=%s "
+                "duration_ms=%s",
+                chat.id if chat else None,
+                message.message_id if message else None,
+                round((time.monotonic() - started) * 1000),
+            )
         except Exception:
             message = update.effective_message
             logger.exception(
@@ -336,45 +417,126 @@ async def visual_media_moderation_handler(
         or user.is_bot
         or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}
     ):
+        logger.debug("SMARTGC_VISUAL stage=handler result=skipped reason=invalid_sender_or_chat")
         return
 
-    api_key = getattr(context.application.bot_data["settings"], "visual_moderation_api_key", "")
+    logger.info(
+        "SMARTGC_VISUAL stage=handler result=started chat_id=%s message_id=%s "
+        "user_id=%s sticker=%s photo=%s video=%s animation=%s document=%s",
+        chat.id, message.message_id, user.id,
+        bool(message.sticker), bool(message.photo), bool(message.video),
+        bool(message.animation), bool(message.document),
+    )
+    settings = context.application.bot_data.get("settings")
+    api_key = getattr(settings, "visual_moderation_api_key", "") if settings else ""
     if not api_key:
+        logger.error(
+            "SMARTGC_VISUAL stage=config result=skipped reason=moderation_api_key_missing "
+            "chat_id=%s message_id=%s",
+            chat.id, message.message_id,
+        )
         return
 
     sessions = context.application.bot_data.get("sessions")
     if sessions is None:
+        logger.error(
+            "SMARTGC_VISUAL stage=policy result=skipped reason=session_factory_missing "
+            "chat_id=%s message_id=%s",
+            chat.id, message.message_id,
+        )
         return
     policy = await GroupPolicyRepository(sessions).get(chat.id)
     smart_gc = policy.get("smart_gc", {})
-    if (
-        not isinstance(smart_gc, dict)
-        or not smart_gc.get("enabled")
-        or not feature_enabled(smart_gc, "nsfw_detection")
-    ):
+    enabled = isinstance(smart_gc, dict) and bool(smart_gc.get("enabled"))
+    nsfw_enabled = feature_enabled(smart_gc, "nsfw_detection")
+    exemption_enabled = feature_enabled(smart_gc, "approved_exemption")
+    logger.info(
+        "SMARTGC_VISUAL stage=policy result=checked chat_id=%s message_id=%s "
+        "smart_gc_enabled=%s nsfw_detection=%s approved_exemption=%s",
+        chat.id, message.message_id, enabled, nsfw_enabled, exemption_enabled,
+    )
+    if not isinstance(smart_gc, dict) or not enabled or not nsfw_enabled:
+        logger.info(
+            "SMARTGC_VISUAL stage=policy result=skipped reason=feature_disabled "
+            "chat_id=%s message_id=%s",
+            chat.id, message.message_id,
+        )
         return
     approved = {int(value) for value in policy.get("approved_users", [])}
-    if feature_enabled(smart_gc, "approved_exemption") and user.id in approved:
+    if exemption_enabled and user.id in approved:
+        logger.info(
+            "SMARTGC_VISUAL stage=policy result=skipped reason=approved_user "
+            "chat_id=%s message_id=%s user_id=%s",
+            chat.id, message.message_id, user.id,
+        )
         return
 
     file_ids, is_video = _media_file_ids(message)
+    sticker = message.sticker
+    if sticker:
+        logger.info(
+            "SMARTGC_VISUAL stage=media result=identified chat_id=%s message_id=%s "
+            "kind=sticker is_video=%s is_animated=%s is_premium=%s",
+            chat.id, message.message_id,
+            bool(getattr(sticker, "is_video", False)),
+            bool(getattr(sticker, "is_animated", False)),
+            bool(getattr(sticker, "is_premium", False)),
+        )
     if not file_ids:
+        logger.warning(
+            "SMARTGC_VISUAL stage=media result=skipped reason=no_supported_file_id "
+            "chat_id=%s message_id=%s",
+            chat.id, message.message_id,
+        )
         return
 
     images: list[bytes] = []
     for file_id in file_ids[:4]:
-        raw = await _download_media(context, file_id)
+        raw = await _download_media(
+            context, file_id, chat_id=chat.id, message_id=message.message_id
+        )
         if not raw:
             continue
         if is_video:
-            images.extend(await asyncio.to_thread(_extract_video_frames, raw))
+            extracted = await asyncio.to_thread(_extract_video_frames, raw)
+            logger.info(
+                "SMARTGC_VISUAL stage=decode result=%s chat_id=%s message_id=%s "
+                "frames=%s media_bytes=%s",
+                "ok" if extracted else "no_frames",
+                chat.id, message.message_id, len(extracted), len(raw),
+            )
+            images.extend(extracted)
         else:
             normalized = _normalize_image(raw)
             if normalized:
                 images.append(normalized)
+                logger.info(
+                    "SMARTGC_VISUAL stage=decode result=ok chat_id=%s message_id=%s "
+                    "images=%s",
+                    chat.id, message.message_id, len(images),
+                )
+            else:
+                logger.warning(
+                    "SMARTGC_VISUAL stage=decode result=unsupported_format "
+                    "chat_id=%s message_id=%s bytes=%s video=%s sticker_animated=%s",
+                    chat.id, message.message_id, len(raw), is_video,
+                    bool(getattr(sticker, "is_animated", False)) if sticker else False,
+                )
         if len(images) >= _MAX_VIDEO_FRAMES:
             images = images[:_MAX_VIDEO_FRAMES]
             break
 
-    if await _moderation_flags(api_key, images):
+    flagged = await _moderation_flags(
+        api_key, images, chat_id=chat.id, message_id=message.message_id
+    )
+    if flagged:
+        logger.warning(
+            "SMARTGC_VISUAL stage=action result=flagged chat_id=%s message_id=%s user_id=%s",
+            chat.id, message.message_id, user.id,
+        )
         await _delete_and_maybe_mute(update, context, message, user)
+    else:
+        logger.info(
+            "SMARTGC_VISUAL stage=action result=no_action chat_id=%s message_id=%s",
+            chat.id, message.message_id,
+        )
