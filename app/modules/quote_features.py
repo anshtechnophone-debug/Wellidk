@@ -174,7 +174,7 @@ async def quote_delete_command(update: Update, context: ContextTypes.DEFAULT_TYP
         for row in target.reply_markup.inline_keyboard:
             for button in row:
                 callback_data = button.callback_data or ""
-                match = re.fullmatch(r"qv:(\\d+):(?:up|down)", callback_data)
+                match = re.fullmatch(r"qv:(\d+):(?:up|down)", callback_data)
                 if match:
                     quote_id = int(match.group(1))
                     break
