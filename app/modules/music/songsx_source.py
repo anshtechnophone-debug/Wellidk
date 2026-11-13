@@ -339,57 +339,30 @@ class SongsxSource:
         except Exception:
             log.info("Background music cache upload failed", exc_info=True)
 
-    @staticmethod
-    def _write_all(pipe, data):
-        view = memoryview(data)
-        while view:
-            written = pipe.write(view)
-            if not written:
-                raise BrokenPipeError("The audio stream reader closed.")
-            view = view[written:]
-
-    async def _stream_audio_to_fifo(
-        self, client, audio_message, fifo_path: Path, temporary: Path,
-        destination: Path, context: dict, duration: int,
+    async def _download_audio_to_cache(
+        self, client, audio_message, destination: Path, temporary: Path,
+        context: dict, duration: int,
     ) -> str:
-        descriptor = None
+        """Download a complete Telegram audio file before handing it to FFmpeg.
+
+        PyTgCalls/FFmpeg can close FIFO inputs while probing or reconnecting.
+        A completed local file gives FFmpeg a seekable, stable input and avoids
+        starting a voice call against a producer that may still be opening.
+        """
         try:
-            while descriptor is None:
-                try:
-                    descriptor = os.open(
-                        str(fifo_path), os.O_WRONLY | os.O_NONBLOCK
-                    )
-                except OSError as exc:
-                    if exc.errno != errno.ENXIO:
-                        raise
-                    await asyncio.sleep(0.05)
-            os.set_blocking(descriptor, True)
-            with os.fdopen(descriptor, "wb", buffering=0) as pipe:
-                descriptor = None
-                pipe_available = True
-                with temporary.open("wb") as saved:
-                    async for chunk in client.iter_download(
-                        audio_message.media, request_size=512 * 1024
-                    ):
-                        if not chunk:
-                            continue
-                        saved.write(chunk)
-                        if pipe_available:
-                            try:
-                                await asyncio.to_thread(self._write_all, pipe, chunk)
-                            except (BrokenPipeError, OSError) as exc:
-                                if isinstance(exc, OSError) and exc.errno not in {
-                                    errno.EPIPE, errno.EBADF
-                                }:
-                                    raise
-                                pipe_available = False
-                                log.warning(
-                                    "Voice player closed the live audio stream; "
-                                    "finishing the cache download for recovery."
-                                )
-                if temporary.stat().st_size < 10_000:
-                    raise RuntimeError("The audio stream was incomplete.")
-            temporary.replace(destination)
+            if not destination.is_file() or destination.stat().st_size < 10_000:
+                temporary.unlink(missing_ok=True)
+                downloaded = await client.download_media(
+                    audio_message, file=str(temporary)
+                )
+                if (
+                    not downloaded
+                    or not temporary.is_file()
+                    or temporary.stat().st_size < 10_000
+                ):
+                    raise RuntimeError("Telegram returned an incomplete audio download.")
+                temporary.replace(destination)
+
             record = {
                 "path": str(destination),
                 "title": context["title"],
@@ -406,8 +379,6 @@ class SongsxSource:
                     self.index[alias_key] = record
             self._save_index()
 
-            # The local file is ready for replay. Channel upload runs independently
-            # so a stream-end/stop event cannot cancel the cache operation.
             if not record["cache_message_id"]:
                 upload_task = asyncio.create_task(
                     self._upload_to_cache(client, destination, record, context),
@@ -417,13 +388,7 @@ class SongsxSource:
                 upload_task.add_done_callback(self._background_uploads.discard)
             return str(destination)
         finally:
-            if descriptor is not None:
-                try:
-                    os.close(descriptor)
-                except OSError:
-                    pass
             temporary.unlink(missing_ok=True)
-            fifo_path.unlink(missing_ok=True)
 
     def discard_selection(self, track: dict | None):
         """Release an unconsumed search result if the requesting command is cancelled."""
@@ -496,7 +461,7 @@ class SongsxSource:
         return track
 
     async def prepare_selected_stream(self, track: dict) -> dict:
-        """Create a FIFO so playback starts while the selected Telegram audio is downloaded."""
+        """Return a complete, seekable local audio file ready for PyTgCalls."""
         cached_path = track.get("_cached_path")
         if cached_path and Path(cached_path).is_file():
             return {
@@ -514,30 +479,25 @@ class SongsxSource:
         size = getattr(file_info, "size", 0) or 0
         if size > 100 * 1024 * 1024:
             raise RuntimeError("The selected audio is too large to play.")
+
         duration = int(track.get("duration", 0) or 0)
         safe_name = re.sub(
             r"[^a-zA-Z0-9_-]+", "_", context["title"]
         )[:55] or "track"
-        unique = secrets.token_hex(8)
-        fifo_path = self.media_dir / f"stream_{unique}.fifo"
-        temporary = self.media_dir / f"stream_{unique}.part"
-        destination = self.media_dir / (
-            f"songsx_{getattr(audio_message, 'id', unique)}_{safe_name}"
-            f"{getattr(file_info, 'ext', None) or '.mp3'}"
+        message_id = getattr(audio_message, "id", None) or secrets.token_hex(8)
+        extension = getattr(file_info, "ext", None) or ".mp3"
+        destination = self.media_dir / f"songsx_{message_id}_{safe_name}{extension}"
+        temporary = self.media_dir / (
+            f".{destination.name}.{secrets.token_hex(6)}.part"
         )
-        os.mkfifo(fifo_path, 0o600)
-        task = asyncio.create_task(
-            self._stream_audio_to_fifo(
-                client, audio_message, fifo_path, temporary,
-                destination, context, duration,
-            ),
-            name=f"xyron-music-stream-{unique}",
+        final_path = await self._download_audio_to_cache(
+            client, audio_message, destination, temporary, context, duration
         )
         return {
-            "path": str(fifo_path),
+            "path": final_path,
             "duration": duration,
-            "task": task,
-            "final_path": str(destination),
+            "task": None,
+            "final_path": final_path,
         }
 
     async def search(self, query: str, clients: list) -> list[dict]:
