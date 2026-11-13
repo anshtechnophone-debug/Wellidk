@@ -62,6 +62,7 @@ class MusicPlugin:
         self.players = {}
         self.starting_tracks = {}
         self.playlist_sessions = {}
+        self.playlist_cleanup_tasks = {}
         self.user_store = None
         self.progress_tasks = {}
         self.locks = defaultdict(asyncio.Lock)
@@ -98,6 +99,11 @@ class MusicPlugin:
             raise
 
     async def shutdown(self):
+        for task in list(self.playlist_cleanup_tasks.values()):
+            task.cancel()
+        if self.playlist_cleanup_tasks:
+            await asyncio.gather(*self.playlist_cleanup_tasks.values(), return_exceptions=True)
+        self.playlist_cleanup_tasks.clear()
         for task in list(self.progress_tasks.values()):
             task.cancel()
         if self.progress_tasks:
@@ -287,14 +293,15 @@ class MusicPlugin:
         return {"inline_keyboard": [
             [
                 {
-                    "text": "▶ Resume" if paused else "Ⅱ Pause",
+                    "text": "▶" if paused else "Ⅱ",
                     "callback_data": "music:player:resume" if paused else "music:player:pause",
+                    "style": "success" if paused else "primary",
                 },
-                {"text": "⏭ Next", "callback_data": "music:player:skip"},
+                {"text": "⏭ Next", "callback_data": "music:player:skip", "style": "primary"},
             ],
             [
-                {"text": "♫ Playlist", "callback_data": "music:playlist:open"},
-                {"text": "■ Stop", "callback_data": "music:player:stop"},
+                {"text": "♫ Playlist", "callback_data": "music:playlist:open", "style": "success"},
+                {"text": "■ Stop", "callback_data": "music:player:stop", "style": "danger"},
             ],
         ]}
 
@@ -591,36 +598,73 @@ class MusicPlugin:
         page = max(0, min(int(page), page_count - 1))
         rows = [
             [
-                {"text": "▶  PLAY PLAYLIST", "callback_data": "music:playlist:play", "style": "success"},
-                {"text": "■  STOP PLAYLIST", "callback_data": "music:playlist:stop", "style": "danger"},
+                {"text": "▶ Play", "callback_data": "music:playlist:play", "style": "success"},
+                {"text": "■ Stop", "callback_data": "music:playlist:stop", "style": "danger"},
+                {"text": "＋ Add", "callback_data": "music:playlist:add_current", "style": "primary"},
             ],
-            [{"text": "➕  ADD TO MY PLAYLIST", "callback_data": "music:playlist:add_current", "style": "success"}],
         ]
         for item in playlist[page * page_size:(page + 1) * page_size]:
-            title = str(item.get("title", "Track"))[:32]
-            artist = str(item.get("artist", ""))[:18]
+            title = str(item.get("title", "Track"))[:22]
+            artist = str(item.get("artist", ""))[:12]
             rows.append([{
-                "text": f"✖  {title} — {artist}",
+                "text": f"✕ {title} · {artist}" if artist else f"✕ {title}",
                 "callback_data": f"music:playlist:delete:{item['item_id']}",
                 "style": "danger",
             }])
         if page_count > 1:
             nav = []
             if page > 0:
-                nav.append({"text": "⬅ PREVIOUS", "callback_data": f"music:playlist:page:{page - 1}", "style": "primary"})
+                nav.append({"text": "‹ Prev", "callback_data": f"music:playlist:page:{page - 1}", "style": "primary"})
             if page + 1 < page_count:
-                nav.append({"text": "NEXT ➡", "callback_data": f"music:playlist:page:{page + 1}", "style": "primary"})
+                nav.append({"text": "Next ›", "callback_data": f"music:playlist:page:{page + 1}", "style": "primary"})
             rows.append(nav)
         return {"inline_keyboard": rows}
 
+    def _schedule_playlist_cleanup(self, chat_id: int, message_id: int):
+        key = (int(chat_id), int(message_id))
+        previous = self.playlist_cleanup_tasks.pop(key, None)
+        if previous:
+            previous.cancel()
+
+        async def cleanup():
+            try:
+                await asyncio.sleep(240)
+                await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.debug("Could not auto-delete playlist message %s in chat %s", message_id, chat_id, exc_info=True)
+            finally:
+                self.playlist_cleanup_tasks.pop(key, None)
+
+        self.playlist_cleanup_tasks[key] = asyncio.create_task(
+            cleanup(), name=f"xyron-playlist-cleanup-{chat_id}-{message_id}"
+        )
+
+    async def _edit_playlist_view(self, query, record: dict, page: int = 0):
+        text = self._playlist_text(record, page)
+        markup = self._playlist_keyboard(record, page)
+        if getattr(query.message, "photo", None):
+            await query.edit_message_caption(
+                caption=text, parse_mode="HTML", reply_markup=markup,
+            )
+        else:
+            await query.edit_message_text(
+                text, parse_mode="HTML", reply_markup=markup,
+                disable_web_page_preview=True,
+            )
+        self._schedule_playlist_cleanup(query.message.chat_id, query.message.message_id)
+
     async def _send_playlist_view(self, chat_id: int, record: dict, page: int = 0):
-        return await self._api("sendMessage", {
+        result = await self._api("sendMessage", {
             "chat_id": chat_id,
             "text": self._playlist_text(record, page),
             "parse_mode": "HTML",
             "reply_markup": self._playlist_keyboard(record, page),
             "disable_web_page_preview": True,
         })
+        self._schedule_playlist_cleanup(chat_id, result["message_id"])
+        return result
 
     async def my_playlist_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self._require_membership(update):
@@ -636,6 +680,20 @@ class MusicPlugin:
             )
         try:
             record = await self.user_store.get_user(update.effective_user.id)
+            current = self.players.get(chat.id)
+            if current and current.get("message_id"):
+                message_id = int(current["message_id"])
+                try:
+                    await self.bot.edit_message_caption(
+                        chat_id=chat.id, message_id=message_id,
+                        caption=self._playlist_text(record),
+                        parse_mode="HTML",
+                        reply_markup=self._playlist_keyboard(record),
+                    )
+                    self._schedule_playlist_cleanup(chat.id, message_id)
+                    return
+                except Exception:
+                    log.debug("Could not reuse the current player card for /myplaylist", exc_info=True)
             await self._send_playlist_view(chat.id, record)
         except Exception as exc:
             log.exception("Could not open user playlist")
@@ -764,7 +822,7 @@ class MusicPlugin:
         try:
             record = await self.user_store.get_user(user.id)
             if action == "open":
-                await self._send_playlist_view(chat_id, record)
+                await self._edit_playlist_view(query, record)
                 return
             if action == "add_current":
                 current = self.players.get(chat_id)
@@ -817,21 +875,11 @@ class MusicPlugin:
                     item for item in self.queues[chat_id]
                     if item.get("_playlist_item_id") != item_id
                 )
-                await query.edit_message_text(
-                    self._playlist_text(record),
-                    parse_mode="HTML",
-                    reply_markup=self._playlist_keyboard(record),
-                    disable_web_page_preview=True,
-                )
+                await self._edit_playlist_view(query, record)
                 return
             if action == "page" and len(parts) == 4:
                 page = max(0, int(parts[3]))
-                await query.edit_message_text(
-                    self._playlist_text(record, page),
-                    parse_mode="HTML",
-                    reply_markup=self._playlist_keyboard(record, page),
-                    disable_web_page_preview=True,
-                )
+                await self._edit_playlist_view(query, record, page)
                 return
             if action == "play":
                 await self._start_user_playlist(chat_id, user, record)
