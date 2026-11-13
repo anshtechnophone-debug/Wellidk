@@ -16,6 +16,7 @@ from telegram import (
     Chat,
     Update,
 )
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     AIORateLimiter,
     Application,
@@ -976,6 +977,16 @@ def build_application(settings: Settings | None = None) -> Application:
     application = (
         ApplicationBuilder()
         .token(resolved.bot_token)
+        .request(
+            HTTPXRequest(
+                connection_pool_size=64,
+                connect_timeout=15,
+                read_timeout=30,
+                write_timeout=30,
+                media_write_timeout=60,
+                pool_timeout=15,
+            )
+        )
         .rate_limiter(AIORateLimiter(max_retries=3))
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
