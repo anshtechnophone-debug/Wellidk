@@ -33,7 +33,7 @@ _MODERATION_MODEL = "omni-moderation-latest"
 _SEXUAL_THRESHOLD = 0.72
 _MAX_DOWNLOAD_BYTES = 18 * 1024 * 1024
 _MAX_VIDEO_FRAMES = 5
-_VIDEO_SAMPLE_FPS = 0.2
+_VIDEO_SAMPLE_FPS = 1.0
 _FRAME_WIDTH = 768
 _MUTE_HOURS = 24
 
@@ -170,8 +170,18 @@ def _extract_video_frames(data: bytes) -> list[bytes]:
             subprocess.run(
                 command, check=True, timeout=15, capture_output=True
             )
-        except (FileNotFoundError, subprocess.SubprocessError):
-            logger.warning("ffmpeg unavailable or could not sample Smart GC video")
+        except FileNotFoundError:
+            logger.warning("SMARTGC_VISUAL stage=decode result=ffmpeg_missing")
+            return []
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
+            logger.warning(
+                "SMARTGC_VISUAL stage=decode result=ffmpeg_error detail=%s",
+                detail[:400],
+            )
+            return []
+        except subprocess.TimeoutExpired:
+            logger.warning("SMARTGC_VISUAL stage=decode result=ffmpeg_timeout")
             return []
         for frame_path in sorted(root.glob("frame-*.jpg"))[:_MAX_VIDEO_FRAMES]:
             try:
