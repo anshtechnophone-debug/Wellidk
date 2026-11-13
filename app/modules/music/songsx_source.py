@@ -30,6 +30,7 @@ class SongsxSource:
         self._client_locks = {}
         self._peer_cache = {}
         self._background_uploads = set()
+        self._cache_upload_locks: dict[str, asyncio.Lock] = {}
 
     def _load_index(self) -> dict:
         try:
@@ -244,98 +245,90 @@ class SongsxSource:
         return None
 
     async def search_first(self, query: str, clients: list) -> dict | None:
-        """Return the first matching result from all supplied free accounts in parallel.
-
-        Exact cache hits are resolved before any external search is started.
-        """
+        """Race the channel cache lookup against Songsx search; never serialize them."""
         if not clients:
             raise RuntimeError("No free voice-player account is currently available.")
-        key = self._key(query)
-        cached = self.index.get(key)
-        if cached and key in {
-            self._key(cached.get("title", "")),
-            self._key(f"{cached.get('title', '')} {cached.get('artist', '')}"),
-        }:
-            for client in clients:
-                local_path = Path(cached.get("path", ""))
-                if local_path.is_file() and local_path.stat().st_size > 10_000:
-                    return {
-                        "id": "cache_" + secrets.token_hex(5),
-                        "name": cached.get("title", query),
-                        "artist_name": cached.get("artist", "Unknown artist"),
-                        "duration": int(cached.get("duration", 0) or 0),
-                        "_source": "cache",
-                        "_cached_path": str(local_path),
-                        "_music_client": client,
-                    }
-                cached_message = await self._cached_channel_message(client, cached)
-                if cached_message:
-                    return {
-                        "id": "cache_" + secrets.token_hex(5),
-                        "name": cached.get("title", query),
-                        "artist_name": cached.get("artist", "Unknown artist"),
-                        "duration": int(cached.get("duration", 0) or 0),
-                        "_source": "cache",
-                        "_audio_message": cached_message,
-                        "_music_client": client,
-                        "_stream_context": {
-                            "title": cached.get("title", query),
-                            "artist": cached.get("artist", "Unknown artist"),
-                            "query": "cache",
-                            "cache_message_id": int(cached.get("cache_message_id")),
-                        },
-                    }
-            for client in clients:
-                cached_track = await self._find_cached_channel_track(client, query)
-                if cached_track:
-                    return cached_track
-        else:
-            for client in clients:
-                cached_track = await self._find_cached_channel_track(client, query)
-                if cached_track:
-                    return cached_track
 
-        tasks = [asyncio.create_task(self._search_one(query, client)) for client in clients]
+        cache_tasks = [
+            asyncio.create_task(self._find_cached_channel_track(client, query))
+            for client in clients
+        ]
+        search_tasks = [
+            asyncio.create_task(self._search_one(query, client))
+            for client in clients
+        ]
         winner = None
         try:
-            for completed in asyncio.as_completed(tasks):
-                try:
-                    result = await completed
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    log.debug("A music account search did not return a result", exc_info=True)
-                    continue
-                if result:
-                    winner = result
-                    break
+            pending = set(cache_tasks + search_tasks)
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending, return_when=asyncio.FIRST_COMPLETED
+                )
+                # Prefer a cache hit from this batch before considering a new
+                # Songsx result. Cache lookup and Songsx search are concurrent.
+                for task in done:
+                    if task in cache_tasks:
+                        try:
+                            cached = task.result()
+                        except Exception:
+                            cached = None
+                        if cached:
+                            winner = cached
+                            return winner
+                for task in done:
+                    if task in search_tasks:
+                        try:
+                            result = task.result()
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            log.debug("A music account search did not return a result", exc_info=True)
+                            continue
+                        if result:
+                            winner = result
+                            return winner
+            return None
         finally:
-            for task in tasks:
+            for task in cache_tasks + search_tasks:
                 if not task.done():
                     task.cancel()
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in results:
-                if isinstance(result, dict) and result is not winner:
+            results = await asyncio.gather(
+                *(cache_tasks + search_tasks), return_exceptions=True
+            )
+            for task, result in zip(cache_tasks + search_tasks, results):
+                if task in search_tasks and isinstance(result, dict) and result is not winner:
                     context = self.pending.pop(str(result.get("id", "")), None)
                     if context:
                         lock = context.get("lock")
                         if lock and lock.locked():
                             lock.release()
-        return winner
 
     async def _upload_to_cache(self, client, destination: Path, record: dict, context: dict):
-        try:
-            cache_peer = await self._cache_peer(client)
-            cache_message = await client.send_file(
-                cache_peer,
-                str(destination),
-                caption=f"{context['title']} — {context['artist']}"[:900],
-                force_document=False,
-            )
-            record["cache_message_id"] = getattr(cache_message, "id", None)
-            self._save_index()
-        except Exception:
-            log.info("Background music cache upload failed", exc_info=True)
+        key = self._key(f"{context['title']} {context['artist']}")
+        lock = self._cache_upload_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            try:
+                # A second request may have uploaded this track while the first
+                # request was downloading. Reuse that message instead of posting
+                # a duplicate to the cache channel.
+                existing = await self._find_cached_channel_track(
+                    client, f"{context['title']} {context['artist']}"
+                )
+                if existing:
+                    record["cache_message_id"] = existing.get("_stream_context", {}).get("cache_message_id")
+                    self._save_index()
+                    return
+                cache_peer = await self._cache_peer(client)
+                cache_message = await client.send_file(
+                    cache_peer,
+                    str(destination),
+                    caption=f"{context['title']} — {context['artist']}"[:900],
+                    force_document=False,
+                )
+                record["cache_message_id"] = getattr(cache_message, "id", None)
+                self._save_index()
+            except Exception:
+                log.info("Background music cache upload failed", exc_info=True)
 
     async def _download_audio_to_cache(
         self, client, audio_message, destination: Path, temporary: Path,
@@ -400,49 +393,93 @@ class SongsxSource:
                 lock.release()
 
     async def resolve_selected(self, track: dict) -> dict:
-        """Click the first result and retain its Telegram message without downloading it."""
+        """Resolve Songsx selection while checking the channel cache concurrently."""
         if track.get("_cached_path") or track.get("_audio_message"):
             return track
         token = str(track.get("id", ""))
         context = self.pending.get(token)
         if not context:
             raise RuntimeError("The selected track is no longer available. Please try again.")
+
         client, peer = context["client"], context["peer"]
         lock = context.get("lock")
-        if lock is None:
-            lock = self._client_lock(client)
-            await lock.acquire()
+
+        async def resolve_songsx():
+            if lock is None:
+                await self._client_lock(client).acquire()
+            try:
+                baseline = await client.get_messages(peer, limit=1)
+                baseline_id = baseline[0].id if baseline else context["message_id"]
+                await client(GetBotCallbackAnswerRequest(
+                    peer=peer, msg_id=context["message_id"], data=context["button_data"]
+                ))
+                deadline = asyncio.get_running_loop().time() + 40
+                audio_message = None
+                while asyncio.get_running_loop().time() < deadline:
+                    selected = await client.get_messages(peer, ids=context["message_id"])
+                    if selected and self._is_audio(selected):
+                        audio_message = selected
+                        break
+                    recent = await client.get_messages(peer, limit=30)
+                    audio_message = next(
+                        (
+                            item for item in sorted(recent, key=lambda item: item.id)
+                            if item.id > baseline_id and self._is_audio(item)
+                        ),
+                        None,
+                    )
+                    if audio_message:
+                        break
+                    await asyncio.sleep(0.2)
+                if not audio_message:
+                    raise TimeoutError("The selected track could not be prepared.")
+                return audio_message
+            finally:
+                active_lock = lock or self._client_lock(client)
+                if active_lock.locked():
+                    active_lock.release()
+
+        cache_task = asyncio.create_task(
+            self._find_cached_channel_track(
+                client, f"{context['title']} {context['artist']}"
+            )
+        )
+        resolve_task = asyncio.create_task(resolve_songsx())
         try:
-            baseline = await client.get_messages(peer, limit=1)
-            baseline_id = baseline[0].id if baseline else context["message_id"]
-            await client(GetBotCallbackAnswerRequest(
-                peer=peer, msg_id=context["message_id"], data=context["button_data"]
-            ))
-            # Songsx may take longer to replace its result keyboard with the
-            # selected audio message during busy periods.
-            deadline = asyncio.get_running_loop().time() + 40
-            audio_message = None
-            while asyncio.get_running_loop().time() < deadline:
-                selected = await client.get_messages(peer, ids=context["message_id"])
-                if selected and self._is_audio(selected):
-                    audio_message = selected
-                    break
-                recent = await client.get_messages(peer, limit=30)
-                audio_message = next(
-                    (
-                        item for item in sorted(recent, key=lambda item: item.id)
-                        if item.id > baseline_id and self._is_audio(item)
-                    ),
-                    None,
-                )
-                if audio_message:
-                    break
-                await asyncio.sleep(0.2)
-            if not audio_message:
-                raise TimeoutError("The selected track could not be prepared.")
+            done, _ = await asyncio.wait(
+                {cache_task, resolve_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            cached = None
+            if cache_task in done:
+                try:
+                    cached = cache_task.result()
+                except Exception:
+                    cached = None
+            if cached:
+                resolve_task.cancel()
+                await asyncio.gather(resolve_task, return_exceptions=True)
+                self.pending.pop(token, None)
+                track.update(cached)
+                return track
+
+            # Songsx resolution and cache lookup have already been running
+            # together. If Songsx wins, let the cache lookup finish before
+            # deciding whether a new channel upload is needed.
+            audio_message = await resolve_task
+            if not cache_task.done():
+                try:
+                    cached = await cache_task
+                except Exception:
+                    cached = None
+            if cached:
+                self.pending.pop(token, None)
+                track.update(cached)
+                return track
         finally:
-            if lock.locked():
-                lock.release()
+            for task in (cache_task, resolve_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(cache_task, resolve_task, return_exceptions=True)
             self.pending.pop(token, None)
 
         track["_audio_message"] = audio_message
