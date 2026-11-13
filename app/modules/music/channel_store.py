@@ -16,6 +16,10 @@ from datetime import datetime, timezone
 log = logging.getLogger("xyron.music.channel_store")
 
 
+class PlaylistDataCorruptError(RuntimeError):
+    """A stored playlist exists but cannot be decoded; never replace it with an empty record."""
+
+
 class ChannelMusicStore:
     VERSION = 1
     CHUNK_SIZE = 3500
@@ -161,7 +165,17 @@ class ChannelMusicStore:
             client = self._client()
             peer = await self._peer(client)
             message_ids, chunks, total = await self._find_messages(client, peer, user_id)
-            record = self._decode(user_id, chunks, total) or self._default(user_id)
+            if message_ids:
+                record = self._decode(user_id, chunks, total)
+                if record is None:
+                    # Fail closed: treating a corrupt record as empty would let
+                    # the next playlist edit overwrite the user's saved data.
+                    raise PlaylistDataCorruptError(
+                        "A playlist record exists in the cache channel but could not be decoded; "
+                        "it has been preserved and was not replaced."
+                    )
+            else:
+                record = self._default(user_id)
             self._message_ids[user_id] = message_ids
             self._records[user_id] = record
             return record
@@ -177,7 +191,11 @@ class ChannelMusicStore:
             messages = self._encode(user_id, record)
             existing_ids = self._message_ids.get(user_id)
             if existing_ids is None:
-                existing_ids, _, _ = await self._find_messages(client, peer, user_id)
+                existing_ids, existing_chunks, existing_total = await self._find_messages(client, peer, user_id)
+                if existing_ids and self._decode(user_id, existing_chunks, existing_total) is None:
+                    raise PlaylistDataCorruptError(
+                        "Refusing to overwrite an unreadable saved playlist."
+                    )
             saved_ids = {}
             try:
                 for part, message_text in enumerate(messages, 1):
