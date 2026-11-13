@@ -172,7 +172,6 @@ from app.services.message_milestones import MessageMilestoneRepository
 from app.services.activity_log import ActivityEvent, ActivityLogRepository, activity_retention_worker
 from app.services.reminder_worker import reminder_worker
 from app.services.scheduling import expiration_worker
-from app.services.update_processor import PerChatUpdateProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -988,7 +987,7 @@ def build_application(settings: Settings | None = None) -> Application:
                 pool_timeout=15,
             )
         )
-        .concurrent_updates(PerChatUpdateProcessor(max_concurrent_updates=32))
+        .concurrent_updates(32)
         .rate_limiter(AIORateLimiter(max_retries=3))
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
