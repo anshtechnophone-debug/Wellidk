@@ -159,7 +159,7 @@ from app.modules.moderation.handlers import (
 from app.modules.moderation.admin_roles import mass_ban_protector, mass_ban_restore_worker, promote_command
 from app.modules.moderation.reaction_guard import reaction_guard_handler
 from app.modules.moderation.smart_gc import smartgc_abuse_guard, smartgc_callback, smartgc_command
-from app.modules.moderation.visual_moderation import visual_media_moderation_handler
+from app.modules.moderation.visual_moderation import enqueue_visual_media_moderation, visual_moderation_worker
 from app.modules.moderation.media_cleaner import delayed_media_delete_handler
 from app.modules.reminders.handlers import (
     cancelreminder_command,
@@ -750,7 +750,7 @@ def _register_general(application: Application) -> None:
     application.add_handler(
         MessageHandler(
             filters.ChatType.GROUPS & visual_media_filter,
-            visual_media_moderation_handler,
+            enqueue_visual_media_moderation,
         ),
         group=2,
     )
@@ -920,7 +920,13 @@ async def _post_init(application: Application) -> None:
     stop_event = asyncio.Event()
     application.bot_data["shutdown_event"] = stop_event
 
+    application.bot_data["visual_moderation_queue"] = asyncio.Queue(maxsize=100)
+
     application.bot_data["worker_tasks"] = {
+        "visual_moderation": application.create_task(
+            visual_moderation_worker(application, stop_event),
+            name="xyron-visual-moderation-worker",
+        ),
         "moderation_expiry": application.create_task(
             expiration_worker(application, stop_event),
             name="xyron-expiration-worker",
