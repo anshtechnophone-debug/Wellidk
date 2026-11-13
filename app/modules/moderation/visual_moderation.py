@@ -273,6 +273,53 @@ async def _delete_and_maybe_mute(update, context, message, user) -> None:
         logger.exception("Smart GC failed to apply the 24-hour media mute")
 
 
+async def enqueue_visual_media_moderation(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Queue media inspection so downloads/API calls never block update dispatch."""
+    message, chat, user = (
+        update.effective_message,
+        update.effective_chat,
+        update.effective_user,
+    )
+    if (
+        not message or not chat or not user or user.is_bot
+        or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}
+    ):
+        return
+    queue = context.application.bot_data.get("visual_moderation_queue")
+    if queue is None:
+        return
+    try:
+        queue.put_nowait((update, context))
+    except asyncio.QueueFull:
+        logger.warning(
+            "Smart GC visual queue full; skipped media inspection chat_id=%s message_id=%s",
+            chat.id, message.message_id,
+        )
+
+
+async def visual_moderation_worker(application, stop_event: asyncio.Event) -> None:
+    """Process queued visual checks outside the main Telegram update path."""
+    queue = application.bot_data["visual_moderation_queue"]
+    while not stop_event.is_set() or not queue.empty():
+        try:
+            update, context = await asyncio.wait_for(queue.get(), timeout=1.0)
+        except asyncio.TimeoutError:
+            continue
+        try:
+            await visual_media_moderation_handler(update, context)
+        except Exception:
+            message = update.effective_message
+            logger.exception(
+                "Smart GC visual worker failed chat_id=%s message_id=%s",
+                update.effective_chat.id if update.effective_chat else None,
+                message.message_id if message else None,
+            )
+        finally:
+            queue.task_done()
+
+
 async def visual_media_moderation_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
