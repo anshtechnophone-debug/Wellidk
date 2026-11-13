@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime
+import time
+
+_POLICY_CACHE_TTL_SECONDS = 3.0
+_POLICY_CACHE_MAX_ENTRIES = 4096
+_POLICY_CACHE: dict[int, tuple[float, dict[str, object]]] = {}
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -37,9 +42,20 @@ class GroupPolicyRepository:
         self.sessions = sessions
 
     async def get(self, chat_id: int) -> dict[str, object]:
+        now = time.monotonic()
+        cached = _POLICY_CACHE.get(chat_id)
+        if cached is not None and cached[0] > now:
+            return deepcopy(cached[1])
+
         async with self.sessions() as session:
             row = await session.get(GroupPolicy, chat_id)
-            return deepcopy(row.policy) if row else deepcopy(DEFAULT_POLICY)
+            policy = deepcopy(row.policy) if row else deepcopy(DEFAULT_POLICY)
+
+        if len(_POLICY_CACHE) >= _POLICY_CACHE_MAX_ENTRIES:
+            oldest_chat_id = min(_POLICY_CACHE, key=lambda key: _POLICY_CACHE[key][0])
+            _POLICY_CACHE.pop(oldest_chat_id, None)
+        _POLICY_CACHE[chat_id] = (time.monotonic() + _POLICY_CACHE_TTL_SECONDS, policy)
+        return deepcopy(policy)
 
     async def set_value(self, chat_id: int, key: str, value: object) -> dict[str, object]:
         async with self.sessions.begin() as session:
@@ -59,7 +75,10 @@ class GroupPolicyRepository:
             policy[key] = value
             row.policy = policy
             row.updated_at = datetime.now(UTC)
-            return deepcopy(policy)
+
+        result = deepcopy(policy)
+        _POLICY_CACHE[chat_id] = (time.monotonic() + _POLICY_CACHE_TTL_SECONDS, result)
+        return deepcopy(result)
 
     async def update_mapping(
         self, chat_id: int, section: str, key: str, value: object
