@@ -92,35 +92,51 @@ def _media_file_ids(message) -> tuple[list[str], bool]:
 
 
 async def _download_media(context, file_id: str, *, chat_id: int, message_id: int) -> bytes | None:
-    try:
-        telegram_file = await context.bot.get_file(file_id)
-        size = getattr(telegram_file, "file_size", None)
-        if size is not None and size > _MAX_DOWNLOAD_BYTES:
-            logger.warning(
-                "SMARTGC_VISUAL stage=download result=skipped reason=file_too_large "
-                "chat_id=%s message_id=%s size=%s limit=%s",
-                chat_id, message_id, size, _MAX_DOWNLOAD_BYTES,
+    """Download Telegram media with a longer read timeout and bounded retries."""
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        try:
+            telegram_file = await context.bot.get_file(file_id, read_timeout=30)
+            size = getattr(telegram_file, "file_size", None)
+            if size is not None and size > _MAX_DOWNLOAD_BYTES:
+                logger.warning(
+                    "SMARTGC_VISUAL stage=download result=skipped reason=file_too_large "
+                    "chat_id=%s message_id=%s size=%s limit=%s",
+                    chat_id, message_id, size, _MAX_DOWNLOAD_BYTES,
+                )
+                return None
+            data = bytes(
+                await telegram_file.download_as_bytearray(read_timeout=120)
             )
-            return None
-        data = bytes(await telegram_file.download_as_bytearray())
-        if not data or len(data) > _MAX_DOWNLOAD_BYTES:
-            logger.warning(
-                "SMARTGC_VISUAL stage=download result=skipped reason=empty_or_too_large "
-                "chat_id=%s message_id=%s bytes=%s limit=%s",
-                chat_id, message_id, len(data), _MAX_DOWNLOAD_BYTES,
+            if not data or len(data) > _MAX_DOWNLOAD_BYTES:
+                logger.warning(
+                    "SMARTGC_VISUAL stage=download result=skipped reason=empty_or_too_large "
+                    "chat_id=%s message_id=%s bytes=%s limit=%s",
+                    chat_id, message_id, len(data), _MAX_DOWNLOAD_BYTES,
+                )
+                return None
+            logger.info(
+                "SMARTGC_VISUAL stage=download result=ok chat_id=%s message_id=%s "
+                "bytes=%s attempt=%s",
+                chat_id, message_id, len(data), attempt,
             )
-            return None
-        logger.info(
-            "SMARTGC_VISUAL stage=download result=ok chat_id=%s message_id=%s bytes=%s",
-            chat_id, message_id, len(data),
-        )
-        return data
-    except TelegramError:
-        logger.warning(
-            "SMARTGC_VISUAL stage=download result=failed chat_id=%s message_id=%s",
-            chat_id, message_id, exc_info=True,
-        )
-        return None
+            return data
+        except TelegramError as exc:
+            logger.warning(
+                "SMARTGC_VISUAL stage=download result=retryable_error "
+                "chat_id=%s message_id=%s attempt=%s/%s error_type=%s error=%s",
+                chat_id, message_id, attempt, attempts,
+                type(exc).__name__, str(exc)[:300],
+                exc_info=True,
+            )
+            if attempt < attempts:
+                await asyncio.sleep(1.5 * attempt)
+    logger.error(
+        "SMARTGC_VISUAL stage=download result=failed_after_retries "
+        "chat_id=%s message_id=%s attempts=%s",
+        chat_id, message_id, attempts,
+    )
+    return None
 
 
 def _normalize_image(data: bytes) -> bytes | None:
