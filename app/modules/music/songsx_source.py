@@ -350,18 +350,19 @@ class SongsxSource:
         starting a voice call against a producer that may still be opening.
         """
         try:
-            if not destination.is_file() or destination.stat().st_size < 10_000:
-                temporary.unlink(missing_ok=True)
-                downloaded = await client.download_media(
-                    audio_message, file=str(temporary)
-                )
-                if (
-                    not downloaded
-                    or not temporary.is_file()
-                    or temporary.stat().st_size < 10_000
-                ):
-                    raise RuntimeError("Telegram returned an incomplete audio download.")
-                temporary.replace(destination)
+            # Never trust an old FIFO-era cache file as a complete source.
+            # Download to a unique temporary path, then atomically publish it.
+            temporary.unlink(missing_ok=True)
+            downloaded = await client.download_media(
+                audio_message, file=str(temporary)
+            )
+            if (
+                not downloaded
+                or not temporary.is_file()
+                or temporary.stat().st_size < 10_000
+            ):
+                raise RuntimeError("Telegram returned an incomplete audio download.")
+            temporary.replace(destination)
 
             record = {
                 "path": str(destination),
