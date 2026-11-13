@@ -1,6 +1,5 @@
-from datetime import UTC, datetime
-
 import asyncio
+from datetime import UTC, datetime
 
 import pytest
 from telegram import Chat, Message, Update, User
