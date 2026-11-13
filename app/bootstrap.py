@@ -160,6 +160,7 @@ from app.modules.reminders.handlers import (
     reminders_command,
 )
 from app.services.group_history import GroupHistoryRepository, GroupMessage, group_history_retention_worker
+from app.services.background_tasks import BackgroundTaskQueue
 from app.services.activity_log import ActivityEvent, ActivityLogRepository, activity_retention_worker
 from app.services.reminder_worker import reminder_worker
 from app.services.scheduling import expiration_worker
@@ -221,23 +222,23 @@ async def collect_group_message(
         logger.warning("Group history collector has no database session factory")
         return
 
-    try:
-        repository = GroupHistoryRepository(sessions)
-        await repository.save_message(
-            chat_id=chat.id,
-            message_id=message.message_id,
-            user_id=user.id,
-            username=user.username,
-            display_name=user.full_name,
-            message_text=text,
-            sent_at=message.date,
-        )
-    except Exception:
-        logger.exception(
-            "Failed to save group message: chat_id=%s message_id=%s",
-            chat.id,
-            message.message_id,
-        )
+    repository = GroupHistoryRepository(sessions)
+    queue: BackgroundTaskQueue | None = context.application.bot_data.get(
+        "background_persistence"
+    )
+    work = repository.save_message(
+        chat_id=chat.id,
+        message_id=message.message_id,
+        user_id=user.id,
+        username=user.username,
+        display_name=user.full_name,
+        message_text=text,
+        sent_at=message.date,
+    )
+    if queue is None:
+        await work
+    else:
+        await queue.submit(work)
 
 
 async def collect_group_activity(
@@ -258,7 +259,7 @@ async def collect_group_activity(
         command = message.text.split(maxsplit=1)[0].split("@")[0].lstrip("/").lower()
         args = message.text.split(maxsplit=1)[1] if len(message.text.split(maxsplit=1)) > 1 else ""
         status = "received"
-        await ActivityLogRepository(sessions).record(
+        work = ActivityLogRepository(sessions).record(
             chat_id=chat.id,
             event_type="command",
             actor_id=user.id if user else None,
@@ -270,6 +271,13 @@ async def collect_group_activity(
                      if message.reply_to_message else None},
             created_at=message.date,
         )
+        queue: BackgroundTaskQueue | None = context.application.bot_data.get(
+            "background_persistence"
+        )
+        if queue is None:
+            await work
+        else:
+            await queue.submit(work)
         return
     attachment = getattr(message, "effective_attachment", None)
     if message.photo:
@@ -298,32 +306,36 @@ async def collect_group_activity(
         media_type = "service"
     else:
         media_type = "text"
-    try:
-        await ActivityLogRepository(sessions).record(
-            chat_id=chat.id,
-            event_type=(
-                "message_edit" if update.edited_message
-                else "admin_action" if message.pinned_message
-                else "message"
-            ),
-            actor_id=user.id if user else None,
-            message_id=message.message_id,
-            action="pin" if message.pinned_message else None,
-            status="observed",
-            details={
-                "text_or_caption": raw[:10000],
-                "media_type": media_type,
-                "pinned_message_id": message.pinned_message.message_id
-                if message.pinned_message else None,
-                "has_attachment": attachment is not None,
-                "reply_to_message_id": message.reply_to_message.message_id
-                if message.reply_to_message else None,
-                "date": message.date.isoformat() if message.date else None,
-            },
-            created_at=message.edit_date or message.date,
-        )
-    except Exception:
-        logger.exception("Failed to log group activity: chat_id=%s", chat.id)
+    work = ActivityLogRepository(sessions).record(
+        chat_id=chat.id,
+        event_type=(
+            "message_edit" if update.edited_message
+            else "admin_action" if message.pinned_message
+            else "message"
+        ),
+        actor_id=user.id if user else None,
+        message_id=message.message_id,
+        action="pin" if message.pinned_message else None,
+        status="observed",
+        details={
+            "text_or_caption": raw[:10000],
+            "media_type": media_type,
+            "pinned_message_id": message.pinned_message.message_id
+            if message.pinned_message else None,
+            "has_attachment": attachment is not None,
+            "reply_to_message_id": message.reply_to_message.message_id
+            if message.reply_to_message else None,
+            "date": message.date.isoformat() if message.date else None,
+        },
+        created_at=message.edit_date or message.date,
+    )
+    queue: BackgroundTaskQueue | None = context.application.bot_data.get(
+        "background_persistence"
+    )
+    if queue is None:
+        await work
+    else:
+        await queue.submit(work)
 
 
 async def collect_chat_member_activity(
@@ -717,6 +729,10 @@ async def _post_init(application: Application) -> None:
     # so initialize_schema can create the group history table as well.
     await initialize_schema(engine)
 
+    persistence_queue = BackgroundTaskQueue(maxsize=4096)
+    persistence_queue.start()
+    application.bot_data["background_persistence"] = persistence_queue
+
     # Hide the slash-command menu from everyone by default; publish it only
     # in the configured owner's private chat.
     await application.bot.set_my_commands([], scope=BotCommandScopeDefault())
@@ -761,6 +777,12 @@ async def _post_shutdown(application: Application) -> None:
     stop_event = application.bot_data.get("shutdown_event")
     if stop_event:
         stop_event.set()
+
+    persistence_queue: BackgroundTaskQueue | None = application.bot_data.get(
+        "background_persistence"
+    )
+    if persistence_queue:
+        await persistence_queue.close()
 
     ai_router = application.bot_data.get("ai_router")
     provider = getattr(ai_router, "provider", None)
