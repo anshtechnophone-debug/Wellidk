@@ -135,51 +135,98 @@ async def quote_delete_command(update: Update, context: ContextTypes.DEFAULT_TYP
     if not message or not chat or not user:
         return
     if chat.type not in {"group", "supergroup"}:
-        await message.reply_text("Use /q delete in the group where the quote was created.")
+        await message.reply_text("Use /d q in the group where the quote was sent.")
         return
     target = message.reply_to_message
     if not target or not target.sticker:
-        await message.reply_text("Reply to the generated quote sticker with /q delete.")
+        await message.reply_text("Reply to a XYRON quote sticker with /d q.")
         return
+
+    settings = context.application.bot_data.get("settings")
+    owner_ids = set(getattr(settings, "owner_ids", ()) or ())
+    is_owner = user.id in owner_ids
+    is_group_admin = False
+    if not is_owner:
+        try:
+            member = await context.bot.get_chat_member(chat.id, user.id)
+            is_group_admin = member.status in {"administrator", "creator"}
+        except TelegramError:
+            is_group_admin = False
+
     sessions = context.application.bot_data.get("sessions")
     if sessions is None:
         await message.reply_text("Quote storage is temporarily unavailable.")
         return
+
+    # Resolve the quote by its persisted sticker mapping first. Auto-generated
+    # quote stickers also carry the qv:<quote_id>:<vote> callback data, which
+    # lets deletion work even for stickers sent before their mapping was saved.
+    quote_id = None
     async with sessions() as session:
         sticker_row = await session.scalar(select(SavedGroupQuoteSticker).where(
             SavedGroupQuoteSticker.chat_id == chat.id,
             SavedGroupQuoteSticker.message_id == target.message_id,
         ))
-        quote = await session.get(SavedGroupQuote, sticker_row.quote_id) if sticker_row else None
-        if not quote or quote.chat_id != chat.id:
-            await message.reply_text("That sticker isn't a saved XYRON quote.")
-            return
-        quote_id, author_id = quote.id, quote.author_id
+        if sticker_row:
+            quote_id = sticker_row.quote_id
 
-    allowed = user.id == author_id
-    if not allowed:
-        try:
-            member = await context.bot.get_chat_member(chat.id, user.id)
-            allowed = member.status == "creator"
-        except TelegramError:
-            allowed = False
-    if not allowed:
-        await message.reply_text("Only the quote's author or the group owner can delete it.")
+    if quote_id is None and target.reply_markup:
+        for row in target.reply_markup.inline_keyboard:
+            for button in row:
+                callback_data = button.callback_data or ""
+                match = re.fullmatch(r"qv:(\\d+):(?:up|down)", callback_data)
+                if match:
+                    quote_id = int(match.group(1))
+                    break
+            if quote_id is not None:
+                break
+
+    if quote_id is None:
+        await message.reply_text("That sticker isn't a saved XYRON quote.")
         return
 
-    async with sessions.begin() as session:
-        current = await session.get(SavedGroupQuote, quote_id)
-        if not current:
-            await message.reply_text("That quote has already been deleted.")
-            return
-        await session.execute(delete(SavedGroupQuoteVote).where(SavedGroupQuoteVote.quote_id == quote_id))
-        await session.execute(delete(SavedGroupQuoteSticker).where(SavedGroupQuoteSticker.quote_id == quote_id))
-        await session.delete(current)
-    try:
-        await context.bot.delete_message(chat_id=chat.id, message_id=target.message_id)
-    except TelegramError:
-        logger.info("Quote %s removed from storage but sticker deletion failed", quote_id, exc_info=True)
-    await message.reply_text("🗑️ Quote deleted. It has been removed from the group's saved quotes.")
+    quote = None
+    sticker_message_ids: list[int] = []
+    async with sessions() as session:
+        quote = await session.get(SavedGroupQuote, quote_id)
+        if quote and quote.chat_id == chat.id:
+            sticker_message_ids = list((await session.scalars(select(SavedGroupQuoteSticker.message_id).where(
+                SavedGroupQuoteSticker.quote_id == quote_id,
+                SavedGroupQuoteSticker.chat_id == chat.id,
+            ))).all())
+        else:
+            quote = None
+
+    # Keep the original quote-author permission, and additionally allow the
+    # XYRON owner plus Telegram group admins and the group owner.
+    allowed = is_owner or is_group_admin or bool(quote and user.id == quote.author_id)
+    if not allowed:
+        await message.reply_text("Only the XYRON owner, the quote's author, or a group admin/owner can delete a quote.")
+        return
+
+    if quote:
+        async with sessions.begin() as session:
+            current = await session.get(SavedGroupQuote, quote_id)
+            if current and current.chat_id == chat.id:
+                await session.execute(delete(SavedGroupQuoteVote).where(SavedGroupQuoteVote.quote_id == quote_id))
+                await session.execute(delete(SavedGroupQuoteSticker).where(
+                    SavedGroupQuoteSticker.quote_id == quote_id,
+                    SavedGroupQuoteSticker.chat_id == chat.id,
+                ))
+                await session.delete(current)
+
+    # Delete every tracked copy in this group, including the sticker being
+    # replied to. Removing SavedGroupQuote prevents future auto-matches.
+    for sticker_message_id in set(sticker_message_ids + [target.message_id]):
+        try:
+            await context.bot.delete_message(chat_id=chat.id, message_id=sticker_message_id)
+        except TelegramError:
+            logger.info("Could not delete quote sticker chat_id=%s message_id=%s", chat.id, sticker_message_id, exc_info=True)
+
+    if quote:
+        await message.reply_text("🗑️ Quote permanently deleted from XYRON. It won't be sent again.")
+    else:
+        await message.reply_text("🗑️ Quote sticker deleted. Its saved quote record was already missing.")
 
 
 def _tokens(text: str) -> set[str]:
@@ -227,6 +274,7 @@ async def quote_auto_match_handler(update: Update, context: ContextTypes.DEFAULT
         from app.modules.quote_generator import _render_sticker, _user_avatar
         avatar_data = await _user_avatar(context, data["author_id"])
         sticker = _render_sticker(data["text"], data["author_name"], data["username"], avatar_data, 0)
-        await context.bot.send_sticker(chat_id=chat.id, sticker=sticker, reply_to_message_id=message.message_id, allow_sending_without_reply=True, reply_markup=quote_keyboard(data["id"]))
+        sent = await context.bot.send_sticker(chat_id=chat.id, sticker=sticker, reply_to_message_id=message.message_id, allow_sending_without_reply=True, reply_markup=quote_keyboard(data["id"]))
+        await save_quote_sticker(sessions, quote_id=data["id"], chat_id=chat.id, message_id=sent.message_id)
     except Exception:
         logger.exception("Automatic saved-quote response failed for chat_id=%s", chat.id)
