@@ -7,6 +7,7 @@ import re
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import BigInteger, ForeignKey, Integer, String, Text, UniqueConstraint, delete, func, select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -111,16 +112,21 @@ async def quote_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not quote or quote.chat_id != chat.id:
             await query.answer("This quote is no longer available.", show_alert=True)
             return
-        existing = await session.scalar(select(SavedGroupQuoteVote).where(SavedGroupQuoteVote.quote_id == quote_id, SavedGroupQuoteVote.user_id == user.id))
-        if existing:
-            if existing.vote == vote:
-                await session.delete(existing)
-            else:
-                existing.vote = vote
-                existing.updated_at = datetime.now(UTC)
-        else:
-            session.add(SavedGroupQuoteVote(quote_id=quote_id, user_id=user.id, vote=vote, updated_at=datetime.now(UTC)))
-        await session.flush()
+        # Use a database-level upsert: concurrent callbacks from the same
+        # user must never race between SELECT and INSERT on the unique key.
+        now = datetime.now(UTC)
+        vote_insert = sqlite_insert(SavedGroupQuoteVote).values(
+            quote_id=quote_id,
+            user_id=user.id,
+            vote=vote,
+            updated_at=now,
+        )
+        await session.execute(
+            vote_insert.on_conflict_do_update(
+                index_elements=["quote_id", "user_id"],
+                set_={"vote": vote_insert.excluded.vote, "updated_at": now},
+            )
+        )
         likes = await session.scalar(select(func.count()).select_from(SavedGroupQuoteVote).where(SavedGroupQuoteVote.quote_id == quote_id, SavedGroupQuoteVote.vote == "up")) or 0
         dislikes = await session.scalar(select(func.count()).select_from(SavedGroupQuoteVote).where(SavedGroupQuoteVote.quote_id == quote_id, SavedGroupQuoteVote.vote == "down")) or 0
     try:
