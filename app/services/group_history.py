@@ -17,6 +17,9 @@ from app.database.models import Base, UTCDateTime
 logger = logging.getLogger(__name__)
 HISTORY_RETENTION_HOURS = 24
 
+# Protect legacy MAX(id)+1 inserts while the bot processes updates concurrently.
+_group_history_write_lock = asyncio.Lock()
+
 
 class GroupMessage(Base):
     """A message received by XYRON in a group or supergroup."""
@@ -90,43 +93,47 @@ class GroupHistoryRepository:
         if sent_at.tzinfo is None or sent_at.utcoffset() is None:
             sent_at = sent_at.replace(tzinfo=UTC)
 
-        async with self.sessions.begin() as session:
-            existing = await session.scalar(
-                select(GroupMessage).where(
-                    GroupMessage.chat_id == chat_id,
-                    GroupMessage.message_id == message_id,
+        # The existing SQLite table uses BIGINT for its primary key, so IDs
+        # are assigned from MAX(id)+1. Serialize only this short persistence
+        # section; Telegram handlers for the chat remain fully concurrent.
+        async with _group_history_write_lock:
+            async with self.sessions.begin() as session:
+                existing = await session.scalar(
+                    select(GroupMessage).where(
+                        GroupMessage.chat_id == chat_id,
+                        GroupMessage.message_id == message_id,
+                    )
                 )
-            )
-
-            if existing:
-                existing.message_text = text[:10000]
-                existing.username = username
-                existing.display_name = display_name[:255]
-                existing.edited_at = datetime.now(UTC)
-                return False
-
-            # SQLite does not auto-generate INTEGER PRIMARY KEY values for
-            # a BIGINT primary-key column. Assign an ID explicitly so this
-            # also works with databases created by older versions of XYRON.
-            current_max_id = await session.scalar(
-                select(func.max(GroupMessage.id))
-            )
-            next_id = (current_max_id or 0) + 1
-
-            session.add(
-                GroupMessage(
-                    id=next_id,
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    user_id=user_id,
-                    username=username,
-                    display_name=display_name[:255],
-                    message_text=text[:10000],
-                    sent_at=sent_at,
-                    edited_at=datetime.now(UTC),
+    
+                if existing:
+                    existing.message_text = text[:10000]
+                    existing.username = username
+                    existing.display_name = display_name[:255]
+                    existing.edited_at = datetime.now(UTC)
+                    return False
+    
+                # SQLite does not auto-generate INTEGER PRIMARY KEY values for
+                # a BIGINT primary-key column. Assign an ID explicitly so this
+                # also works with databases created by older versions of XYRON.
+                current_max_id = await session.scalar(
+                    select(func.max(GroupMessage.id))
                 )
-            )
-            return True
+                next_id = (current_max_id or 0) + 1
+    
+                session.add(
+                    GroupMessage(
+                        id=next_id,
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        user_id=user_id,
+                        username=username,
+                        display_name=display_name[:255],
+                        message_text=text[:10000],
+                        sent_at=sent_at,
+                        edited_at=datetime.now(UTC),
+                    )
+                )
+                return True
 
     async def search(
         self,
