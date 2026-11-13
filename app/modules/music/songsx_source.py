@@ -405,8 +405,11 @@ class SongsxSource:
         lock = context.get("lock")
 
         async def resolve_songsx():
+            active_lock = lock or self._client_lock(client)
+            acquired_here = False
             if lock is None:
-                await self._client_lock(client).acquire()
+                await active_lock.acquire()
+                acquired_here = True
             try:
                 baseline = await client.get_messages(peer, limit=1)
                 baseline_id = baseline[0].id if baseline else context["message_id"]
@@ -435,8 +438,9 @@ class SongsxSource:
                     raise TimeoutError("The selected track could not be prepared.")
                 return audio_message
             finally:
-                active_lock = lock or self._client_lock(client)
-                if active_lock.locked():
+                if lock is not None and lock.locked():
+                    lock.release()
+                elif acquired_here and active_lock.locked():
                     active_lock.release()
 
         cache_task = asyncio.create_task(
