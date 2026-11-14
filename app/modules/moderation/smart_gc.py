@@ -31,7 +31,6 @@ _WARNING_LIMIT = 5
 
 _FEATURES = (
     ("abusive_language", "🤬 Abusive Language"),
-    ("nsfw_detection", "🔞 NSFW Detection"),
     ("media_cleanup", "🧹 Media Cleanup"),
     ("approved_exemption", "⭐ Approved Users Exemption"),
 )
