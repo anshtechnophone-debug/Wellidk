@@ -155,14 +155,11 @@ async def mass_ban_protector(update: Update, context: ContextTypes.DEFAULT_TYPE)
     new_member = event.new_chat_member
     old_status = getattr(old_member, "status", None)
     new_status = getattr(new_member, "status", None)
-    if (
-        old_status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}
-        or new_status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}
-        or any(
-            bool(getattr(old_member, name, False)) != bool(getattr(new_member, name, False))
-            for name in RIGHTS
-        )
-    ):
+    permissions_changed = any(
+        bool(getattr(old_member, name, False)) != bool(getattr(new_member, name, False))
+        for name in RIGHTS
+    )
+    if old_status != new_status or permissions_changed:
         invalidate_group_admin_cache(context.application.bot_data, chat.id)
     if not event.from_user:
         return
