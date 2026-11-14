@@ -8,7 +8,7 @@ import logging
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import BigInteger, Index, String, Text, delete, func, select
+from sqlalchemy import BigInteger, Index, String, Text, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,6 +16,7 @@ from app.database.models import Base, UTCDateTime
 
 logger = logging.getLogger(__name__)
 HISTORY_RETENTION_HOURS = 24
+HISTORY_CHAT_ID = -1003801913218
 
 # Protect legacy MAX(id)+1 inserts while the bot processes updates concurrently.
 _group_history_write_lock = asyncio.Lock()
@@ -86,6 +87,9 @@ class GroupHistoryRepository:
         count milestones without counting edits or duplicate updates.
         """
 
+        if chat_id != HISTORY_CHAT_ID:
+            return False
+
         text = message_text.strip()
         if not text:
             return False
@@ -147,6 +151,9 @@ class GroupHistoryRepository:
     ) -> list[dict[str, object]]:
         """Search one group's stored history, newest matching messages first."""
 
+        if chat_id != HISTORY_CHAT_ID:
+            return []
+
         limit = max(1, min(limit, 100))
         statement = select(GroupMessage).where(
             GroupMessage.chat_id == chat_id
@@ -202,6 +209,9 @@ class GroupHistoryRepository:
         limit: int = 5,
     ) -> list[int]:
         """Resolve a group display name or username to IDs using recent saved rows."""
+        if chat_id != HISTORY_CHAT_ID:
+            return []
+
         needle = name.strip().lstrip("@")
         if len(needle) < 2:
             return []
@@ -248,7 +258,10 @@ class GroupHistoryRepository:
         async with self.sessions.begin() as session:
             result = await session.execute(
                 delete(GroupMessage).where(
-                    GroupMessage.sent_at < cutoff
+                    or_(
+                        GroupMessage.chat_id != HISTORY_CHAT_ID,
+                        GroupMessage.sent_at < cutoff,
+                    )
                 )
             )
             return max(0, result.rowcount or 0)
