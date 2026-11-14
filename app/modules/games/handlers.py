@@ -32,11 +32,8 @@ async def _start(update: Update, context: ContextTypes.DEFAULT_TYPE, length: int
         await message.reply_text(str(exc))
         return
     await message.reply_text(
-        f"🧩 <b>WORD SEEK · {length} LETTERS</b>\n\n"
-        f"Guess the hidden {length}-letter word in up to 30 attempts.\n"
-        "🟩 Correct spot   🟨 Wrong spot   🟥 Not in word\n"
-        "Everyone in this chat can play: type a guess directly in the chat.\n"
-        "The starter or a group admin can use /wordcancel.",
+        f"<b>{length} LETTERS</b>\n\n"
+        "<i>1/30 guesses</i>",
         parse_mode="HTML",
     )
 
@@ -93,15 +90,10 @@ def build_wordseek_rich_feedback(
         rows.append(f"<p>{''.join(buttons)}</p>")
 
     header = (
-        f"<h3>WORDSEEK · {length}-LETTER MODE</h3>"
+        f"<h3>{length} LETTERS</h3>"
         f"<p><i>{len(guesses)}/{max_guesses} guesses</i></p>"
     )
-    legend = (
-        "<p><b>Green:</b> correct position · "
-        "<b>Default:</b> correct letter, wrong position · "
-        "<b>Red:</b> letter not in the word</p>"
-    )
-    return header + "".join(rows) + legend + (f"<p>{ending_text}</p>" if ending_text else "")
+    return header + "".join(rows) + (f"<p>{ending_text}</p>" if ending_text else "")
 
 
 async def _send_wordseek_rich_message(
@@ -151,9 +143,8 @@ def _plain_wordseek_fallback(
     length: int, guesses: tuple[str, ...], feedbacks: tuple[str, ...], ending_text: str = ""
 ) -> str:
     lines = [
-        f"<b>WORDSEEK · {length}-LETTER MODE</b>",
+        f"<b>{length} LETTERS</b>",
         f"<i>{len(guesses)}/30 guesses</i>",
-        "<i>Green: correct · Yellow: wrong position · Red: not in word</i>",
     ]
     if ending_text:
         lines.append(ending_text)
