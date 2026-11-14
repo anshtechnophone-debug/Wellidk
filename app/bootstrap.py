@@ -898,11 +898,12 @@ async def _enqueue_background_handler(
     try:
         queue.put_nowait((name, callback, update, context, time.perf_counter()))
     except asyncio.QueueFull:
+        # Audit/registry work is noncritical. Drop it rather than allowing a
+        # saturated persistence queue to stall command dispatch.
         logger.error(
-            "BACKGROUND_WORK_QUEUE_FULL handler=%s update_id=%s; running inline to avoid data loss",
+            "BACKGROUND_WORK_QUEUE_FULL handler=%s update_id=%s; noncritical work dropped",
             name, update.update_id,
         )
-        await callback(update, context)
 
 
 def _instrument_registered_handlers(application: Application) -> None:
@@ -1097,10 +1098,6 @@ async def _post_init(application: Application) -> None:
         "background_work_1": application.create_task(
             _background_work_worker(application, stop_event),
             name="xyron-background-work-worker-1",
-        ),
-        "background_work_2": application.create_task(
-            _background_work_worker(application, stop_event),
-            name="xyron-background-work-worker-2",
         ),
         "handler_metrics": application.create_task(
             _handler_metrics_reporter(application, stop_event),
