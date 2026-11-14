@@ -54,6 +54,18 @@ async def _cached_chat_member(bot, chat_id: int, user_id: int) -> ChatMember:
 def _invalidate_member_cache(chat_id: int, user_id: int) -> None:
     _MEMBER_CACHE.pop((chat_id, user_id), None)
 
+async def _timed_group_step(name: str, awaitable, chat_id: int, user_id: int):
+    started = time.perf_counter()
+    try:
+        return await awaitable
+    finally:
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        if elapsed_ms >= 100:
+            logger.warning(
+                "GROUP_MESSAGE_STEP slow=true step=%s elapsed_ms=%.1f chat_id=%s user_id=%s",
+                name, elapsed_ms, chat_id, user_id,
+            )
+
 
 DEFAULT_GROUP_RULES = """1. No ads or promotions. Do not advertise products, groups, or channels.
 2. Keep it appropriate. Do not post explicit or disturbing content.
@@ -759,7 +771,7 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
     if not message or not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP} or not user:
         return
     repository = _repository(context)
-    policy = await repository.get(chat.id)
+    policy = await _timed_group_step("policy_get", repository.get(chat.id), chat.id, user.id)
     locks = set(policy.get("locks", []))
     antiflood = policy.get("antiflood", {})
     flood_enabled = isinstance(antiflood, dict) and bool(antiflood.get("enabled"))
@@ -771,7 +783,7 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
     # Filters are independent of moderation exemptions and must work for
     # group admins/owners too. Do not let moderation early-returns bypass them.
     if not user.is_bot and text and not text.lstrip().startswith("/"):
-        await _apply_saved_filter(message, text, policy.get("filters", {}))
+        await _timed_group_step("saved_filter", _apply_saved_filter(message, text, policy.get("filters", {})), chat.id, user.id)
 
     if not locks and not flood_enabled and not spam_enabled:
         return
@@ -782,11 +794,11 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
     settings: Settings = context.application.bot_data["settings"]
     try:
         # Avoid up to three serial Telegram API requests for every group message.
-        actor = await _cached_chat_member(context.bot, chat.id, user.id)
+        actor = await _timed_group_step("member_lookup_sender", _cached_chat_member(context.bot, chat.id, user.id), chat.id, user.id)
         if actor.status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER} and not user.is_bot:
             return
-        owner = await _cached_chat_member(context.bot, chat.id, settings.owner_id)
-        bot_member = await _cached_chat_member(context.bot, chat.id, context.bot.id)
+        owner = await _timed_group_step("member_lookup_owner", _cached_chat_member(context.bot, chat.id, settings.owner_id), chat.id, user.id)
+        bot_member = await _timed_group_step("member_lookup_bot", _cached_chat_member(context.bot, chat.id, context.bot.id), chat.id, user.id)
     except TelegramError:
         return
     if settings.owner_admin_required and owner.status not in {
@@ -808,7 +820,7 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
         events.append(now)
         if len(events) >= _SPAM_PROTECTOR_THRESHOLD:
             events.clear()
-            await _auto_mute_spammer(update, context)
+            await _timed_group_step("auto_mute", _auto_mute_spammer(update, context), chat.id, user.id)
             return
 
     violation = None
@@ -848,7 +860,7 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
         if not getattr(bot_member, "can_delete_messages", False):
             return
         try:
-            await message.delete()
+            await _timed_group_step("delete_message", message.delete(), chat.id, user.id)
         except TelegramError:
             logger.info("Could not delete locked message in chat %s", chat.id)
         return
