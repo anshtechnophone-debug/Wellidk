@@ -926,6 +926,46 @@ async def _event_loop_lag_monitor(
 
 
 
+
+async def _handler_metrics_reporter(
+    application: Application,
+    stop_event: asyncio.Event,
+) -> None:
+    """Emit periodic per-handler averages, maxima, errors, and slow-call counts."""
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=60.0)
+            break
+        except TimeoutError:
+            pass
+        metrics = application.bot_data.get("_xyron_handler_timing", {})
+        if not metrics:
+            continue
+        rows = []
+        for name, values in metrics.items():
+            count = values["count"]
+            if not count:
+                continue
+            average = values["total_ms"] / count
+            rows.append(
+                (values["max_ms"], name, count, average,
+                 values["slow_count"], values["error_count"])
+            )
+        rows.sort(reverse=True)
+        for maximum, name, count, average, slow, errors in rows[:30]:
+            logger.info(
+                "HANDLER_METRICS window_seconds=60 handler=%s count=%s "
+                "avg_ms=%.1f max_ms=%.1f slow_ge_100ms=%s errors=%s",
+                name, count, average, maximum, slow, errors,
+            )
+        for values in metrics.values():
+            values.update(
+                count=0, slow_count=0, error_count=0,
+                total_ms=0.0, max_ms=0.0,
+            )
+
+
+
 async def _post_init(application: Application) -> None:
     settings: Settings = application.bot_data["settings"]
 
@@ -970,6 +1010,10 @@ async def _post_init(application: Application) -> None:
     application.bot_data["group_history_queue"] = asyncio.Queue(maxsize=5000)
 
     application.bot_data["worker_tasks"] = {
+        "handler_metrics": application.create_task(
+            _handler_metrics_reporter(application, stop_event),
+            name="xyron-handler-metrics-reporter",
+        ),
         "event_loop_lag": application.create_task(
             _event_loop_lag_monitor(application, stop_event),
             name="xyron-event-loop-lag-monitor",
