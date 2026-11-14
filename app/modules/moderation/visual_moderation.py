@@ -189,10 +189,10 @@ async def _extract_video_frames(data: bytes) -> list[bytes]:
     # MJPEG is a concatenation of JPEG files. Split on JPEG SOI/EOI markers.
     cursor = 0
     while len(frames) < _MAX_VIDEO_FRAMES:
-        soi = stdout.find(b"\\xff\\xd8", cursor)
+        soi = stdout.find(b"\xff\xd8", cursor)
         if soi < 0:
             break
-        eoi = stdout.find(b"\\xff\\xd9", soi + 2)
+        eoi = stdout.find(b"\xff\xd9", soi + 2)
         if eoi < 0:
             break
         normalized = await asyncio.to_thread(_normalize_image, stdout[soi:eoi + 2])
