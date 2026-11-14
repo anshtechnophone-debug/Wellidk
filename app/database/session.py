@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import logging
+import time
 
 from sqlalchemy import event
 from sqlalchemy.engine import make_url
@@ -10,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 
 from app.database.models import Base
 from app.database import group_bot_admins as _group_bot_admins  # register group-scoped table
+
+logger = logging.getLogger(__name__)
 
 
 def create_database(database_url: str) -> tuple[AsyncEngine, async_sessionmaker]:
@@ -33,6 +37,22 @@ def create_database(database_url: str) -> tuple[AsyncEngine, async_sessionmaker]
         )
 
     engine = create_async_engine(database_url, **engine_options)
+
+    # Measure actual SQL execution time (including SQLite lock waits). This
+    # identifies slow statements separately from Python handler time.
+    @event.listens_for(engine.sync_engine, "before_cursor_execute")
+    def _sql_timer_start(connection, _cursor, _statement, _parameters, _context, _many) -> None:
+        connection.info.setdefault("_xyron_sql_started", []).append(time.perf_counter())
+
+    @event.listens_for(engine.sync_engine, "after_cursor_execute")
+    def _sql_timer_end(connection, _cursor, statement, _parameters, _context, _many) -> None:
+        started = connection.info.get("_xyron_sql_started", [])
+        if not started:
+            return
+        elapsed_ms = (time.perf_counter() - started.pop()) * 1000
+        if elapsed_ms >= 50:
+            compact_sql = " ".join(statement.split())[:180]
+            logger.warning("SQL_TIMING elapsed_ms=%.1f statement=%s", elapsed_ms, compact_sql)
 
     if is_file_sqlite:
         @event.listens_for(engine.sync_engine, "connect")
