@@ -162,12 +162,6 @@ from app.modules.moderation.handlers import (
 from app.modules.moderation.admin_roles import mass_ban_protector, mass_ban_restore_worker, promote_command
 from app.modules.moderation.reaction_guard import reaction_guard_handler
 from app.modules.moderation.smart_gc import smartgc_abuse_guard, smartgc_callback, smartgc_command
-from app.modules.moderation.visual_moderation import (
-    _VISUAL_QUEUE_MAXSIZE,
-    _VISUAL_WORKER_COUNT,
-    enqueue_visual_media_moderation,
-    visual_moderation_worker,
-)
 from app.modules.moderation.media_cleaner import delayed_media_delete_handler
 from app.modules.reminders.handlers import (
     cancelreminder_command,
@@ -699,8 +693,8 @@ def _register_general(application: Application) -> None:
         group=0,
     )
 
-    # Only dispatch expensive media handlers for messages that can contain media.
-    visual_media_filter = (
+    # Media cleanup is independent of visual/NSFW moderation.
+    cleanup_media_filter = (
         filters.PHOTO
         | filters.VIDEO
         | filters.ANIMATION
@@ -708,20 +702,9 @@ def _register_general(application: Application) -> None:
         | filters.Sticker.ALL
         | filters.VIDEO_NOTE
         | filters.PAID_MEDIA
-    )
-    cleanup_media_filter = (
-        visual_media_filter
         | filters.AUDIO
     )
 
-    # Inspect actual image/video/sticker/gift content before delayed media cleanup.
-    application.add_handler(
-        MessageHandler(
-            filters.ChatType.GROUPS & visual_media_filter,
-            enqueue_visual_media_moderation,
-        ),
-        group=2,
-    )
 
     application.add_handler(
         MessageHandler(
@@ -1006,12 +989,11 @@ async def _handler_metrics_reporter(
         metrics = application.bot_data.get("_xyron_handler_timing", {})
         background_queue = application.bot_data.get("background_work_queue")
         history_queue = application.bot_data.get("group_history_queue")
-        visual_queue = application.bot_data.get("visual_moderation_queue")
-        update_queue = application.update_queue
+         update_queue = application.update_queue
         processor = application.update_processor
         logger.info(
             "UPDATE_BACKLOG telegram_queue=%s active_updates=%s/%s "
-            "background=%s/%s group_history=%s/%s visual_moderation=%s/%s",
+            "background=%s/%s group_history=%s/%s",
             update_queue.qsize(),
             processor.current_concurrent_updates,
             processor.max_concurrent_updates,
@@ -1019,8 +1001,6 @@ async def _handler_metrics_reporter(
             background_queue.maxsize if background_queue else 0,
             history_queue.qsize() if history_queue else 0,
             history_queue.maxsize if history_queue else 0,
-            visual_queue.qsize() if visual_queue else 0,
-            visual_queue.maxsize if visual_queue else 0,
         )
         if not metrics:
             continue
@@ -1088,7 +1068,6 @@ async def _post_init(application: Application) -> None:
     stop_event = asyncio.Event()
     application.bot_data["shutdown_event"] = stop_event
 
-    application.bot_data["visual_moderation_queue"] = asyncio.Queue(maxsize=_VISUAL_QUEUE_MAXSIZE)
     # Keep history persistence off the update-handler path; never block commands.
     application.bot_data["group_history_queue"] = asyncio.Queue(maxsize=5000)
     # Audit/registry persistence is deliberately lower priority than commands.
@@ -1111,13 +1090,6 @@ async def _post_init(application: Application) -> None:
             group_history_worker(application, stop_event),
             name="xyron-group-history-worker",
         ),
-        **{
-            f"visual_moderation_{index + 1}": application.create_task(
-                visual_moderation_worker(application, stop_event),
-                name=f"xyron-visual-moderation-worker-{index + 1}",
-            )
-            for index in range(_VISUAL_WORKER_COUNT)
-        },
         "moderation_expiry": application.create_task(
             expiration_worker(application, stop_event),
             name="xyron-expiration-worker",
