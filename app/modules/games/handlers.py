@@ -59,7 +59,7 @@ async def new6_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await _start(update, context, 6)
 
 
-_WORDSEEK_ZERO_WIDTH = ("\\u200b", "\\u200c", "\\u200d", "\\u2060", "\\ufeff")
+_WORDSEEK_ZERO_WIDTH = ("\u200b", "\u200c", "\u200d", "\u2060", "\ufeff")
 _WORDSEEK_STYLE = {"🟩": "success", "🟨": None, "🟥": "danger"}
 
 
