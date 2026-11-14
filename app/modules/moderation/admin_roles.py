@@ -12,6 +12,11 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from app.core.permissions import AuthorizationError
+from app.core.group_admin_cache import (
+    GroupAdminLookupError,
+    get_group_admins,
+    invalidate_group_admin_cache,
+)
 from app.database.models import GroupPolicy
 from app.modules.moderation.handlers import TargetError, _resolve_target, _user_label
 from app.services.group_policy import GroupPolicyRepository
@@ -43,7 +48,14 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # The group owner can always promote; other Telegram admins need the
     # explicit Telegram can_promote_members right. A configured XYRON owner
     # or group-scoped bot admin receives no special promotion authority.
-    actor_member = await context.bot.get_chat_member(chat.id, actor.id)
+    try:
+        admins = await get_group_admins(context.bot, context.application.bot_data, chat.id)
+    except GroupAdminLookupError as exc:
+        raise AuthorizationError("XYRON couldn't verify this group's administrators. Please try again shortly.") from exc
+    actor_member = admins.get(actor.id)
+    if actor_member is None:
+        await message.reply_text("Only the group owner or a Telegram admin with 'Add new admins' permission can promote members.")
+        return
     if actor_member.status != ChatMember.OWNER and not (
         actor_member.status == ChatMember.ADMINISTRATOR
         and getattr(actor_member, "can_promote_members", False)
@@ -59,7 +71,9 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         target_id, rest = await _resolve_target(update, context, args, allow_name=True)
         if rest:
             raise TargetError("Usage: reply to a member with /promote, or use /promote @username.")
-        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
+        bot_member = admins.get(context.bot.id)
+        if bot_member is None:
+            raise AuthorizationError("XYRON must be a group administrator.")
         if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
             raise AuthorizationError("XYRON must be a group administrator.")
         if not getattr(bot_member, "can_promote_members", False):
@@ -87,6 +101,7 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         try:
             await context.bot.promote_chat_member(chat.id, target_id, **rights)
+            invalidate_group_admin_cache(context.application.bot_data, chat.id)
         except TelegramError as exc:
             logger.warning(
                 "Telegram rejected promotion: chat_id=%s target_id=%s "
@@ -133,7 +148,22 @@ async def mass_ban_protector(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """
     event = update.chat_member
     chat = update.effective_chat
-    if not event or not chat or not event.from_user:
+    if not event or not chat:
+        return
+    old_member = event.old_chat_member
+    new_member = event.new_chat_member
+    old_status = getattr(old_member, "status", None)
+    new_status = getattr(new_member, "status", None)
+    if (
+        old_status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}
+        or new_status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}
+        or any(
+            bool(getattr(old_member, name, False)) != bool(getattr(new_member, name, False))
+            for name in RIGHTS
+        )
+    ):
+        invalidate_group_admin_cache(context.application.bot_data, chat.id)
+    if not event.from_user:
         return
     if getattr(event.new_chat_member, "status", None) != ChatMember.BANNED:
         return
@@ -165,14 +195,12 @@ async def _mass_ban_protector_locked(
     # Only actual Telegram admins can trigger this protection. The group owner
     # is explicitly exempt and is never subjected to a rights change.
     try:
-        current = await context.bot.get_chat_member(chat.id, actor_id)
-    except TelegramError:
-        logger.exception(
-            "Could not inspect ban actor: chat_id=%s actor_id=%s",
-            chat.id, actor_id,
-        )
+        admins = await get_group_admins(context.bot, context.application.bot_data, chat.id)
+    except GroupAdminLookupError:
+        logger.warning("Could not verify ban actor; skipping mass-ban protection: chat_id=%s actor_id=%s", chat.id, actor_id)
         return
-    if current.status != ChatMember.ADMINISTRATOR:
+    current = admins.get(actor_id)
+    if current is None or current.status != ChatMember.ADMINISTRATOR:
         return
 
     histories = policy.get("xyron_removal_events", {})
@@ -201,7 +229,10 @@ async def _mass_ban_protector_locked(
     # the change; we log that limitation and leave the group owner's controls
     # untouched. Keep the threshold history so a later event can retry.
     try:
-        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
+        bot_member = admins.get(context.bot.id)
+        if bot_member is None:
+            await policies.set_value(chat.id, "xyron_removal_events", histories)
+            return
         if (
             bot_member.status != ChatMember.ADMINISTRATOR
             or not getattr(bot_member, "can_promote_members", False)
