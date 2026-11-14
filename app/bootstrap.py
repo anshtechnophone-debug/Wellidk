@@ -1006,8 +1006,14 @@ async def _handler_metrics_reporter(
         background_queue = application.bot_data.get("background_work_queue")
         history_queue = application.bot_data.get("group_history_queue")
         visual_queue = application.bot_data.get("visual_moderation_queue")
+        update_queue = application.update_queue
+        processor = application.update_processor
         logger.info(
-            "UPDATE_BACKLOG background=%s/%s group_history=%s/%s visual_moderation=%s/%s",
+            "UPDATE_BACKLOG telegram_queue=%s active_updates=%s/%s "
+            "background=%s/%s group_history=%s/%s visual_moderation=%s/%s",
+            update_queue.qsize(),
+            processor.current_concurrent_updates,
+            processor.max_concurrent_updates,
             background_queue.qsize() if background_queue else 0,
             background_queue.maxsize if background_queue else 0,
             history_queue.qsize() if history_queue else 0,
