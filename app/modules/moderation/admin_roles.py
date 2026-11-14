@@ -255,6 +255,7 @@ async def _mass_ban_protector_locked(
         rights = {name: bool(getattr(current, name, False)) for name in RIGHTS}
         rights["can_restrict_members"] = False
         await context.bot.promote_chat_member(chat.id, actor_id, **rights)
+        invalidate_group_admin_cache(context.application.bot_data, chat.id)
 
         suspensions[actor_key] = {
             "expires_at": now + BAN_PERMISSION_SUSPENSION_SECONDS,
@@ -309,6 +310,7 @@ async def mass_ban_restore_worker(application, stop_event: asyncio.Event) -> Non
                             rights = {name: bool(getattr(member, name, False)) for name in RIGHTS}
                             rights["can_restrict_members"] = True
                             await application.bot.promote_chat_member(row.chat_id, actor_id, **rights)
+                            invalidate_group_admin_cache(application.bot_data, row.chat_id)
                             label = await _user_label(
                                 type("Context", (), {"application": application})(),
                                 row.chat_id,
