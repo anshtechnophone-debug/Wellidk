@@ -881,7 +881,7 @@ async def _post_init(application: Application) -> None:
     stop_event = asyncio.Event()
     application.bot_data["shutdown_event"] = stop_event
 
-    application.bot_data["visual_moderation_queue"] = asyncio.Queue(maxsize=100)
+    application.bot_data["visual_moderation_queue"] = asyncio.Queue(maxsize=500)
     # Keep history persistence off the update-handler path; never block commands.
     application.bot_data["group_history_queue"] = asyncio.Queue(maxsize=5000)
 
