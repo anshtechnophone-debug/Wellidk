@@ -630,11 +630,25 @@ async def visual_media_moderation_handler(
             break
 
     cache = context.application.bot_data.setdefault("visual_moderation_result_cache", {})
-    cache_key = tuple(sorted(
+    cache_ids = [
         getattr(item, "file_unique_id", None) or getattr(item, "file_id", "")
         for field in ("photo", "sticker", "animation", "video", "video_note", "document")
-        for item in ([getattr(message, field)[-1]] if field == "photo" and getattr(message, field, None) else [getattr(message, field)] if getattr(message, field, None) else [])
-    ))
+        for item in (
+            [getattr(message, field)[-1]]
+            if field == "photo" and getattr(message, field, None)
+            else [getattr(message, field)]
+            if getattr(message, field, None)
+            else []
+        )
+    ]
+    for paid_item in getattr(message, "paid_media", None) or ():
+        for field in ("photo", "video"):
+            item = getattr(paid_item, field, None)
+            if isinstance(item, (list, tuple)):
+                item = item[-1] if item else None
+            if item:
+                cache_ids.append(getattr(item, "file_unique_id", None) or getattr(item, "file_id", ""))
+    cache_key = tuple(sorted(value for value in cache_ids if value))
     now = time.monotonic()
     cached = cache.get(cache_key)
     if cached and now - cached[0] < _RESULT_CACHE_TTL_SECONDS:
