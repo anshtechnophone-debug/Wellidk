@@ -279,6 +279,6 @@ async def group_history_retention_worker(application, stop_event: asyncio.Event)
         except Exception:
             logger.exception("Group-history retention worker failed")
         try:
-            await asyncio.wait_for(stop_event.wait(), timeout=900)
+            await asyncio.wait_for(stop_event.wait(), timeout=60)
         except TimeoutError:
             continue
