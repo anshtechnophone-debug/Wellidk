@@ -851,7 +851,6 @@ class MusicPlugin:
                 })
                 await self.user_store.save_user(user.id, record)
                 await self._edit_playlist_view(query, record)
-                await query.answer("Song saved to your playlist", show_alert=False)
                 return
             if action == "delete" and len(parts) == 4:
                 item_id = parts[3]
@@ -896,7 +895,11 @@ class MusicPlugin:
             if action == "back":
                 current = self.players.get(chat_id)
                 if not current:
-                    await self._callback_notice(query, "Nothing is playing right now.")
+                    await query.edit_message_text(
+                        "🎧 <b>XYRON MUSIC</b>\nPlaylist closed. Use /myplaylist to open it again.",
+                        parse_mode="HTML",
+                        reply_markup={"inline_keyboard": [[{"text": "♫ Playlist", "callback_data": "music:playlist:open", "style": "primary"}]]},
+                    )
                     return
                 if getattr(query.message, "photo", None):
                     await query.edit_message_caption(
