@@ -30,6 +30,31 @@ _SPAM_PROTECTOR_THRESHOLD = 15
 _SPAM_PROTECTOR_WINDOW_SECONDS = 30
 _SPAM_PROTECTOR_MUTE_SECONDS = 600
 
+# Telegram membership lookups are network round-trips. Cache them briefly so
+# ordinary messages do not trigger repeated serial getChatMember requests.
+_MEMBER_CACHE_TTL = 8.0
+_MEMBER_CACHE: dict[tuple[int, int], tuple[float, ChatMember]] = {}
+
+async def _cached_chat_member(bot, chat_id: int, user_id: int) -> ChatMember:
+    key = (chat_id, user_id)
+    now = time.monotonic()
+    cached = _MEMBER_CACHE.get(key)
+    if cached and cached[0] > now:
+        return cached[1]
+    member = await bot.get_chat_member(chat_id, user_id)
+    _MEMBER_CACHE[key] = (now + _MEMBER_CACHE_TTL, member)
+    if len(_MEMBER_CACHE) > 10000:
+        for stale_key, (expires, _) in list(_MEMBER_CACHE.items()):
+            if expires <= now:
+                _MEMBER_CACHE.pop(stale_key, None)
+        if len(_MEMBER_CACHE) > 10000:
+            _MEMBER_CACHE.clear()
+    return member
+
+def _invalidate_member_cache(chat_id: int, user_id: int) -> None:
+    _MEMBER_CACHE.pop((chat_id, user_id), None)
+
+
 DEFAULT_GROUP_RULES = """1. No ads or promotions. Do not advertise products, groups, or channels.
 2. Keep it appropriate. Do not post explicit or disturbing content.
 3. Respect everyone. No harassment, threats, or personal attacks.
@@ -628,6 +653,7 @@ async def group_member_event(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # because its command handlers already write a richer audit event.
     actor = member_update.from_user
     target = new_member.user
+    _invalidate_member_cache(chat.id, target.id)
 
     # Remember members from Telegram member updates, including people who have
     # not posted messages. Telegram does not provide a complete member-list scan.
@@ -753,16 +779,14 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
         return
     if approved and not user.is_bot and not spam_enabled:
         return
-    try:
-        actor = await context.bot.get_chat_member(chat.id, user.id)
-    except TelegramError:
-        return
-    if actor.status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER} and not user.is_bot:
-        return
     settings: Settings = context.application.bot_data["settings"]
     try:
-        owner = await context.bot.get_chat_member(chat.id, settings.owner_id)
-        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
+        # Avoid up to three serial Telegram API requests for every group message.
+        actor = await _cached_chat_member(context.bot, chat.id, user.id)
+        if actor.status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER} and not user.is_bot:
+            return
+        owner = await _cached_chat_member(context.bot, chat.id, settings.owner_id)
+        bot_member = await _cached_chat_member(context.bot, chat.id, context.bot.id)
     except TelegramError:
         return
     if settings.owner_admin_required and owner.status not in {
