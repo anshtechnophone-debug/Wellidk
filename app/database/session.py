@@ -22,7 +22,15 @@ def create_database(database_url: str) -> tuple[AsyncEngine, async_sessionmaker]
     engine_options: dict[str, object] = {"pool_pre_ping": True}
     if is_file_sqlite:
         Path(url.database).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
-        engine_options["connect_args"] = {"timeout": 30}
+        # Keep the SQLite pool bounded on small VPS instances. WAL allows readers
+        # alongside the single SQLite writer; a finite timeout prevents a
+        # stalled writer from holding an update task for 30 seconds.
+        engine_options.update(
+            pool_size=5,
+            max_overflow=5,
+            pool_timeout=10,
+            connect_args={"timeout": 10},
+        )
 
     engine = create_async_engine(database_url, **engine_options)
 
@@ -31,7 +39,7 @@ def create_database(database_url: str) -> tuple[AsyncEngine, async_sessionmaker]
         def _configure_sqlite_connection(dbapi_connection, _connection_record) -> None:
             cursor = dbapi_connection.cursor()
             try:
-                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.execute("PRAGMA busy_timeout=10000")
                 cursor.execute("PRAGMA synchronous=NORMAL")
             finally:
                 cursor.close()
