@@ -139,6 +139,7 @@ from app.modules.games.handlers import (
     new5_command,
     new6_command,
     wordseek_text_handler,
+    wordseek_tile_callback,
     wordstate_command,
 )
 from app.modules.moderation.bot_admins import admin_command, unadmin_command, botadminlist_command, demote_command, pin_command
@@ -631,6 +632,7 @@ def _register_general(application: Application) -> None:
         group=0,
     )
     application.add_handler(CallbackQueryHandler(quote_vote_callback, pattern=r"^qv:\d+:(?:up|down)$"), group=0)
+    application.add_handler(CallbackQueryHandler(wordseek_tile_callback, pattern=r"^ws:hint:"), group=0)
     application.add_handler(CallbackQueryHandler(wordrank_callback, pattern=r"^wr:(?:p|s|l):"), group=0)
     application.add_handler(CallbackQueryHandler(family_request_callback, pattern=r"^famreq:[ad]:[0-9]+$"), group=0)
     application.add_handler(CallbackQueryHandler(familyrank_callback, pattern=r"^famrank:"), group=0)
