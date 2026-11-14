@@ -10,14 +10,20 @@ from app.modules.community.message_tools import delete_command, purge_command, u
 
 
 def _context(member_statuses, **bot_methods):
+    admins = []
+    for user_id, (status, can_delete) in zip((20, 10, 99), member_statuses):
+        if status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
+            admins.append(
+                SimpleNamespace(
+                    user=SimpleNamespace(id=user_id),
+                    status=status,
+                    can_delete_messages=can_delete,
+                )
+            )
     bot = SimpleNamespace(
         id=99,
-        get_chat_member=AsyncMock(
-            side_effect=[
-                SimpleNamespace(status=status, can_delete_messages=can_delete)
-                for status, can_delete in member_statuses
-            ]
-        ),
+        get_chat_administrators=AsyncMock(return_value=admins),
+        get_chat_member=AsyncMock(),
         **bot_methods,
     )
     application = SimpleNamespace(bot_data={"settings": Settings(bot_token="token", owner_id=10)})
