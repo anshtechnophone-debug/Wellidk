@@ -222,118 +222,78 @@ async def _log_command_update_diagnostic(
     )
 
 
-async def collect_group_message(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-) -> None:
-    """Persist group messages for future history searches."""
-
+async def collect_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Queue messages from the designated group for background history storage."""
     message = update.effective_message
     chat = update.effective_chat
-
-    if not message or not chat:
+    if not message or not chat or chat.id != -1003801913218:
         return
-
     if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         return
-
     user = message.from_user
     if not user:
         return
-
-    # Persist history only in groups where the primary owner is present and XYRON is an administrator.
-    settings = context.application.bot_data.get("settings")
-    if settings is None:
-        return
-    now = time.monotonic()
-    cache = context.application.bot_data.setdefault("_xyron_owner_gc_cache", {})
-    cached = cache.get(chat.id)
-    if cached is None or cached[0] <= now:
-        try:
-            owner_member = await context.bot.get_chat_member(chat.id, settings.owner_id)
-            bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
-            eligible_gc = (
-                owner_member.status in {"member", "administrator", "creator"}
-                and bot_member.status in {"administrator", "creator"}
-            )
-        except Exception:
-            eligible_gc = False
-        cache[chat.id] = (now + 300, eligible_gc)
-    if not cache[chat.id][1]:
-        return
-
-    text = (message.text or message.caption or "").strip()
+    text = (message.text or message.caption or '').strip()
     if not text:
-        attachment = getattr(message, "effective_attachment", None)
+        attachment = getattr(message, 'effective_attachment', None)
         if attachment is None:
             return
-        if getattr(message, "photo", None):
-            text = "[photo]"
-        elif getattr(message, "video", None):
-            text = "[video]"
-        elif getattr(message, "animation", None):
-            text = "[animation]"
-        elif getattr(message, "document", None):
-            text = "[document]"
-        elif getattr(message, "audio", None):
-            text = "[audio]"
-        elif getattr(message, "voice", None):
-            text = "[voice]"
-        elif getattr(message, "video_note", None):
-            text = "[video note]"
-        elif getattr(message, "sticker", None):
-            text = "[sticker]"
-        elif getattr(message, "location", None):
-            text = "[location]"
-        elif getattr(message, "contact", None):
-            text = "[contact]"
-        elif getattr(message, "poll", None):
-            text = "[poll]"
-        else:
-            text = "[media]"
-
-    sessions = context.application.bot_data.get("sessions")
-    if sessions is None:
-        logger.warning("Group history collector has no database session factory")
+        if message.photo: text = '[photo]'
+        elif message.video: text = '[video]'
+        elif message.animation: text = '[animation]'
+        elif message.document: text = '[document]'
+        elif message.audio: text = '[audio]'
+        elif message.voice: text = '[voice]'
+        elif message.video_note: text = '[video note]'
+        elif message.sticker: text = '[sticker]'
+        elif message.location: text = '[location]'
+        elif message.contact: text = '[contact]'
+        elif message.poll: text = '[poll]'
+        else: text = '[media]'
+    queue = context.application.bot_data.get('group_history_queue')
+    if queue is None:
         return
-
+    item = {
+        'chat_id': chat.id, 'message_id': message.message_id,
+        'user_id': user.id, 'username': user.username,
+        'display_name': user.full_name, 'message_text': text,
+        'sent_at': message.date, 'is_bot': user.is_bot,
+    }
     try:
-        repository = GroupHistoryRepository(sessions)
-        inserted = await repository.save_message(
-            chat_id=chat.id,
-            message_id=message.message_id,
-            user_id=user.id,
-            username=user.username,
-            display_name=user.full_name,
-            message_text=text,
-            sent_at=message.date,
-        )
-        # Count only newly received human messages. Edits and duplicate updates
-        # are ignored, and the lifetime counter survives history cleanup/restarts.
-        if inserted and not user.is_bot:
-            try:
-                count, reached = await MessageMilestoneRepository(sessions).increment(chat.id)
-                if reached:
-                    await context.bot.send_message(
-                        chat_id=chat.id,
-                        text=(
-                            f"🎉 {count:,} Messages Reached!\n\n"
-                            f"Congratulations! Your group has officially sent "
-                            f"{count:,} messages. Keep chatting and keep the group active! 🚀"
-                        ),
-                    )
-            except Exception:
-                logger.exception(
-                    "Failed to update or announce group message milestone: chat_id=%s",
-                    chat.id,
-                )
-    except Exception:
-        logger.exception(
-            "Failed to save group message: chat_id=%s message_id=%s",
-            chat.id,
-            message.message_id,
-        )
+        queue.put_nowait(item)
+    except asyncio.QueueFull:
+        logger.warning('Group-history queue full; skipped message: chat_id=%s message_id=%s', chat.id, message.message_id)
 
+
+async def group_history_worker(application: Application, stop_event: asyncio.Event) -> None:
+    """Persist history independently so database writes never hold up commands."""
+    queue = application.bot_data['group_history_queue']
+    sessions = application.bot_data['sessions']
+    repository = GroupHistoryRepository(sessions)
+    while not stop_event.is_set() or not queue.empty():
+        try:
+            item = await asyncio.wait_for(queue.get(), timeout=1.0)
+        except TimeoutError:
+            continue
+        try:
+            inserted = await repository.save_message(
+                chat_id=item['chat_id'], message_id=item['message_id'],
+                user_id=item['user_id'], username=item['username'],
+                display_name=item['display_name'], message_text=item['message_text'],
+                sent_at=item['sent_at'],
+            )
+            if inserted and not item['is_bot']:
+                count, reached = await MessageMilestoneRepository(sessions).increment(item['chat_id'])
+                if reached:
+                    await application.bot.send_message(
+                        chat_id=item['chat_id'],
+                        text=(f'🎉 {count:,} Messages Reached!\n\n'
+                              f'Congratulations! Your group has officially sent {count:,} messages. Keep chatting and keep the group active! 🚀'),
+                    )
+        except Exception:
+            logger.exception('Background group-history save failed: chat_id=%s message_id=%s', item.get('chat_id'), item.get('message_id'))
+        finally:
+            queue.task_done()
 
 async def collect_group_activity(
     update: Update,
@@ -922,8 +882,14 @@ async def _post_init(application: Application) -> None:
     application.bot_data["shutdown_event"] = stop_event
 
     application.bot_data["visual_moderation_queue"] = asyncio.Queue(maxsize=100)
+    # Keep history persistence off the update-handler path; never block commands.
+    application.bot_data["group_history_queue"] = asyncio.Queue(maxsize=5000)
 
     application.bot_data["worker_tasks"] = {
+        "group_history": application.create_task(
+            group_history_worker(application, stop_event),
+            name="xyron-group-history-worker",
+        ),
         "visual_moderation": application.create_task(
             visual_moderation_worker(application, stop_event),
             name="xyron-visual-moderation-worker",
