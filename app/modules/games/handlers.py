@@ -65,17 +65,20 @@ def _format_wordseek_board(
     ending_text: str = "",
     max_guesses: int = 30,
 ) -> str:
-    """Render the board with ordinary Telegram text and colored tile emoji."""
+    """Build an emoji-free native Rich Message board using highlighted letter tiles."""
     lines = [
-        f"<b>{length} LETTERS</b>",
+        "<h2>WordSeek</h2>",
+        f"<h3>{length}-letter mode</h3>",
         f"<i>{len(guesses)}/{max_guesses} guesses</i>",
         "",
     ]
     for guess, feedback in zip(guesses, feedbacks):
-        lines.append(" ".join(
-            f"{tile} <b>{escape(letter.upper())}</b>"
-            for letter, tile in zip(guess, feedback)
-        ))
+        tiles = []
+        for letter, status in zip(guess, feedback):
+            # Rich HTML's mark entity renders a native highlighted text tile.
+            # Do not use colored-square emoji as a substitute for rich formatting.
+            tiles.append(f"<mark><b>{escape(letter.upper())}</b></mark>")
+        lines.append("  ".join(tiles))
     if ending_text:
         lines.extend(["", ending_text])
     return "\n".join(lines)
@@ -126,7 +129,15 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
             "WordSeek Rich Message unavailable (%s); falling back to HTML message",
             type(exc).__name__,
         )
-        await message.reply_text(board, parse_mode="HTML")
+        # Basic-message fallback deliberately avoids emoji tiles. Native tile
+        # highlighting is available only through sendRichMessage.
+        plain_fallback = (
+            f"WordSeek — {len(value)}-letter mode\n"
+            f"{len(result.guesses)}/30 guesses\n\n"
+            + "\n".join("  ".join(letter.upper() for letter in row)
+                         for row in result.guesses)
+        )
+        await message.reply_text(plain_fallback)
 
 
 async def guess_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
