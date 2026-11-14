@@ -890,10 +890,13 @@ async def _post_init(application: Application) -> None:
             group_history_worker(application, stop_event),
             name="xyron-group-history-worker",
         ),
-        "visual_moderation": application.create_task(
-            visual_moderation_worker(application, stop_event),
-            name="xyron-visual-moderation-worker",
-        ),
+        **{
+            f"visual_moderation_{index + 1}": application.create_task(
+                visual_moderation_worker(application, stop_event),
+                name=f"xyron-visual-moderation-worker-{index + 1}",
+            )
+            for index in range(3)
+        },
         "moderation_expiry": application.create_task(
             expiration_worker(application, stop_event),
             name="xyron-expiration-worker",
