@@ -16,6 +16,7 @@ from telegram.ext import ContextTypes
 from app.config import Settings
 from app.database.models import KnownUser
 from app.core.permissions import AuthorizationError, require_admin_access
+from app.core.group_admin_cache import GroupAdminLookupError, get_group_admins
 from app.services.group_policy import GroupPolicyRepository
 from app.services.reports import ReportRepository
 from app.services.moderation import ModerationRepository
@@ -55,11 +56,11 @@ def _invalidate_member_cache(chat_id: int, user_id: int) -> None:
     _MEMBER_CACHE.pop((chat_id, user_id), None)
 
 async def _timed_group_step(name: str, awaitable, chat_id: int, user_id: int):
-    started = time.perf_counter()
+    started = time.monotonic()
     try:
         return await awaitable
     finally:
-        elapsed_ms = (time.perf_counter() - started) * 1000
+        elapsed_ms = (time.monotonic() - started) * 1000
         if elapsed_ms >= 100:
             logger.warning(
                 "GROUP_MESSAGE_STEP slow=true step=%s elapsed_ms=%.1f chat_id=%s user_id=%s",
@@ -522,12 +523,20 @@ async def _auto_mute_spammer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     repository = ModerationRepository(context.application.bot_data["sessions"])
     actor_id = context.bot.id
     try:
+        admins = await get_group_admins(context.bot, context.application.bot_data, chat.id)
+    except GroupAdminLookupError:
+        return False
+    if user.id in admins:
+        return False
+    bot_member = admins.get(context.bot.id)
+    if bot_member is None or not getattr(bot_member, "can_restrict_members", False):
+        logger.warning("Spam protector cannot mute in chat %s: missing restrict rights", chat.id)
+        return False
+    try:
+        # This per-target lookup is still needed to preserve the member's
+        # existing permissions before applying the temporary restriction.
         member = await context.bot.get_chat_member(chat.id, user.id)
         if member.status != ChatMember.MEMBER:
-            return False
-        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
-        if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER} or not getattr(bot_member, "can_restrict_members", False):
-            logger.warning("Spam protector cannot mute in chat %s: missing restrict rights", chat.id)
             return False
     except TelegramError:
         return False
@@ -631,11 +640,11 @@ async def verification_command(update: Update, context: ContextTypes.DEFAULT_TYP
             await message.reply_text("Use /verification on or /verification off inside your group.")
         return
     try:
-        actor = await context.bot.get_chat_member(chat.id, user.id)
-    except TelegramError:
+        admins = await get_group_admins(context.bot, context.application.bot_data, chat.id)
+    except GroupAdminLookupError:
         await _respond(update, "I couldn't verify your Telegram admin status. Please try again.")
         return
-    if actor.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
+    if user.id not in admins:
         await _respond(update, "Only this group's Telegram owner or administrators can change verification.")
         return
     if len(context.args) != 1 or context.args[0].casefold() not in {"on", "off"}:
@@ -791,22 +800,31 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
         return
     if approved and not user.is_bot and not spam_enabled:
         return
+    # One shared admin snapshot replaces multiple serial Telegram lookups.
+    # Keep timing instrumentation to identify any remaining Telegram latency.
     settings: Settings = context.application.bot_data["settings"]
     try:
-        # Avoid up to three serial Telegram API requests for every group message.
-        actor = await _timed_group_step("member_lookup_sender", _cached_chat_member(context.bot, chat.id, user.id), chat.id, user.id)
-        if actor.status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER} and not user.is_bot:
-            return
-        owner = await _timed_group_step("member_lookup_owner", _cached_chat_member(context.bot, chat.id, settings.owner_id), chat.id, user.id)
-        bot_member = await _timed_group_step("member_lookup_bot", _cached_chat_member(context.bot, chat.id, context.bot.id), chat.id, user.id)
-    except TelegramError:
+        admins = await _timed_group_step(
+            "member_lookup_admins",
+            get_group_admins(
+                context.bot, context.application.bot_data, chat.id
+            ),
+            chat.id,
+            user.id,
+        )
+    except GroupAdminLookupError:
         return
-    if settings.owner_admin_required and owner.status not in {
-        ChatMember.ADMINISTRATOR,
-        ChatMember.OWNER,
-    }:
+
+    actor = admins.get(user.id)
+    if actor is not None and not user.is_bot:
         return
-    if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
+
+    owner = admins.get(settings.owner_id)
+    bot_member = admins.get(context.bot.id)
+    if settings.owner_admin_required and owner is None:
+        return
+        return
+    if bot_member is None:
         return
 
     # Dedicated spam protection is independent of the existing delete-only antiflood.
@@ -864,5 +882,3 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
         except TelegramError:
             logger.info("Could not delete locked message in chat %s", chat.id)
         return
-
-

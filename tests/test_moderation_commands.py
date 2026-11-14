@@ -18,6 +18,14 @@ def _member(status, **permissions):
     return SimpleNamespace(status=status, **permissions)
 
 
+def _admin_member(user_id, status, **permissions):
+    return SimpleNamespace(
+        user=SimpleNamespace(id=user_id),
+        status=status,
+        **permissions,
+    )
+
+
 @pytest.fixture
 async def bot_context(tmp_path):
     engine, sessions = create_database(f"sqlite+aiosqlite:///{tmp_path / 'moderation.db'}")
@@ -28,7 +36,22 @@ async def bot_context(tmp_path):
     defaults = ChatPermissions(**default_values)
     bot = SimpleNamespace(
         id=99,
-        get_chat_member=AsyncMock(),
+        get_chat_administrators=AsyncMock(
+            return_value=[
+                _admin_member(
+                    20,
+                    ChatMember.ADMINISTRATOR,
+                    can_restrict_members=True,
+                ),
+                _admin_member(10, ChatMember.OWNER),
+                _admin_member(
+                    99,
+                    ChatMember.ADMINISTRATOR,
+                    can_restrict_members=True,
+                ),
+            ]
+        ),
+        get_chat_member=AsyncMock(return_value=_member(ChatMember.MEMBER)),
         get_chat=AsyncMock(return_value=SimpleNamespace(permissions=defaults)),
         restrict_chat_member=AsyncMock(),
         ban_chat_member=AsyncMock(),
@@ -62,20 +85,10 @@ def _update(message_text="/mute 22"):
     return update, message
 
 
-def _authorization_members():
-    return [
-        _member(ChatMember.ADMINISTRATOR, can_restrict_members=True),
-        _member(ChatMember.OWNER),
-        _member(ChatMember.ADMINISTRATOR, can_restrict_members=True),
-        _member(ChatMember.MEMBER),
-        _member(ChatMember.MEMBER),
-    ]
-
 
 @pytest.mark.asyncio
 async def test_mute_api_success_records_and_saves_pre_mute_baseline(bot_context):
     context, sessions = bot_context
-    context.bot.get_chat_member.side_effect = _authorization_members()
     update, message = _update()
 
     await moderation_command(update, context)
@@ -95,7 +108,6 @@ async def test_mute_api_success_records_and_saves_pre_mute_baseline(bot_context)
 @pytest.mark.asyncio
 async def test_mute_api_failure_is_reported_without_success_or_snapshot(bot_context):
     context, sessions = bot_context
-    context.bot.get_chat_member.side_effect = _authorization_members()
     context.bot.restrict_chat_member.side_effect = BadRequest("not enough rights")
     update, message = _update()
 
@@ -110,7 +122,6 @@ async def test_mute_api_failure_is_reported_without_success_or_snapshot(bot_cont
 @pytest.mark.asyncio
 async def test_mute_duration_creates_restart_safe_expiration(bot_context):
     context, sessions = bot_context
-    context.bot.get_chat_member.side_effect = _authorization_members()
     context.args = ["22", "10m"]
     update, message = _update("/mute 22 10m")
 
@@ -131,9 +142,6 @@ async def test_unmute_intersects_saved_permissions_with_current_group_defaults(b
     saved = {name: True for name in ChatPermissions.__slots__}
     repository = ModerationRepository(sessions)
     await repository.remember_permissions(-1001, 22, 20, saved)
-    context.bot.get_chat_member.side_effect = _authorization_members()[:3] + [
-        _member(ChatMember.MEMBER)
-    ]
     update, message = _update("/unmute 22")
 
     await unmute_command(update, context)
@@ -150,9 +158,6 @@ async def test_unmute_failure_keeps_snapshot_and_reports_telegram_reason(bot_con
     context, sessions = bot_context
     repository = ModerationRepository(sessions)
     await repository.remember_permissions(-1001, 22, 20, {"can_send_messages": True})
-    context.bot.get_chat_member.side_effect = _authorization_members()[:3] + [
-        _member(ChatMember.MEMBER)
-    ]
     context.bot.restrict_chat_member.side_effect = BadRequest("not enough rights")
     update, message = _update("/unmute 22")
 
