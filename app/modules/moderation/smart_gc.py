@@ -10,6 +10,7 @@ from telegram import Chat, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
+from app.core.group_admin_cache import GroupAdminLookupError, get_group_admins
 from app.services.group_policy import GroupPolicyRepository
 from app.services.moderation import ModerationRepository
 
@@ -88,9 +89,9 @@ async def _can_manage_smart_gc(update: Update, context: ContextTypes.DEFAULT_TYP
     if settings.is_owner(user.id):
         return True
     try:
-        member = await context.bot.get_chat_member(chat.id, user.id)
-        return member.status in {'administrator', 'creator'}
-    except TelegramError:
+        admins = await get_group_admins(context.bot, context.application.bot_data, chat.id)
+        return user.id in admins
+    except GroupAdminLookupError:
         return False
 
 
@@ -167,12 +168,14 @@ async def smartgc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         await query.answer("Open Smart GC settings inside the group.", show_alert=True)
         return
-    try:
-        member = await context.bot.get_chat_member(chat.id, query.from_user.id)
-        settings = context.application.bot_data["settings"]
-        allowed = settings.is_owner(query.from_user.id) or member.status in {"administrator", "creator"}
-    except TelegramError:
-        allowed = False
+    settings = context.application.bot_data["settings"]
+    allowed = settings.is_owner(query.from_user.id)
+    if not allowed:
+        try:
+            admins = await get_group_admins(context.bot, context.application.bot_data, chat.id)
+            allowed = query.from_user.id in admins
+        except GroupAdminLookupError:
+            allowed = False
     if not allowed:
         await query.answer("Only group admins can change Smart GC.", show_alert=True)
         return
@@ -258,19 +261,20 @@ async def smartgc_abuse_guard(
         return
 
     try:
-        member = await context.bot.get_chat_member(chat.id, user.id)
-    except TelegramError:
-        logger.debug("Could not inspect member %s in %s for Smart GC", user.id, chat.id)
+        admins = await get_group_admins(context.bot, context.application.bot_data, chat.id)
+    except GroupAdminLookupError:
+        logger.debug("Could not verify administrators in %s for Smart GC", chat.id)
         return
-    if member.status in {"administrator", "creator"}:
+    if user.id in admins:
         return
-
-    try:
-        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
-        if getattr(bot_member, "can_delete_messages", False):
+    bot_member = admins.get(context.bot.id)
+    if bot_member is None:
+        return
+    if getattr(bot_member, "can_delete_messages", False):
+        try:
             await message.delete()
-    except TelegramError:
-        logger.info("Smart GC could not delete abusive message in %s", chat.id)
+        except TelegramError:
+            logger.info("Smart GC could not delete abusive message in %s", chat.id)
 
     repository = ModerationRepository(sessions)
     bot_id = context.bot.id
@@ -293,7 +297,6 @@ async def smartgc_abuse_guard(
         return
 
     try:
-        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
         if not getattr(bot_member, "can_restrict_members", False):
             await context.bot.send_message(
                 chat.id,
