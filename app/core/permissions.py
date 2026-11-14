@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 from telegram import Chat, ChatMember, ChatPermissions, Update
-from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from sqlalchemy import select
 
 from app.config import Settings
+from app.core.group_admin_cache import GroupAdminLookupError, get_group_admins
 from app.database.group_bot_admins import GroupBotAdmin
 
 
@@ -36,11 +37,25 @@ async def require_admin_access(update: Update, context: ContextTypes.DEFAULT_TYP
     if not message or not chat or not actor_user or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         raise AuthorizationError("This command is available only in groups.")
 
-    bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
-    if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
+    # One group-wide Telegram call replaces separate sender/bot membership
+    # lookups. A failed refresh is fail-closed: no moderation is authorized.
+    try:
+        admins = await get_group_admins(
+            context.bot, context.application.bot_data, chat.id
+        )
+    except GroupAdminLookupError as exc:
+        raise AuthorizationError(
+            "XYRON couldn't verify this group's administrators. Please try again shortly."
+        ) from exc
+
+    bot_member = admins.get(context.bot.id)
+    if bot_member is None:
         raise AuthorizationError("XYRON must be a group administrator to do that.")
 
-    actor = await context.bot.get_chat_member(chat.id, actor_user.id)
+    actor = admins.get(actor_user.id)
+    if actor is None:
+        actor = SimpleNamespace(status=ChatMember.MEMBER, user=actor_user)
+
     is_real_admin = actor.status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}
     sessions = context.application.bot_data.get("sessions")
     is_bot_admin = False
@@ -95,17 +110,20 @@ async def ensure_target_is_moderatable(
         raise AuthorizationError("That user is protected from moderation.")
     try:
         target = await context.bot.get_chat_member(chat_id, target_id)
-    except BadRequest as exc:
+    except Exception as exc:
         # Telegram cannot return a ChatMember for someone who has never joined
         # or is no longer in the group. Only ban/unban may target absent users.
-        detail = str(exc).casefold()
-        absent = any(term in detail for term in (
-            "user not participant", "user_not_participant",
-            "chat member not found", "user not found",
-            "participant_id_invalid", "participant id invalid",
-        ))
-        if allow_absent and absent:
-            return
+        from telegram.error import BadRequest
+
+        if isinstance(exc, BadRequest):
+            detail = str(exc).casefold()
+            absent = any(term in detail for term in (
+                "user not participant", "user_not_participant",
+                "chat member not found", "user not found",
+                "participant_id_invalid", "participant id invalid",
+            ))
+            if allow_absent and absent:
+                return
         raise
     if target.status == ChatMember.OWNER:
         raise AuthorizationError("The group owner cannot be moderated by the bot.")
