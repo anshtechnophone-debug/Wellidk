@@ -8,6 +8,7 @@ from telegram import Chat, ChatMember, ChatPermissions, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
+from app.core.group_admin_cache import GroupAdminLookupError, get_group_admins
 from app.services.group_policy import GroupPolicyRepository
 
 logger = logging.getLogger(__name__)
@@ -57,28 +58,30 @@ async def reaction_guard_handler(
     if user.id in {int(value) for value in policy.get("approved_users", [])}:
         return
 
-    # Leave group admins and the group owner alone.
+    # Use the shared admin snapshot to exempt administrators and verify XYRON.
+    try:
+        admins = await get_group_admins(context.bot, context.application.bot_data, chat.id)
+    except GroupAdminLookupError:
+        logger.warning("Reaction guard could not verify administrators in chat %s", chat.id)
+        return
+    if user.id in admins:
+        return
+    bot_member = admins.get(context.bot.id)
+    if bot_member is None or not getattr(bot_member, "can_restrict_members", False):
+        logger.warning(
+            "Reaction guard cannot restrict members in chat %s: "
+            "XYRON needs administrator permission to restrict members",
+            chat.id,
+        )
+        return
+
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
-        if member.status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
-            return
         if member.status not in {ChatMember.MEMBER, ChatMember.RESTRICTED}:
             return
         if member.status == ChatMember.RESTRICTED and getattr(
             member, "can_react_to_messages", None
         ) is False:
-            return
-
-        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
-        if (
-            bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}
-            or not getattr(bot_member, "can_restrict_members", False)
-        ):
-            logger.warning(
-                "Reaction guard cannot restrict members in chat %s: "
-                "XYRON needs administrator permission to restrict members",
-                chat.id,
-            )
             return
 
         # Preserve every existing/default permission and disable only reactions.
