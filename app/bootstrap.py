@@ -989,7 +989,7 @@ async def _handler_metrics_reporter(
         metrics = application.bot_data.get("_xyron_handler_timing", {})
         background_queue = application.bot_data.get("background_work_queue")
         history_queue = application.bot_data.get("group_history_queue")
-         update_queue = application.update_queue
+        update_queue = application.update_queue
         processor = application.update_processor
         logger.info(
             "UPDATE_BACKLOG telegram_queue=%s active_updates=%s/%s "
