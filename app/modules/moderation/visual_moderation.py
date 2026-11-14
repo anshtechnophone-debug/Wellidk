@@ -13,6 +13,7 @@ import logging
 import subprocess
 import tempfile
 import time
+from types import SimpleNamespace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -267,6 +268,8 @@ async def _delete_and_maybe_mute(update, context, message, user) -> None:
     chat = update.effective_chat
     if not chat or not user:
         return
+    async def delete_target():
+        return await context.bot.delete_message(chat_id=chat.id, message_id=message.message_id)
 
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
@@ -277,7 +280,7 @@ async def _delete_and_maybe_mute(update, context, message, user) -> None:
     # Telegram group administrators and owners are deletion-only.
     if member.status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
         try:
-            await message.delete()
+            await delete_target()
         except TelegramError:
             logger.warning("Smart GC could not delete flagged admin media", exc_info=True)
         return
@@ -380,7 +383,33 @@ async def enqueue_visual_media_moderation(
         "other"
     )
     try:
-        queue.put_nowait((update, context))
+        media_fields = ("photo", "sticker", "animation", "video", "video_note", "document")
+        media = {}
+        for field in media_fields:
+            value = getattr(message, field, None)
+            if field == "photo" and value:
+                value = value[-1]
+            if value:
+                media[field] = {
+                    "file_id": getattr(value, "file_id", None),
+                    "file_unique_id": getattr(value, "file_unique_id", None),
+                    "mime_type": getattr(value, "mime_type", None),
+                    "is_video": bool(getattr(value, "is_video", False)),
+                    "is_animated": bool(getattr(value, "is_animated", False)),
+                    "is_premium": bool(getattr(value, "is_premium", False)),
+                }
+        if not media:
+            logger.debug("SMARTGC_VISUAL stage=enqueue result=skipped reason=no_media_metadata chat_id=%s message_id=%s", chat.id, message.message_id)
+            return
+        job = {
+            "chat_id": chat.id,
+            "message_id": message.message_id,
+            "user_id": user.id,
+            "media_kind": media_kind,
+            "media": media,
+            "enqueued_at": time.monotonic(),
+        }
+        queue.put_nowait(job)
         logger.info(
             "SMARTGC_VISUAL stage=enqueue result=queued chat_id=%s message_id=%s "
             "user_id=%s media_kind=%s queue_size=%s",
@@ -395,50 +424,58 @@ async def enqueue_visual_media_moderation(
 
 
 async def visual_moderation_worker(application, stop_event: asyncio.Event) -> None:
-    """Process queued visual checks outside the main Telegram update path."""
+    """Process compact metadata jobs; no Update or CallbackContext is retained."""
     queue = application.bot_data["visual_moderation_queue"]
     while not stop_event.is_set() or not queue.empty():
         try:
-            update, context = await asyncio.wait_for(queue.get(), timeout=1.0)
+            job = await asyncio.wait_for(queue.get(), timeout=1.0)
         except asyncio.TimeoutError:
             continue
         started = time.monotonic()
-        message = update.effective_message
-        chat = update.effective_chat
+        chat_id, message_id = job["chat_id"], job["message_id"]
+        wait_ms = round((started - job["enqueued_at"]) * 1000)
         logger.info(
-            "SMARTGC_VISUAL stage=worker result=started chat_id=%s message_id=%s queue_size=%s",
-            chat.id if chat else None,
-            message.message_id if message else None,
-            queue.qsize(),
+            "SMARTGC_VISUAL stage=worker result=started chat_id=%s message_id=%s "
+            "queue_wait_ms=%s queue_size=%s",
+            chat_id, message_id, wait_ms, queue.qsize(),
         )
         try:
+            media_objects = {}
+            for field, metadata in job["media"].items():
+                media_objects[field] = SimpleNamespace(**metadata)
+            message = SimpleNamespace(
+                message_id=message_id,
+                photo=[media_objects["photo"]] if "photo" in media_objects else None,
+                sticker=media_objects.get("sticker"),
+                animation=media_objects.get("animation"),
+                video=media_objects.get("video"),
+                video_note=media_objects.get("video_note"),
+                document=media_objects.get("document"),
+                paid_media=None,
+            )
+            chat = SimpleNamespace(id=chat_id, type=Chat.SUPERGROUP)
+            user = SimpleNamespace(id=job["user_id"], is_bot=False)
+            update = SimpleNamespace(effective_message=message, effective_chat=chat, effective_user=user)
+            context = SimpleNamespace(application=application, bot=application.bot)
             await asyncio.wait_for(
                 visual_media_moderation_handler(update, context),
                 timeout=_VISUAL_JOB_TIMEOUT_SECONDS,
             )
             logger.info(
                 "SMARTGC_VISUAL stage=worker result=finished chat_id=%s message_id=%s "
-                "duration_ms=%s",
-                chat.id if chat else None,
-                message.message_id if message else None,
-                round((time.monotonic() - started) * 1000),
+                "duration_ms=%s total_ms=%s",
+                chat_id, message_id, round((time.monotonic() - started) * 1000),
+                round((time.monotonic() - job["enqueued_at"]) * 1000),
             )
         except asyncio.TimeoutError:
             logger.error(
                 "SMARTGC_VISUAL stage=worker result=timeout chat_id=%s message_id=%s "
                 "deadline_seconds=%.1f total_ms=%s",
-                chat.id if chat else None,
-                message.message_id if message else None,
-                _VISUAL_JOB_TIMEOUT_SECONDS,
-                round((time.monotonic() - started) * 1000),
+                chat_id, message_id, _VISUAL_JOB_TIMEOUT_SECONDS,
+                round((time.monotonic() - job["enqueued_at"]) * 1000),
             )
         except Exception:
-            message = update.effective_message
-            logger.exception(
-                "Smart GC visual worker failed chat_id=%s message_id=%s",
-                update.effective_chat.id if update.effective_chat else None,
-                message.message_id if message else None,
-            )
+            logger.exception("Smart GC visual worker failed chat_id=%s message_id=%s", chat_id, message_id)
         finally:
             queue.task_done()
 
@@ -569,7 +606,11 @@ async def visual_media_moderation_handler(
             break
 
     cache = context.application.bot_data.setdefault("visual_moderation_result_cache", {})
-    cache_key = tuple(sorted(file_ids))
+    cache_key = tuple(sorted(
+        getattr(item, "file_unique_id", None) or getattr(item, "file_id", "")
+        for field in ("photo", "sticker", "animation", "video", "video_note", "document")
+        for item in ([getattr(message, field)[-1]] if field == "photo" and getattr(message, field, None) else [getattr(message, field)] if getattr(message, field, None) else [])
+    ))
     now = time.monotonic()
     cached = cache.get(cache_key)
     if cached and now - cached[0] < _RESULT_CACHE_TTL_SECONDS:
