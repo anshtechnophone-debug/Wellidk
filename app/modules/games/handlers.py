@@ -5,6 +5,7 @@ from __future__ import annotations
 from html import escape
 import json
 import logging
+import secrets
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
@@ -58,6 +59,17 @@ async def new6_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await _start(update, context, 6)
 
 
+_WORDSEEK_ZERO_WIDTH = ("\\u200b", "\\u200c", "\\u200d", "\\u2060", "\\ufeff")
+_WORDSEEK_STYLE = {"🟩": "success", "🟨": None, "🟥": "danger"}
+
+
+def _wordseek_noise() -> str:
+    return "".join(
+        secrets.choice(_WORDSEEK_ZERO_WIDTH)
+        for _ in range(secrets.randbelow(6) + 1)
+    )
+
+
 def _format_wordseek_board(
     length: int,
     guesses: tuple[str, ...],
@@ -65,26 +77,42 @@ def _format_wordseek_board(
     ending_text: str = "",
     max_guesses: int = 30,
 ) -> str:
-    """Render colored, non-interactive letter tiles using Telegram Rich Message buttons."""
-    styles = {"🟩": "success", "🟨": None, "🟥": "danger"}
+    """Render each letter as a native Telegram Rich Message button."""
     rows = []
     for guess, feedback in zip(guesses, feedbacks):
-        tiles = []
+        buttons = []
         for letter, state in zip(guess.upper(), feedback):
-            style = styles.get(state)
+            style = _WORDSEEK_STYLE.get(state)
             style_attr = f' style="{style}"' if style else ""
-            tiles.append(
-                f'<tg-button type="disabled"{style_attr}>{escape(letter)}</tg-button>'
+            label = f"{_wordseek_noise()}{escape(letter)}{_wordseek_noise()}"
+            data = f"ws:hint:{state}:{letter.upper()}"
+            buttons.append(
+                f'<tg-button type="callback_data"{style_attr} data="{data}">{label}</tg-button>'
             )
-        if tiles:
-            rows.append(f"<p>{''.join(tiles)}</p>")
+        rows.append(f"<p>{''.join(buttons)}</p>")
 
     header = (
-        f"<h3>{length}-letter mode</h3>"
+        f"<h2>WordSeek</h2><h3>{length}-letter mode</h3>"
         f"<p><i>{len(guesses)}/{max_guesses} guesses</i></p>"
     )
     ending = f"<p>{ending_text}</p>" if ending_text else ""
-    return f"<h2>WordSeek</h2>{header}{''.join(rows)}{ending}"
+    return header + "".join(rows) + ending
+
+
+async def wordseek_tile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    parts = query.data.split(":")
+    if len(parts) != 4 or parts[0:2] != ["ws", "hint"]:
+        return
+    _, _, state, letter = parts
+    hints = {
+        "🟩": f'🟩 "{letter}" is in the word and in the right spot.',
+        "🟨": f'🟨 "{letter}" is in the word, but in a different spot.',
+        "🟥": f'🟥 "{letter}" isn\'t in the word.',
+    }
+    await query.answer(text=hints.get(state, "Unknown hint."))
 
 
 async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, value: str) -> None:
