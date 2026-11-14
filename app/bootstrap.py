@@ -850,6 +850,61 @@ def _register_general(application: Application) -> None:
 
 
 
+_BACKGROUND_HANDLER_NAMES = {
+    "collect_group_activity",
+    "collect_chat_member_activity",
+    "track_known_user",
+    "track_private_recipient",
+    "track_global_user",
+    "track_global_chat_member",
+}
+
+
+async def _background_work_worker(application: Application, stop_event: asyncio.Event) -> None:
+    """Run nonessential persistence handlers away from the command/update path."""
+    queue = application.bot_data["background_work_queue"]
+    while not stop_event.is_set() or not queue.empty():
+        try:
+            name, callback, update, context, queued_at = await asyncio.wait_for(
+                queue.get(), timeout=1.0
+            )
+        except TimeoutError:
+            continue
+        started = time.perf_counter()
+        wait_ms = (started - queued_at) * 1000
+        try:
+            await callback(update, context)
+        except Exception:
+            logger.exception("BACKGROUND_WORK_FAILED handler=%s update_id=%s", name, update.update_id)
+        finally:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            logger.debug(
+                "BACKGROUND_WORK_TIMING handler=%s queue_wait_ms=%.1f run_ms=%.1f "
+                "queue_size=%s update_id=%s",
+                name, wait_ms, elapsed_ms, queue.qsize(), update.update_id,
+            )
+            queue.task_done()
+
+
+async def _enqueue_background_handler(
+    callback, name: str, update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    queue = context.application.bot_data.get("background_work_queue")
+    if queue is None:
+        # Startup/shutdown safety: preserve the original behaviour if workers
+        # are not available yet.
+        await callback(update, context)
+        return
+    try:
+        queue.put_nowait((name, callback, update, context, time.perf_counter()))
+    except asyncio.QueueFull:
+        logger.error(
+            "BACKGROUND_WORK_QUEUE_FULL handler=%s update_id=%s; running inline to avoid data loss",
+            name, update.update_id,
+        )
+        await callback(update, context)
+
+
 def _instrument_registered_handlers(application: Application) -> None:
     """Measure every registered handler without changing its business logic."""
     for group, handlers in application.handlers.items():
@@ -859,6 +914,15 @@ def _instrument_registered_handlers(application: Application) -> None:
                 continue
 
             handler_name = getattr(original, "__qualname__", type(handler).__name__)
+            if handler_name.rsplit(".", 1)[-1] in _BACKGROUND_HANDLER_NAMES:
+                background_callback = original
+                background_name = handler_name.rsplit(".", 1)[-1]
+
+                @wraps(background_callback)
+                async def queued(update, context, _callback=background_callback, _name=background_name):
+                    await _enqueue_background_handler(_callback, _name, update, context)
+
+                original = queued
 
             @wraps(original)
             async def measured(update, context, _callback=original, _name=handler_name, _group=group):
@@ -939,6 +1003,18 @@ async def _handler_metrics_reporter(
         except TimeoutError:
             pass
         metrics = application.bot_data.get("_xyron_handler_timing", {})
+        background_queue = application.bot_data.get("background_work_queue")
+        history_queue = application.bot_data.get("group_history_queue")
+        visual_queue = application.bot_data.get("visual_moderation_queue")
+        logger.info(
+            "UPDATE_BACKLOG background=%s/%s group_history=%s/%s visual_moderation=%s/%s",
+            background_queue.qsize() if background_queue else 0,
+            background_queue.maxsize if background_queue else 0,
+            history_queue.qsize() if history_queue else 0,
+            history_queue.maxsize if history_queue else 0,
+            visual_queue.qsize() if visual_queue else 0,
+            visual_queue.maxsize if visual_queue else 0,
+        )
         if not metrics:
             continue
         rows = []
@@ -1008,8 +1084,18 @@ async def _post_init(application: Application) -> None:
     application.bot_data["visual_moderation_queue"] = asyncio.Queue(maxsize=_VISUAL_QUEUE_MAXSIZE)
     # Keep history persistence off the update-handler path; never block commands.
     application.bot_data["group_history_queue"] = asyncio.Queue(maxsize=5000)
+    # Audit/registry persistence is deliberately lower priority than commands.
+    application.bot_data["background_work_queue"] = asyncio.Queue(maxsize=10000)
 
     application.bot_data["worker_tasks"] = {
+        "background_work_1": application.create_task(
+            _background_work_worker(application, stop_event),
+            name="xyron-background-work-worker-1",
+        ),
+        "background_work_2": application.create_task(
+            _background_work_worker(application, stop_event),
+            name="xyron-background-work-worker-2",
+        ),
         "handler_metrics": application.create_task(
             _handler_metrics_reporter(application, stop_event),
             name="xyron-handler-metrics-reporter",
