@@ -36,6 +36,10 @@ _MAX_VIDEO_FRAMES = 5
 _VIDEO_SAMPLE_FPS = 1.0
 _FRAME_WIDTH = 768
 _MUTE_HOURS = 24
+_VISUAL_JOB_TIMEOUT_SECONDS = 8.0
+_VISUAL_WORKER_COUNT = 3
+_RESULT_CACHE_TTL_SECONDS = 6 * 60 * 60
+_RESULT_CACHE_MAX_ENTRIES = 5000
 
 
 def _media_file_ids(message) -> tuple[list[str], bool]:
@@ -195,14 +199,14 @@ def _extract_video_frames(data: bytes) -> list[bytes]:
 
 async def _moderation_flags(
     api_key: str, images: list[bytes], *, chat_id: int, message_id: int
-) -> bool:
+) -> bool | None:
     if not images:
         logger.warning(
             "SMARTGC_VISUAL stage=moderation result=skipped reason=no_decodable_frames "
             "chat_id=%s message_id=%s",
             chat_id, message_id,
         )
-        return False
+        return None
     logger.info(
         "SMARTGC_VISUAL stage=moderation result=requesting chat_id=%s message_id=%s images=%s",
         chat_id, message_id, len(images),
@@ -230,7 +234,7 @@ async def _moderation_flags(
             "SMARTGC_VISUAL stage=moderation result=api_error chat_id=%s message_id=%s",
             chat_id, message_id, exc_info=True,
         )
-        return False
+        return None
 
     results = payload.get("results", [])
     sexual_scores: list[float] = []
@@ -408,12 +412,24 @@ async def visual_moderation_worker(application, stop_event: asyncio.Event) -> No
             queue.qsize(),
         )
         try:
-            await visual_media_moderation_handler(update, context)
+            await asyncio.wait_for(
+                visual_media_moderation_handler(update, context),
+                timeout=_VISUAL_JOB_TIMEOUT_SECONDS,
+            )
             logger.info(
                 "SMARTGC_VISUAL stage=worker result=finished chat_id=%s message_id=%s "
                 "duration_ms=%s",
                 chat.id if chat else None,
                 message.message_id if message else None,
+                round((time.monotonic() - started) * 1000),
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "SMARTGC_VISUAL stage=worker result=timeout chat_id=%s message_id=%s "
+                "deadline_seconds=%.1f total_ms=%s",
+                chat.id if chat else None,
+                message.message_id if message else None,
+                _VISUAL_JOB_TIMEOUT_SECONDS,
                 round((time.monotonic() - started) * 1000),
             )
         except Exception:
@@ -533,7 +549,7 @@ async def visual_media_moderation_handler(
             )
             images.extend(extracted)
         else:
-            normalized = _normalize_image(raw)
+            normalized = await asyncio.to_thread(_normalize_image, raw)
             if normalized:
                 images.append(normalized)
                 logger.info(
@@ -552,9 +568,38 @@ async def visual_media_moderation_handler(
             images = images[:_MAX_VIDEO_FRAMES]
             break
 
-    flagged = await _moderation_flags(
-        api_key, images, chat_id=chat.id, message_id=message.message_id
+    cache = context.application.bot_data.setdefault("visual_moderation_result_cache", {})
+    cache_key = tuple(sorted(file_ids))
+    now = time.monotonic()
+    cached = cache.get(cache_key)
+    if cached and now - cached[0] < _RESULT_CACHE_TTL_SECONDS:
+        flagged = cached[1]
+        cache_status = "hit"
+    else:
+        flagged = await _moderation_flags(
+            api_key, images, chat_id=chat.id, message_id=message.message_id
+        )
+        cache_status = "miss"
+        if flagged is not None:
+            cache[cache_key] = (now, flagged)
+            if len(cache) > _RESULT_CACHE_MAX_ENTRIES:
+                cutoff = now - _RESULT_CACHE_TTL_SECONDS
+                for old_key, (created_at, _) in list(cache.items()):
+                    if created_at < cutoff:
+                        cache.pop(old_key, None)
+                while len(cache) > _RESULT_CACHE_MAX_ENTRIES:
+                    cache.pop(next(iter(cache)))
+    logger.info(
+        "SMARTGC_VISUAL stage=result_cache result=%s chat_id=%s message_id=%s",
+        cache_status, chat.id, message.message_id,
     )
+    if flagged is None:
+        logger.error(
+            "SMARTGC_VISUAL stage=action result=unknown reason=moderation_unavailable "
+            "chat_id=%s message_id=%s",
+            chat.id, message.message_id,
+        )
+        return
     if flagged:
         logger.warning(
             "SMARTGC_VISUAL stage=action result=flagged chat_id=%s message_id=%s user_id=%s",
