@@ -160,7 +160,12 @@ from app.modules.moderation.handlers import (
 from app.modules.moderation.admin_roles import mass_ban_protector, mass_ban_restore_worker, promote_command
 from app.modules.moderation.reaction_guard import reaction_guard_handler
 from app.modules.moderation.smart_gc import smartgc_abuse_guard, smartgc_callback, smartgc_command
-from app.modules.moderation.visual_moderation import enqueue_visual_media_moderation, visual_moderation_worker
+from app.modules.moderation.visual_moderation import (
+    _VISUAL_QUEUE_MAXSIZE,
+    _VISUAL_WORKER_COUNT,
+    enqueue_visual_media_moderation,
+    visual_moderation_worker,
+)
 from app.modules.moderation.media_cleaner import delayed_media_delete_handler
 from app.modules.reminders.handlers import (
     cancelreminder_command,
@@ -881,7 +886,7 @@ async def _post_init(application: Application) -> None:
     stop_event = asyncio.Event()
     application.bot_data["shutdown_event"] = stop_event
 
-    application.bot_data["visual_moderation_queue"] = asyncio.Queue(maxsize=500)
+    application.bot_data["visual_moderation_queue"] = asyncio.Queue(maxsize=_VISUAL_QUEUE_MAXSIZE)
     # Keep history persistence off the update-handler path; never block commands.
     application.bot_data["group_history_queue"] = asyncio.Queue(maxsize=5000)
 
@@ -895,7 +900,7 @@ async def _post_init(application: Application) -> None:
                 visual_moderation_worker(application, stop_event),
                 name=f"xyron-visual-moderation-worker-{index + 1}",
             )
-            for index in range(3)
+            for index in range(_VISUAL_WORKER_COUNT)
         },
         "moderation_expiry": application.create_task(
             expiration_worker(application, stop_event),
