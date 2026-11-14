@@ -10,12 +10,9 @@ import asyncio
 import base64
 import io
 import logging
-import subprocess
-import tempfile
 import time
 from types import SimpleNamespace
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import httpx
 from PIL import Image, UnidentifiedImageError
@@ -37,8 +34,9 @@ _MAX_VIDEO_FRAMES = 5
 _VIDEO_SAMPLE_FPS = 1.0
 _FRAME_WIDTH = 768
 _MUTE_HOURS = 24
-_VISUAL_JOB_TIMEOUT_SECONDS = 8.0
-_VISUAL_WORKER_COUNT = 3
+_VISUAL_JOB_TIMEOUT_SECONDS = 7.0
+_VISUAL_WORKER_COUNT = 2
+_VISUAL_QUEUE_MAXSIZE = 250
 _RESULT_CACHE_TTL_SECONDS = 6 * 60 * 60
 _RESULT_CACHE_MAX_ENTRIES = 5000
 
@@ -156,62 +154,60 @@ def _normalize_image(data: bytes) -> bytes | None:
         return None
 
 
-def _extract_video_frames(data: bytes) -> list[bytes]:
-    """Sample a few frames with ffmpeg; never retain source media on disk."""
+async def _extract_video_frames(data: bytes) -> list[bytes]:
+    """Extract a small number of frames without blocking the asyncio event loop."""
     frames: list[bytes] = []
-    with tempfile.TemporaryDirectory(prefix="xyron-visual-") as directory:
-        root = Path(directory)
-        source = root / "media.bin"
-        source.write_bytes(data)
-        pattern = root / "frame-%02d.jpg"
-        command = [
-            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-            "-i", str(source),
-            "-vf", f"fps={_VIDEO_SAMPLE_FPS},scale={_FRAME_WIDTH}:-2",
-            "-frames:v", str(_MAX_VIDEO_FRAMES),
-            "-q:v", "5", str(pattern),
-        ]
-        try:
-            subprocess.run(
-                command, check=True, timeout=15, capture_output=True
-            )
-        except FileNotFoundError:
-            logger.warning("SMARTGC_VISUAL stage=decode result=ffmpeg_missing")
-            return []
-        except subprocess.CalledProcessError as exc:
-            detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
-            logger.warning(
-                "SMARTGC_VISUAL stage=decode result=ffmpeg_error detail=%s",
-                detail[:400],
-            )
-            return []
-        except subprocess.TimeoutExpired:
-            logger.warning("SMARTGC_VISUAL stage=decode result=ffmpeg_timeout")
-            return []
-        for frame_path in sorted(root.glob("frame-*.jpg"))[:_MAX_VIDEO_FRAMES]:
-            try:
-                frame = _normalize_image(frame_path.read_bytes())
-                if frame:
-                    frames.append(frame)
-            except OSError:
-                continue
+    process = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+        "-i", "pipe:0",
+        "-vf", f"fps={_VIDEO_SAMPLE_FPS},scale={_FRAME_WIDTH}:-2",
+        "-frames:v", str(_MAX_VIDEO_FRAMES),
+        "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(data), timeout=4.0
+        )
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.communicate()
+        logger.warning("SMARTGC_VISUAL stage=decode result=ffmpeg_timeout")
+        return []
+    except asyncio.CancelledError:
+        process.kill()
+        await process.communicate()
+        raise
+    if process.returncode != 0:
+        detail = (stderr or b"").decode("utf-8", errors="replace").strip()
+        logger.warning(
+            "SMARTGC_VISUAL stage=decode result=ffmpeg_error detail=%s", detail[:300]
+        )
+        return []
+    # MJPEG is a concatenation of JPEG files. Split on JPEG SOI/EOI markers.
+    cursor = 0
+    while len(frames) < _MAX_VIDEO_FRAMES:
+        soi = stdout.find(b"\\xff\\xd8", cursor)
+        if soi < 0:
+            break
+        eoi = stdout.find(b"\\xff\\xd9", soi + 2)
+        if eoi < 0:
+            break
+        normalized = await asyncio.to_thread(_normalize_image, stdout[soi:eoi + 2])
+        if normalized:
+            frames.append(normalized)
+        cursor = eoi + 2
     return frames
 
 
 async def _moderation_flags(
     api_key: str, images: list[bytes], *, chat_id: int, message_id: int
 ) -> bool | None:
+    """Submit valid multimodal moderation input and retain useful API diagnostics."""
     if not images:
-        logger.warning(
-            "SMARTGC_VISUAL stage=moderation result=skipped reason=no_decodable_frames "
-            "chat_id=%s message_id=%s",
-            chat_id, message_id,
-        )
         return None
-    logger.info(
-        "SMARTGC_VISUAL stage=moderation result=requesting chat_id=%s message_id=%s images=%s",
-        chat_id, message_id, len(images),
-    )
     encoded = [
         {
             "type": "image_url",
@@ -219,17 +215,33 @@ async def _moderation_flags(
                 "url": "data:image/jpeg;base64," + base64.b64encode(image).decode("ascii")
             },
         }
-        for image in images
+        for image in images[:_MAX_VIDEO_FRAMES]
     ]
+    timeout = httpx.Timeout(5.0, connect=2.0, write=3.0, pool=2.0)
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=8.0)) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 _MODERATION_URL,
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
                 json={"model": _MODERATION_MODEL, "input": encoded},
             )
-            response.raise_for_status()
-            payload = response.json()
+        if response.is_error:
+            # Include the provider's short error message; never log the API key or image.
+            try:
+                error_payload = response.json().get("error", {})
+                detail = str(error_payload.get("message") or error_payload.get("type") or "")
+            except (ValueError, AttributeError):
+                detail = response.text[:250]
+            logger.error(
+                "SMARTGC_VISUAL stage=moderation result=http_error status=%s "
+                "chat_id=%s message_id=%s detail=%s",
+                response.status_code, chat_id, message_id, detail[:250],
+            )
+            return None
+        payload = response.json()
     except (httpx.HTTPError, ValueError):
         logger.warning(
             "SMARTGC_VISUAL stage=moderation result=api_error chat_id=%s message_id=%s",
@@ -237,21 +249,26 @@ async def _moderation_flags(
         )
         return None
 
-    results = payload.get("results", [])
-    sexual_scores: list[float] = []
+    results = payload.get("results") or []
+    sexual_scores = []
     for result in results:
-        scores = result.get("category_scores") or {}
         try:
-            sexual_scores.append(float(scores.get("sexual", 0.0)))
+            sexual_scores.append(float((result.get("category_scores") or {}).get("sexual", 0.0)))
         except (TypeError, ValueError):
             continue
-    max_score = max(sexual_scores, default=0.0)
+    if not sexual_scores:
+        logger.error(
+            "SMARTGC_VISUAL stage=moderation result=invalid_response chat_id=%s message_id=%s",
+            chat_id, message_id,
+        )
+        return None
+    max_score = max(sexual_scores)
     flagged = max_score >= _SEXUAL_THRESHOLD
     logger.info(
         "SMARTGC_VISUAL stage=moderation result=%s chat_id=%s message_id=%s "
-        "api_results=%s max_sexual_score=%.4f threshold=%.2f",
-        "flagged" if flagged else "clear",
-        chat_id, message_id, len(results), max_score, _SEXUAL_THRESHOLD,
+        "max_sexual_score=%.4f threshold=%.2f",
+        "flagged" if flagged else "clear", chat_id, message_id,
+        max_score, _SEXUAL_THRESHOLD,
     )
     return flagged
 
@@ -347,6 +364,31 @@ async def _delete_and_maybe_mute(update, context, message, user) -> None:
         logger.exception("Smart GC failed to apply the 24-hour media mute")
 
 
+def _message_cache_key(message) -> tuple[str, ...]:
+    """Stable key from Telegram file_unique_id values, before any download."""
+    identifiers: list[str] = []
+    for field in ("photo", "sticker", "animation", "video", "video_note", "document"):
+        value = getattr(message, field, None)
+        if field == "photo" and value:
+            value = value[-1]
+        if value:
+            identifiers.append(
+                getattr(value, "file_unique_id", None)
+                or getattr(value, "file_id", "")
+            )
+    for paid_item in getattr(message, "paid_media", None) or ():
+        for field in ("photo", "video"):
+            value = getattr(paid_item, field, None)
+            if isinstance(value, (list, tuple)):
+                value = value[-1] if value else None
+            if value:
+                identifiers.append(
+                    getattr(value, "file_unique_id", None)
+                    or getattr(value, "file_id", "")
+                )
+    return tuple(sorted(value for value in identifiers if value))
+
+
 async def enqueue_visual_media_moderation(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -419,7 +461,27 @@ async def enqueue_visual_media_moderation(
         if not media and not paid_media_metadata:
             logger.debug("SMARTGC_VISUAL stage=enqueue result=skipped reason=no_media_metadata chat_id=%s message_id=%s", chat.id, message.message_id)
             return
+        cache_key = _message_cache_key(message)
+        if not cache_key:
+            return
+        cache = context.application.bot_data.setdefault("visual_moderation_result_cache", {})
+        cached = cache.get(cache_key)
+        now = time.monotonic()
+        if cached and now - cached[0] < _RESULT_CACHE_TTL_SECONDS:
+            logger.info(
+                "SMARTGC_VISUAL stage=enqueue result=cache_hit chat_id=%s message_id=%s",
+                chat.id, message.message_id,
+            )
+            return
+        inflight = context.application.bot_data.setdefault("visual_moderation_inflight", set())
+        if cache_key in inflight:
+            logger.debug(
+                "SMARTGC_VISUAL stage=enqueue result=duplicate_inflight chat_id=%s message_id=%s",
+                chat.id, message.message_id,
+            )
+            return
         job = {
+            "cache_key": cache_key,
             "chat_id": chat.id,
             "message_id": message.message_id,
             "user_id": user.id,
@@ -429,13 +491,16 @@ async def enqueue_visual_media_moderation(
             "enqueued_at": time.monotonic(),
         }
         queue.put_nowait(job)
+        inflight.add(cache_key)
         logger.info(
             "SMARTGC_VISUAL stage=enqueue result=queued chat_id=%s message_id=%s "
             "user_id=%s media_kind=%s queue_size=%s",
             chat.id, message.message_id, user.id, media_kind, queue.qsize(),
         )
     except asyncio.QueueFull:
-        logger.error(
+        if "cache_key" in locals():
+            context.application.bot_data.get("visual_moderation_inflight", set()).discard(cache_key)
+        logger.warning(
             "SMARTGC_VISUAL stage=enqueue result=failed reason=queue_full "
             "chat_id=%s message_id=%s queue_size=%s",
             chat.id, message.message_id, queue.qsize(),
@@ -501,6 +566,9 @@ async def visual_moderation_worker(application, stop_event: asyncio.Event) -> No
         except Exception:
             logger.exception("Smart GC visual worker failed chat_id=%s message_id=%s", chat_id, message_id)
         finally:
+            application.bot_data.get("visual_moderation_inflight", set()).discard(
+                job.get("cache_key")
+            )
             queue.task_done()
 
 
@@ -593,76 +661,39 @@ async def visual_media_moderation_handler(
         )
         return
 
-    images: list[bytes] = []
-    for file_id in file_ids[:4]:
-        raw = await _download_media(
-            context, file_id, chat_id=chat.id, message_id=message.message_id
-        )
-        if not raw:
-            continue
-        if is_video:
-            extracted = await asyncio.to_thread(_extract_video_frames, raw)
-            logger.info(
-                "SMARTGC_VISUAL stage=decode result=%s chat_id=%s message_id=%s "
-                "frames=%s media_bytes=%s",
-                "ok" if extracted else "no_frames",
-                chat.id, message.message_id, len(extracted), len(raw),
-            )
-            images.extend(extracted)
-        else:
-            normalized = await asyncio.to_thread(_normalize_image, raw)
-            if normalized:
-                images.append(normalized)
-                logger.info(
-                    "SMARTGC_VISUAL stage=decode result=ok chat_id=%s message_id=%s "
-                    "images=%s",
-                    chat.id, message.message_id, len(images),
-                )
-            else:
-                logger.warning(
-                    "SMARTGC_VISUAL stage=decode result=unsupported_format "
-                    "chat_id=%s message_id=%s bytes=%s video=%s sticker_animated=%s",
-                    chat.id, message.message_id, len(raw), is_video,
-                    bool(getattr(sticker, "is_animated", False)) if sticker else False,
-                )
-        if len(images) >= _MAX_VIDEO_FRAMES:
-            images = images[:_MAX_VIDEO_FRAMES]
-            break
-
+    cache_key = _message_cache_key(message)
     cache = context.application.bot_data.setdefault("visual_moderation_result_cache", {})
-    cache_ids = [
-        getattr(item, "file_unique_id", None) or getattr(item, "file_id", "")
-        for field in ("photo", "sticker", "animation", "video", "video_note", "document")
-        for item in (
-            [getattr(message, field)[-1]]
-            if field == "photo" and getattr(message, field, None)
-            else [getattr(message, field)]
-            if getattr(message, field, None)
-            else []
-        )
-    ]
-    for paid_item in getattr(message, "paid_media", None) or ():
-        for field in ("photo", "video"):
-            item = getattr(paid_item, field, None)
-            if isinstance(item, (list, tuple)):
-                item = item[-1] if item else None
-            if item:
-                cache_ids.append(getattr(item, "file_unique_id", None) or getattr(item, "file_id", ""))
-    cache_key = tuple(sorted(value for value in cache_ids if value))
     now = time.monotonic()
     cached = cache.get(cache_key)
     if cached and now - cached[0] < _RESULT_CACHE_TTL_SECONDS:
         flagged = cached[1]
         cache_status = "hit"
     else:
+        images: list[bytes] = []
+        for file_id in file_ids[:4]:
+            raw = await _download_media(
+                context, file_id, chat_id=chat.id, message_id=message.message_id
+            )
+            if not raw:
+                continue
+            if is_video:
+                extracted = await _extract_video_frames(raw)
+                images.extend(extracted)
+            else:
+                normalized = await asyncio.to_thread(_normalize_image, raw)
+                if normalized:
+                    images.append(normalized)
+            if len(images) >= _MAX_VIDEO_FRAMES:
+                images = images[:_MAX_VIDEO_FRAMES]
+                break
         flagged = await _moderation_flags(
             api_key, images, chat_id=chat.id, message_id=message.message_id
         )
         cache_status = "miss"
-        if flagged is not None:
-            cache[cache_key] = (now, flagged)
+        if flagged is not None and cache_key:
+            cache[cache_key] = (time.monotonic(), flagged)
             if len(cache) > _RESULT_CACHE_MAX_ENTRIES:
-                cutoff = now - _RESULT_CACHE_TTL_SECONDS
+                cutoff = time.monotonic() - _RESULT_CACHE_TTL_SECONDS
                 for old_key, (created_at, _) in list(cache.items()):
                     if created_at < cutoff:
                         cache.pop(old_key, None)
