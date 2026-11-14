@@ -1,3 +1,4 @@
+import itertools
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -9,6 +10,14 @@ from app.database.models import Base
 from app.database.session import create_database
 from app.modules.community.handlers import _flood_events, _repeat_events, process_group_message
 from app.services.group_policy import DEFAULT_POLICY, GroupPolicyRepository
+
+
+def _admin_member(user_id, status, **permissions):
+    return SimpleNamespace(
+        user=SimpleNamespace(id=user_id),
+        status=status,
+        **permissions,
+    )
 
 
 @pytest.fixture
@@ -47,7 +56,11 @@ async def test_normal_message_without_protections_skips_telegram_admin_lookups(g
         effective_chat=SimpleNamespace(id=-3001, type=Chat.SUPERGROUP),
         effective_user=user,
     )
-    bot = SimpleNamespace(id=99, get_chat_member=AsyncMock())
+    bot = SimpleNamespace(
+        id=99,
+        get_chat_member=AsyncMock(),
+        get_chat_administrators=AsyncMock(),
+    )
     context = SimpleNamespace(
         bot=bot,
         application=SimpleNamespace(
@@ -61,6 +74,7 @@ async def test_normal_message_without_protections_skips_telegram_admin_lookups(g
     await process_group_message(update, context)
 
     bot.get_chat_member.assert_not_awaited()
+    bot.get_chat_administrators.assert_not_awaited()
     message.reply_text.assert_not_awaited()
 
 
@@ -84,14 +98,18 @@ async def test_link_lock_deletes_only_non_admin_unapproved_messages(group_data):
         effective_chat=SimpleNamespace(id=-1001, type=Chat.SUPERGROUP),
         effective_user=user,
     )
-    members = [
-        SimpleNamespace(status=ChatMember.MEMBER),
-        SimpleNamespace(status=ChatMember.OWNER),
-        SimpleNamespace(status=ChatMember.ADMINISTRATOR, can_delete_messages=True),
-    ]
     bot = SimpleNamespace(
         id=99,
-        get_chat_member=AsyncMock(side_effect=members),
+        get_chat_administrators=AsyncMock(
+            return_value=[
+                _admin_member(10, ChatMember.OWNER),
+                _admin_member(
+                    99,
+                    ChatMember.ADMINISTRATOR,
+                    can_delete_messages=True,
+                ),
+            ]
+        ),
     )
     context = SimpleNamespace(
         bot=bot,
@@ -127,7 +145,11 @@ async def test_approved_member_is_exempt_from_link_lock(group_data):
         effective_user=user,
     )
     context = SimpleNamespace(
-        bot=SimpleNamespace(id=99, get_chat_member=AsyncMock()),
+        bot=SimpleNamespace(
+            id=99,
+            get_chat_member=AsyncMock(),
+            get_chat_administrators=AsyncMock(),
+        ),
         application=SimpleNamespace(
             bot_data={
                 "settings": Settings(bot_token="token", owner_id=10),
@@ -139,6 +161,7 @@ async def test_approved_member_is_exempt_from_link_lock(group_data):
     await process_group_message(update, context)
 
     context.bot.get_chat_member.assert_not_awaited()
+    context.bot.get_chat_administrators.assert_not_awaited()
     message.delete.assert_not_awaited()
 
 
@@ -164,11 +187,14 @@ async def test_commands_lock_can_delete_command_updates(group_data):
     )
     bot = SimpleNamespace(
         id=99,
-        get_chat_member=AsyncMock(
-            side_effect=[
-                SimpleNamespace(status=ChatMember.MEMBER),
-                SimpleNamespace(status=ChatMember.OWNER),
-                SimpleNamespace(status=ChatMember.ADMINISTRATOR, can_delete_messages=True),
+        get_chat_administrators=AsyncMock(
+            return_value=[
+                _admin_member(10, ChatMember.OWNER),
+                _admin_member(
+                    99,
+                    ChatMember.ADMINISTRATOR,
+                    can_delete_messages=True,
+                ),
             ]
         ),
     )
@@ -210,13 +236,19 @@ async def test_repeated_message_detection_requires_opt_in_and_threshold(group_da
         )
         for _ in range(3)
     ]
-    member = SimpleNamespace(status=ChatMember.MEMBER)
-    owner = SimpleNamespace(status=ChatMember.OWNER)
-    bot_admin = SimpleNamespace(status=ChatMember.ADMINISTRATOR, can_delete_messages=True)
     context = SimpleNamespace(
         bot=SimpleNamespace(
             id=99,
-            get_chat_member=AsyncMock(side_effect=[member, owner, bot_admin] * 3),
+            get_chat_administrators=AsyncMock(
+                return_value=[
+                    _admin_member(10, ChatMember.OWNER),
+                    _admin_member(
+                        99,
+                        ChatMember.ADMINISTRATOR,
+                        can_delete_messages=True,
+                    ),
+                ]
+            ),
         ),
         application=SimpleNamespace(
             bot_data={
@@ -261,11 +293,14 @@ async def test_bot_lock_can_delete_bot_messages_even_if_bot_is_admin(group_data)
     context = SimpleNamespace(
         bot=SimpleNamespace(
             id=99,
-            get_chat_member=AsyncMock(
-                side_effect=[
-                    SimpleNamespace(status=ChatMember.ADMINISTRATOR),
-                    SimpleNamespace(status=ChatMember.OWNER),
-                    SimpleNamespace(status=ChatMember.ADMINISTRATOR, can_delete_messages=True),
+            get_chat_administrators=AsyncMock(
+                return_value=[
+                    _admin_member(10, ChatMember.OWNER),
+                    _admin_member(
+                        99,
+                        ChatMember.ADMINISTRATOR,
+                        can_delete_messages=True,
+                    ),
                 ]
             ),
         ),
@@ -307,20 +342,22 @@ async def test_repeat_detection_ignores_identical_messages_outside_time_window(
         )
         for _ in range(3)
     ]
-    now = iter((0.0, 10.0, 20.0))
+    ticks = itertools.count()
     monkeypatch.setattr(
         "app.modules.community.handlers.time",
-        SimpleNamespace(monotonic=lambda: next(now)),
+        SimpleNamespace(monotonic=lambda: next(ticks) * 10.0),
     )
     bot = SimpleNamespace(
         id=99,
-        get_chat_member=AsyncMock(
-            side_effect=[
-                SimpleNamespace(status=ChatMember.MEMBER),
-                SimpleNamespace(status=ChatMember.OWNER),
-                SimpleNamespace(status=ChatMember.ADMINISTRATOR, can_delete_messages=True),
+        get_chat_administrators=AsyncMock(
+            return_value=[
+                _admin_member(10, ChatMember.OWNER),
+                _admin_member(
+                    99,
+                    ChatMember.ADMINISTRATOR,
+                    can_delete_messages=True,
+                ),
             ]
-            * 3
         ),
     )
     context = SimpleNamespace(
