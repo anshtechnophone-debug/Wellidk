@@ -398,7 +398,25 @@ async def enqueue_visual_media_moderation(
                     "is_animated": bool(getattr(value, "is_animated", False)),
                     "is_premium": bool(getattr(value, "is_premium", False)),
                 }
-        if not media:
+        paid_media_metadata = []
+        for paid_item in getattr(message, "paid_media", None) or ():
+            item_data = {}
+            for paid_field in ("photo", "video"):
+                paid_value = getattr(paid_item, paid_field, None)
+                if isinstance(paid_value, (list, tuple)):
+                    paid_value = paid_value[-1] if paid_value else None
+                if paid_value:
+                    item_data[paid_field] = {
+                        "file_id": getattr(paid_value, "file_id", None),
+                        "file_unique_id": getattr(paid_value, "file_unique_id", None),
+                        "mime_type": getattr(paid_value, "mime_type", None),
+                        "is_video": paid_field == "video",
+                        "is_animated": False,
+                        "is_premium": False,
+                    }
+            if item_data:
+                paid_media_metadata.append(item_data)
+        if not media and not paid_media_metadata:
             logger.debug("SMARTGC_VISUAL stage=enqueue result=skipped reason=no_media_metadata chat_id=%s message_id=%s", chat.id, message.message_id)
             return
         job = {
@@ -407,6 +425,7 @@ async def enqueue_visual_media_moderation(
             "user_id": user.id,
             "media_kind": media_kind,
             "media": media,
+            "paid_media": paid_media_metadata,
             "enqueued_at": time.monotonic(),
         }
         queue.put_nowait(job)
@@ -451,7 +470,12 @@ async def visual_moderation_worker(application, stop_event: asyncio.Event) -> No
                 video=media_objects.get("video"),
                 video_note=media_objects.get("video_note"),
                 document=media_objects.get("document"),
-                paid_media=None,
+                paid_media=[
+                    SimpleNamespace(**{
+                        key: SimpleNamespace(**value) for key, value in item.items()
+                    })
+                    for item in job.get("paid_media", [])
+                ],
             )
             chat = SimpleNamespace(id=chat_id, type=Chat.SUPERGROUP)
             user = SimpleNamespace(id=job["user_id"], is_bot=False)
