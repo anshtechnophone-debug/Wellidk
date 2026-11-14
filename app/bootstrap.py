@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
+from functools import wraps
 from collections import deque
 
 from telegram import (
@@ -847,6 +849,83 @@ def _register_general(application: Application) -> None:
     )
 
 
+
+def _instrument_registered_handlers(application: Application) -> None:
+    """Measure every registered handler without changing its business logic."""
+    for group, handlers in application.handlers.items():
+        for handler in handlers:
+            original = handler.callback
+            if getattr(original, "_xyron_timing_wrapped", False):
+                continue
+
+            handler_name = getattr(original, "__qualname__", type(handler).__name__)
+
+            @wraps(original)
+            async def measured(update, context, _callback=original, _name=handler_name, _group=group):
+                started = time.perf_counter()
+                failed = False
+                try:
+                    result = _callback(update, context)
+                    if inspect.isawaitable(result):
+                        return await result
+                    return result
+                except Exception:
+                    failed = True
+                    raise
+                finally:
+                    elapsed_ms = (time.perf_counter() - started) * 1000
+                    metrics = context.application.bot_data.setdefault(
+                        "_xyron_handler_timing", {}
+                    )
+                    metric = metrics.setdefault(
+                        f"group={_group}:{_name}",
+                        {"count": 0, "slow_count": 0, "error_count": 0,
+                         "total_ms": 0.0, "max_ms": 0.0},
+                    )
+                    metric["count"] += 1
+                    metric["total_ms"] += elapsed_ms
+                    metric["max_ms"] = max(metric["max_ms"], elapsed_ms)
+                    if failed:
+                        metric["error_count"] += 1
+                    if elapsed_ms >= 100:
+                        metric["slow_count"] += 1
+                        message = update.effective_message
+                        raw = (
+                            (message.text or message.caption or "").strip()
+                            if message else ""
+                        )
+                        command = raw.split(maxsplit=1)[0][:80] if raw.startswith("/") else None
+                        logger.warning(
+                            "HANDLER_TIMING slow=true group=%s handler=%s "
+                            "elapsed_ms=%.1f command=%s update_id=%s failed=%s",
+                            _group, _name, elapsed_ms, command, update.update_id, failed,
+                        )
+
+            measured._xyron_timing_wrapped = True
+            handler.callback = measured
+
+
+async def _event_loop_lag_monitor(
+    application: Application,
+    stop_event: asyncio.Event,
+) -> None:
+    """Report event-loop stalls independently of individual handler timings."""
+    interval = 1.0
+    expected = time.perf_counter() + interval
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval)
+            break
+        except TimeoutError:
+            pass
+        now = time.perf_counter()
+        lag_ms = max(0.0, (now - expected) * 1000)
+        if lag_ms >= 100:
+            logger.warning("EVENT_LOOP_LAG lag_ms=%.1f", lag_ms)
+        expected = now + interval
+
+
+
 async def _post_init(application: Application) -> None:
     settings: Settings = application.bot_data["settings"]
 
@@ -891,6 +970,10 @@ async def _post_init(application: Application) -> None:
     application.bot_data["group_history_queue"] = asyncio.Queue(maxsize=5000)
 
     application.bot_data["worker_tasks"] = {
+        "event_loop_lag": application.create_task(
+            _event_loop_lag_monitor(application, stop_event),
+            name="xyron-event-loop-lag-monitor",
+        ),
         "group_history": application.create_task(
             group_history_worker(application, stop_event),
             name="xyron-group-history-worker",
@@ -993,6 +1076,7 @@ def build_application(settings: Settings | None = None) -> Application:
         ),
     )
 
+    _instrument_registered_handlers(application)
     application.add_error_handler(error_handler)
     return application
 
