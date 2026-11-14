@@ -65,23 +65,26 @@ def _format_wordseek_board(
     ending_text: str = "",
     max_guesses: int = 30,
 ) -> str:
-    """Build an emoji-free native Rich Message board using highlighted letter tiles."""
-    lines = [
-        "<h2>WordSeek</h2>",
-        f"<h3>{length}-letter mode</h3>",
-        f"<i>{len(guesses)}/{max_guesses} guesses</i>",
-        "",
-    ]
+    """Render colored, non-interactive letter tiles using Telegram Rich Message buttons."""
+    styles = {"🟩": "success", "🟨": None, "🟥": "danger"}
+    rows = []
     for guess, feedback in zip(guesses, feedbacks):
         tiles = []
-        for letter, status in zip(guess, feedback):
-            # Rich HTML's mark entity renders a native highlighted text tile.
-            # Do not use colored-square emoji as a substitute for rich formatting.
-            tiles.append(f"<mark><b>{escape(letter.upper())}</b></mark>")
-        lines.append("  ".join(tiles))
-    if ending_text:
-        lines.extend(["", ending_text])
-    return "\n".join(lines)
+        for letter, state in zip(guess.upper(), feedback):
+            style = styles.get(state)
+            style_attr = f' style="{style}"' if style else ""
+            tiles.append(
+                f'<tg-button type="disabled"{style_attr}>{escape(letter)}</tg-button>'
+            )
+        if tiles:
+            rows.append(f"<p>{''.join(tiles)}</p>")
+
+    header = (
+        f"<h3>{length}-letter mode</h3>"
+        f"<p><i>{len(guesses)}/{max_guesses} guesses</i></p>"
+    )
+    ending = f"<p>{ending_text}</p>" if ending_text else ""
+    return f"<h2>WordSeek</h2>{header}{''.join(rows)}{ending}"
 
 
 async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, value: str) -> None:
@@ -129,13 +132,14 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
             "WordSeek Rich Message unavailable (%s); falling back to HTML message",
             type(exc).__name__,
         )
-        # Basic-message fallback deliberately avoids emoji tiles. Native tile
-        # highlighting is available only through sendRichMessage.
+        # Keep a readable fallback if Rich Messages are unavailable.
         plain_fallback = (
             f"WordSeek — {len(value)}-letter mode\n"
             f"{len(result.guesses)}/30 guesses\n\n"
-            + "\n".join("  ".join(letter.upper() for letter in row)
-                         for row in result.guesses)
+            + "\n".join(
+                " ".join(f"{state} {letter.upper()}" for letter, state in zip(row, feedback))
+                for row, feedback in zip(result.guesses, result.feedbacks)
+            )
         )
         await message.reply_text(plain_fallback)
 
