@@ -486,12 +486,20 @@ async def _auto_mute_spammer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     repository = ModerationRepository(context.application.bot_data["sessions"])
     actor_id = context.bot.id
     try:
+        admins = await get_group_admins(context.bot, context.application.bot_data, chat.id)
+    except GroupAdminLookupError:
+        return False
+    if user.id in admins:
+        return False
+    bot_member = admins.get(context.bot.id)
+    if bot_member is None or not getattr(bot_member, "can_restrict_members", False):
+        logger.warning("Spam protector cannot mute in chat %s: missing restrict rights", chat.id)
+        return False
+    try:
+        # This per-target lookup is still needed to preserve the member's
+        # existing permissions before applying the temporary restriction.
         member = await context.bot.get_chat_member(chat.id, user.id)
         if member.status != ChatMember.MEMBER:
-            return False
-        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
-        if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER} or not getattr(bot_member, "can_restrict_members", False):
-            logger.warning("Spam protector cannot mute in chat %s: missing restrict rights", chat.id)
             return False
     except TelegramError:
         return False
@@ -595,11 +603,11 @@ async def verification_command(update: Update, context: ContextTypes.DEFAULT_TYP
             await message.reply_text("Use /verification on or /verification off inside your group.")
         return
     try:
-        actor = await context.bot.get_chat_member(chat.id, user.id)
-    except TelegramError:
+        admins = await get_group_admins(context.bot, context.application.bot_data, chat.id)
+    except GroupAdminLookupError:
         await _respond(update, "I couldn't verify your Telegram admin status. Please try again.")
         return
-    if actor.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
+    if user.id not in admins:
         await _respond(update, "Only this group's Telegram owner or administrators can change verification.")
         return
     if len(context.args) != 1 or context.args[0].casefold() not in {"on", "off"}:
