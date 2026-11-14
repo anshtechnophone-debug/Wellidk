@@ -398,7 +398,8 @@ async def locks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def antiflood_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
-        await _admin(update, context)        if not context.args or context.args[0].casefold() not in {"on", "off"}:
+        await _admin(update, context)
+        if not context.args or context.args[0].casefold() not in {"on", "off"}:
             raise ValueError(
                 "Usage: /antiflood <on|off> [threshold 3-20] "
                 "[window 2-60 seconds] [repeat threshold 2-10]"
