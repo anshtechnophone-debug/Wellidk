@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from html import escape
+import json
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
@@ -101,12 +103,30 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
         answer = escape(result.answer.upper() if result.answer else "")
         ending_text = f"Game over. The word was <b>{answer}</b>. Try again with /new{len(value)}."
 
-    # Use PTB's supported sendMessage implementation. Never manually construct
-    # Bot API URLs: bot.base_url may already contain the token.
     board = _format_wordseek_board(
         len(value), result.guesses, result.feedbacks, ending_text=ending_text
     )
-    await message.reply_text(board, parse_mode="HTML")
+
+    # Rich Messages are a separate Bot API method (Bot API 10.1), not a
+    # parse_mode. Use PTB's request pipeline so its configured base URL and
+    # token handling are respected; never build the URL manually.
+    try:
+        await context.bot._post(
+            "sendRichMessage",
+            data={
+                "chat_id": chat.id,
+                "rich_message": json.dumps({"html": board}, ensure_ascii=False),
+                "reply_parameters": json.dumps(
+                    {"message_id": message.message_id}
+                ),
+            },
+        )
+    except TelegramError as exc:
+        logger.warning(
+            "WordSeek Rich Message unavailable (%s); falling back to HTML message",
+            type(exc).__name__,
+        )
+        await message.reply_text(board, parse_mode="HTML")
 
 
 async def guess_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
