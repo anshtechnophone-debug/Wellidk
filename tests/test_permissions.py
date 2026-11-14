@@ -9,15 +9,19 @@ from app.core.permissions import AuthorizationError, require_admin_access
 from app.database.group_bot_admins import GroupBotAdmin
 
 
-def _member(status, **permissions):
-    return SimpleNamespace(status=status, **permissions)
+def _user(user_id):
+    return SimpleNamespace(id=user_id)
+
+
+def _member(status, user_id, **permissions):
+    return SimpleNamespace(status=status, user=_user(user_id), **permissions)
 
 
 def _update(user_id=44, chat_id=-1001):
     return SimpleNamespace(
         effective_message=object(),
         effective_chat=SimpleNamespace(type=Chat.SUPERGROUP, id=chat_id, title="test"),
-        effective_user=SimpleNamespace(id=user_id),
+        effective_user=_user(user_id),
     )
 
 
@@ -37,10 +41,14 @@ class _Session:
 
 
 def _context(bot_member, actor, record=None):
+    admins = [bot_member]
+    if actor.status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
+        admins.append(actor)
     return SimpleNamespace(
         bot=SimpleNamespace(
             id=99,
-            get_chat_member=AsyncMock(side_effect=[bot_member, actor]),
+            get_chat_administrators=AsyncMock(return_value=admins),
+            get_chat_member=AsyncMock(),
             send_message=AsyncMock(),
         ),
         application=SimpleNamespace(bot_data={"sessions": lambda: _Session(record)}),
@@ -50,8 +58,8 @@ def _context(bot_member, actor, record=None):
 @pytest.mark.asyncio
 async def test_non_admin_without_group_bot_admin_is_rejected():
     context = _context(
-        _member(ChatMember.ADMINISTRATOR, can_restrict_members=True),
-        _member(ChatMember.MEMBER),
+        _member(ChatMember.ADMINISTRATOR, 99, can_restrict_members=True),
+        _member(ChatMember.MEMBER, 44),
     )
     with pytest.raises(AuthorizationError, match="group administrator"):
         await require_admin_access(_update(), context, Settings(bot_token="token", owner_id=10), "can_restrict_members")
@@ -59,18 +67,19 @@ async def test_non_admin_without_group_bot_admin_is_rejected():
 
 @pytest.mark.asyncio
 async def test_real_admin_with_permission_is_authorized_without_bot_admin_role():
-    actor = _member(ChatMember.ADMINISTRATOR, can_restrict_members=True)
-    context = _context(_member(ChatMember.ADMINISTRATOR, can_restrict_members=True), actor)
+    actor = _member(ChatMember.ADMINISTRATOR, 44, can_restrict_members=True)
+    context = _context(_member(ChatMember.ADMINISTRATOR, 99, can_restrict_members=True), actor)
     access = await require_admin_access(_update(), context, Settings(bot_token="token", owner_id=10), "can_restrict_members")
     assert access.actor is actor
     assert access.is_bot_admin is False
+    context.bot.get_chat_administrators.assert_awaited_once_with(-1001)
 
 
 @pytest.mark.asyncio
 async def test_telegram_group_owner_always_has_full_moderation_access():
-    owner = _member(ChatMember.OWNER)
+    owner = _member(ChatMember.OWNER, 44)
     context = _context(
-        _member(ChatMember.ADMINISTRATOR, can_restrict_members=True),
+        _member(ChatMember.ADMINISTRATOR, 99, can_restrict_members=True),
         owner,
     )
     access = await require_admin_access(
@@ -83,9 +92,9 @@ async def test_telegram_group_owner_always_has_full_moderation_access():
 
 @pytest.mark.asyncio
 async def test_real_admin_without_right_can_use_group_bot_admin_appointment():
-    actor = _member(ChatMember.ADMINISTRATOR, can_restrict_members=False)
+    actor = _member(ChatMember.ADMINISTRATOR, 44, can_restrict_members=False)
     context = _context(
-        _member(ChatMember.ADMINISTRATOR, can_restrict_members=True),
+        _member(ChatMember.ADMINISTRATOR, 99, can_restrict_members=True),
         actor,
         record=object(),
     )
@@ -95,9 +104,9 @@ async def test_real_admin_without_right_can_use_group_bot_admin_appointment():
 
 @pytest.mark.asyncio
 async def test_group_bot_admin_appointment_does_not_transfer_to_another_group():
-    actor = _member(ChatMember.ADMINISTRATOR, can_restrict_members=False)
+    actor = _member(ChatMember.ADMINISTRATOR, 44, can_restrict_members=False)
     context = _context(
-        _member(ChatMember.ADMINISTRATOR, can_restrict_members=True),
+        _member(ChatMember.ADMINISTRATOR, 99, can_restrict_members=True),
         actor,
         record=object(),
     )
@@ -108,7 +117,7 @@ async def test_group_bot_admin_appointment_does_not_transfer_to_another_group():
 
 @pytest.mark.asyncio
 async def test_xyron_must_have_the_required_telegram_permission():
-    actor = _member(ChatMember.ADMINISTRATOR, can_restrict_members=True)
-    context = _context(_member(ChatMember.ADMINISTRATOR, can_restrict_members=False), actor)
+    actor = _member(ChatMember.ADMINISTRATOR, 44, can_restrict_members=True)
+    context = _context(_member(ChatMember.ADMINISTRATOR, 99, can_restrict_members=False), actor)
     with pytest.raises(AuthorizationError, match="XYRON is missing"):
         await require_admin_access(_update(), context, Settings(bot_token="token", owner_id=10), "can_restrict_members")
