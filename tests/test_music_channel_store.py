@@ -35,7 +35,8 @@ def test_channel_store_round_trips_large_chunked_playlist():
     for message in messages:
         parsed = store._parse_part(987654321, message)
         assert parsed is not None
-        part, total, chunk = parsed
+        generation, part, total, chunk = parsed
+        assert generation
         chunks[part] = chunk
 
     restored = store._decode(987654321, chunks, total)
