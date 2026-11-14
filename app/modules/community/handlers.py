@@ -16,6 +16,7 @@ from telegram.ext import ContextTypes
 from app.config import Settings
 from app.database.models import KnownUser
 from app.core.permissions import AuthorizationError, require_admin_access
+from app.core.group_admin_cache import GroupAdminLookupError, get_group_admins
 from app.services.group_policy import GroupPolicyRepository
 from app.services.reports import ReportRepository
 from app.services.moderation import ModerationRepository
@@ -397,8 +398,7 @@ async def locks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def antiflood_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
-        await _admin(update, context)
-        if not context.args or context.args[0].casefold() not in {"on", "off"}:
+        await _admin(update, context)        if not context.args or context.args[0].casefold() not in {"on", "off"}:
             raise ValueError(
                 "Usage: /antiflood <on|off> [threshold 3-20] "
                 "[window 2-60 seconds] [repeat threshold 2-10]"
@@ -753,24 +753,23 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
         return
     if approved and not user.is_bot and not spam_enabled:
         return
+    # One shared group-admin snapshot identifies the sender, configured
+    # owner, and XYRON. Never fall back to unverified permissions on failure.
     try:
-        actor = await context.bot.get_chat_member(chat.id, user.id)
-    except TelegramError:
+        admins = await get_group_admins(
+            context.bot, context.application.bot_data, chat.id
+        )
+    except GroupAdminLookupError:
         return
-    if actor.status in {ChatMember.ADMINISTRATOR, ChatMember.OWNER} and not user.is_bot:
+    actor = admins.get(user.id)
+    if actor is not None and not user.is_bot:
         return
     settings: Settings = context.application.bot_data["settings"]
-    try:
-        owner = await context.bot.get_chat_member(chat.id, settings.owner_id)
-        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
-    except TelegramError:
+    owner = admins.get(settings.owner_id)
+    bot_member = admins.get(context.bot.id)
+    if settings.owner_admin_required and owner is None:
         return
-    if settings.owner_admin_required and owner.status not in {
-        ChatMember.ADMINISTRATOR,
-        ChatMember.OWNER,
-    }:
-        return
-    if bot_member.status not in {ChatMember.ADMINISTRATOR, ChatMember.OWNER}:
+    if bot_member is None:
         return
 
     # Dedicated spam protection is independent of the existing delete-only antiflood.
@@ -797,8 +796,7 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
     elif "media" in locks and message.effective_attachment:
         violation = "media"
     elif "bots" in locks and user.is_bot:
-        violation = "bots"
-    elif "commands" in locks and text.startswith("/"):
+        violation = "bots"    elif "commands" in locks and text.startswith("/"):
         violation = "commands"
     if violation is None and flood_enabled:
         key = (chat.id, user.id)
@@ -828,5 +826,4 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
         except TelegramError:
             logger.info("Could not delete locked message in chat %s", chat.id)
         return
-
 
