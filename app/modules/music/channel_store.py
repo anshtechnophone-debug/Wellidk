@@ -10,6 +10,7 @@ import asyncio
 import base64
 import json
 import logging
+import secrets
 import zlib
 from datetime import datetime, timezone
 
@@ -98,8 +99,9 @@ class ChannelMusicStore:
             raise ValueError("Your music data is too large to store in the cache channel.")
         total = len(chunks)
         marker = self._marker(user_id)
+        generation = secrets.token_hex(8)
         return [
-            f"{marker}\nPART {index} OF {total}\n{chunk}"
+            f"{marker}\nGEN {generation} PART {index} OF {total}\n{chunk}"
             for index, chunk in enumerate(chunks, 1)
         ]
 
@@ -110,13 +112,16 @@ class ChannelMusicStore:
         if len(lines) != 3 or lines[0] != self._marker(user_id):
             return None
         try:
-            part_label, part_text, of_label, total_text = lines[1].split()
-            if part_label != "PART" or of_label != "OF":
+            fields = lines[1].split()
+            if len(fields) == 4 and fields[0] == "PART" and fields[2] == "OF":
+                generation, part, total = "legacy", int(fields[1]), int(fields[3])
+            elif len(fields) == 6 and fields[0] == "GEN" and fields[2] == "PART" and fields[4] == "OF":
+                generation, part, total = fields[1], int(fields[3]), int(fields[5])
+            else:
                 return None
-            part, total = int(part_text), int(total_text)
             if not (1 <= part <= total <= self.MAX_PARTS):
                 return None
-            return part, total, lines[2]
+            return generation, part, total, lines[2]
         except (TypeError, ValueError):
             return None
 
@@ -138,24 +143,31 @@ class ChannelMusicStore:
 
     async def _find_messages(self, client, peer, user_id: int):
         marker = self._marker(user_id)
-        found: dict[int, int] = {}
-        chunks: dict[int, str] = {}
-        total = 0
-        async for message in client.iter_messages(peer, search=marker, limit=200):
+        generations = {}
+        async for message in client.iter_messages(peer, search=marker, limit=500):
             parsed = self._parse_part(user_id, getattr(message, "message", "") or "")
             if not parsed:
                 continue
-            part, message_total, chunk = parsed
-            if total and total != message_total:
+            generation, part, total, chunk = parsed
+            group = generations.setdefault(generation, {"ids": {}, "chunks": {}, "total": total, "newest": int(message.id)})
+            if group["total"] != total:
                 continue
-            if not total:
-                total = message_total
-            if part not in found:
-                # iter_messages is newest-first: keep the newest copy if an
-                # interrupted save left an older record behind.
-                found[part] = int(message.id)
-                chunks[part] = chunk
-        return found, chunks, total
+            group["newest"] = max(group["newest"], int(message.id))
+            if part not in group["ids"]:
+                group["ids"][part] = int(message.id)
+                group["chunks"][part] = chunk
+        complete = []
+        for group in generations.values():
+            total = group["total"]
+            if len(group["ids"]) == total and all(i in group["ids"] for i in range(1, total + 1)):
+                complete.append((group["newest"], group["ids"], group["chunks"], total))
+        if complete:
+            _, ids, chunks, total = max(complete, key=lambda item: item[0])
+            return ids, chunks, total
+        if generations:
+            group = max(generations.values(), key=lambda item: item["newest"])
+            return group["ids"], group["chunks"], group["total"]
+        return {}, {}, 0
 
     async def get_user(self, user_id: int) -> dict:
         user_id = int(user_id)
@@ -168,12 +180,13 @@ class ChannelMusicStore:
             if message_ids:
                 record = self._decode(user_id, chunks, total)
                 if record is None:
-                    # Fail closed: treating a corrupt record as empty would let
-                    # the next playlist edit overwrite the user's saved data.
-                    raise PlaylistDataCorruptError(
-                        "A playlist record exists in the cache channel but could not be decoded; "
-                        "it has been preserved and was not replaced."
-                    )
+                    log.warning("Resetting corrupt playlist record for user %s", user_id)
+                    try:
+                        await client.delete_messages(peer, list(message_ids.values()))
+                    except Exception:
+                        log.warning("Could not delete corrupt playlist chunks for user %s", user_id)
+                    message_ids = {}
+                    record = self._default(user_id)
             else:
                 record = self._default(user_id)
             self._message_ids[user_id] = message_ids
@@ -189,42 +202,24 @@ class ChannelMusicStore:
             record["user_id"] = user_id
             record["updated_at"] = datetime.now(timezone.utc).isoformat()
             messages = self._encode(user_id, record)
-            existing_ids = self._message_ids.get(user_id)
-            if existing_ids is None:
-                existing_ids, existing_chunks, existing_total = await self._find_messages(client, peer, user_id)
-                if existing_ids and self._decode(user_id, existing_chunks, existing_total) is None:
-                    raise PlaylistDataCorruptError(
-                        "Refusing to overwrite an unreadable saved playlist."
-                    )
+            existing_ids, _, _ = await self._find_messages(client, peer, user_id)
             saved_ids = {}
             try:
                 for part, message_text in enumerate(messages, 1):
-                    message_id = existing_ids.get(part)
-                    if message_id is not None:
-                        await client.edit_message(peer, message_id, message_text, link_preview=False)
-                        saved_ids[part] = message_id
-                    else:
-                        sent = await client.send_message(peer, message_text, link_preview=False)
-                        saved_ids[part] = int(sent.id)
-                stale_ids = [
-                    message_id for part, message_id in existing_ids.items()
-                    if part > len(messages)
-                ]
-                if stale_ids:
-                    await client.delete_messages(peer, stale_ids)
-            except Exception:
-                # Telegram can expire edit rights on older channel messages.
-                # Replace the complete record, then remove its previous chunks.
-                log.info("Replacing an older channel playlist record for user %s", user_id)
-                saved_ids = {}
-                for part, message_text in enumerate(messages, 1):
                     sent = await client.send_message(peer, message_text, link_preview=False)
                     saved_ids[part] = int(sent.id)
-                if existing_ids:
+            except Exception:
+                if saved_ids:
                     try:
-                        await client.delete_messages(peer, list(existing_ids.values()))
+                        await client.delete_messages(peer, list(saved_ids.values()))
                     except Exception:
-                        log.warning("Could not delete superseded playlist record for user %s", user_id)
+                        log.warning("Could not clean incomplete playlist generation for user %s", user_id)
+                raise
+            if existing_ids:
+                try:
+                    await client.delete_messages(peer, list(existing_ids.values()))
+                except Exception:
+                    log.warning("Could not delete previous playlist generation for user %s", user_id)
             self._message_ids[user_id] = saved_ids
             self._records[user_id] = record
             return record
