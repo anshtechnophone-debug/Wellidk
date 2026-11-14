@@ -290,7 +290,7 @@ async def _delete_and_maybe_mute(update, context, message, user) -> None:
         if not getattr(bot_member, "can_delete_messages", False):
             logger.warning("Smart GC needs Delete Messages permission in %s", chat.id)
             return
-        await message.delete()
+        await delete_target()
     except TelegramError:
         logger.warning("Smart GC could not delete flagged media", exc_info=True)
         return
