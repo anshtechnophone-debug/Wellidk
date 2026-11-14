@@ -606,11 +606,13 @@ class MusicPlugin:
         for item in playlist[page * page_size:(page + 1) * page_size]:
             title = str(item.get("title", "Track"))[:22]
             artist = str(item.get("artist", ""))[:12]
-            rows.append([{
-                "text": f"✕ {title} · {artist}" if artist else f"✕ {title}",
-                "callback_data": f"music:playlist:delete:{item['item_id']}",
-                "style": "danger",
-            }])
+            item_id = str(item.get("item_id", ""))
+            rows.append([
+                {"text": "▶", "callback_data": f"music:playlist:play:{item_id}", "style": "success"},
+                {"text": f"{title} · {artist}" if artist else title, "callback_data": f"music:playlist:play:{item_id}", "style": "primary"},
+                {"text": "✕", "callback_data": f"music:playlist:delete:{item_id}", "style": "danger"},
+            ])
+        rows.append([{"text": "‹ Back to player", "callback_data": "music:playlist:back", "style": "primary"}])
         if page_count > 1:
             nav = []
             if page > 0:
@@ -702,8 +704,8 @@ class MusicPlugin:
                 f"Could not load your playlist from the music cache channel: {type(exc).__name__}"
             )
 
-    async def _start_user_playlist(self, chat_id: int, user, record: dict):
-        playlist = list(record.get("playlist", []))
+    async def _start_user_playlist(self, chat_id: int, user, record: dict, items=None):
+        playlist = list(items if items is not None else record.get("playlist", []))
         if not playlist:
             raise RuntimeError("Your playlist is empty. Start a song, open /myplaylist, and tap ADD TO MY PLAYLIST.")
         if not self.accounts.clients:
@@ -840,9 +842,6 @@ class MusicPlugin:
                 ):
                     await self._callback_notice(query, "This song is already in your playlist.")
                     return
-                if len(playlist) >= 100:
-                    await self._callback_notice(query, "Your playlist has reached its 100-track limit.")
-                    return
                 playlist.append({
                     "item_id": secrets.token_hex(4),
                     "title": title[:120],
@@ -882,8 +881,26 @@ class MusicPlugin:
                 page = max(0, int(parts[3]))
                 await self._edit_playlist_view(query, record, page)
                 return
+            if action == "play" and len(parts) == 4:
+                item_id = parts[3]
+                selected = next((item for item in record.get("playlist", []) if str(item.get("item_id")) == item_id), None)
+                if not selected:
+                    await self._callback_notice(query, "That saved song is no longer in your playlist.")
+                    return
+                await self._start_user_playlist(chat_id, user, record, items=[selected])
+                return
             if action == "play":
                 await self._start_user_playlist(chat_id, user, record)
+                return
+            if action == "back":
+                current = self.players.get(chat_id)
+                if not current:
+                    await self._callback_notice(query, "Nothing is playing right now.")
+                    return
+                await query.edit_message_caption(
+                    caption=self._render_player(chat_id), parse_mode="HTML",
+                    reply_markup=self._player_keyboard(chat_id),
+                )
                 return
             if action == "stop":
                 await self._stop_user_playlist(chat_id, user.id)
@@ -1369,7 +1386,7 @@ def register_music(application: Application):
         CallbackQueryHandler(plugin.player_callback, pattern=r"^music:player:(?:replay|pause|resume|skip|stop|queue|vol_down|vol_up)$")
     )
     application.add_handler(
-        CallbackQueryHandler(plugin.playlist_callback, pattern=r"^music:playlist:(?:open|add_current|play|stop|delete:[A-Za-z0-9]+|page:\d+)$")
+        CallbackQueryHandler(plugin.playlist_callback, pattern=r"^music:playlist:(?:open|add_current|play(?::[A-Za-z0-9]+)?|stop|back|delete:[A-Za-z0-9]+|page:\d+)$")
     )
     application.add_handler(
         CallbackQueryHandler(plugin.subscription_callback, pattern=r"^music:subscription$")
