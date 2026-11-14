@@ -796,7 +796,8 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
     elif "media" in locks and message.effective_attachment:
         violation = "media"
     elif "bots" in locks and user.is_bot:
-        violation = "bots"    elif "commands" in locks and text.startswith("/"):
+        violation = "bots"
+    elif "commands" in locks and text.startswith("/"):
         violation = "commands"
     if violation is None and flood_enabled:
         key = (chat.id, user.id)
@@ -826,4 +827,3 @@ async def process_group_message(update: Update, context: ContextTypes.DEFAULT_TY
         except TelegramError:
             logger.info("Could not delete locked message in chat %s", chat.id)
         return
-
