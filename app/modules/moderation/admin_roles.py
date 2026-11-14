@@ -50,8 +50,9 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # or group-scoped bot admin receives no special promotion authority.
     try:
         admins = await get_group_admins(context.bot, context.application.bot_data, chat.id)
-    except GroupAdminLookupError as exc:
-        raise AuthorizationError("XYRON couldn't verify this group's administrators. Please try again shortly.") from exc
+    except GroupAdminLookupError:
+        await message.reply_text("XYRON couldn't verify this group's administrators. Please try again shortly.")
+        return
     actor_member = admins.get(actor.id)
     if actor_member is None:
         await message.reply_text("Only the group owner or a Telegram admin with 'Add new admins' permission can promote members.")
