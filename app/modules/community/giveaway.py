@@ -499,28 +499,8 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
     text = (message.text or "").strip()
     if not text:
         return
-    command = re.sub(r"\s+", " ", text.casefold()).strip()
-    command = re.sub(r"^/(gw|prize)(?:@\w+)?", lambda m: "/" + m.group(1), command)
+    command = re.sub(r"\\s+", " ", text.casefold()).strip()
     state = await _giveaway_state(context, chat.id)
-    if command == "/gw":
-        if not state.get("active"):
-            await message.reply_text("🎁 No giveaway is live in this group. The bot owner can start one with /gw start.")
-        elif str(user.id) in state.get("members", {}):
-            await message.reply_text("✅ You're already registered. Only messages in this group count toward this group's leaderboard.")
-        else:
-            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Join This Group's Giveaway", callback_data=f"giveaway:join:{chat.id}")]])
-            await message.reply_text("🎁 <b>THIS GROUP'S GIVEAWAY</b>\nRegister here. Only eligible messages in this group count toward this group's score.\nXYRON channel membership is required.", parse_mode="HTML", reply_markup=keyboard)
-        return
-    if command == "/prize":
-        if not state:
-            await message.reply_text("No giveaway has started in this group yet.")
-        else:
-            try:
-                await _send_giveaway_board(message, context, state)
-            except TelegramError:
-                logger.exception("Could not send group giveaway leaderboard for chat_id=%s", chat.id)
-                await message.reply_text("Couldn't send this group's leaderboard. Please try again.")
-        return
     if text.startswith("/") or command.startswith("#giveaway") or not state.get("active"):
         return
     ends = _parse_time(state.get("ends_at"))
