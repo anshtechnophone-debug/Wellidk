@@ -185,7 +185,7 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
     sub_font = _load_font(24, True)
     small_font = _load_font(21, False)
     draw.text((width // 2, 76), "XYRON", font=_load_font(27, True), fill=(151, 164, 205), anchor="mm")
-    draw.text((width // 2, 145), "GLOBAL GIVEAWAY", font=title_font, fill=white, anchor="mm")
+    draw.text((width // 2, 145), "GROUP GIVEAWAY", font=title_font, fill=white, anchor="mm")
     draw.text(
         (width // 2, 198),
         f"{_remaining(ends_at)} LEFT" if active else "GIVEAWAY ENDED · FINAL RESULTS",
@@ -193,7 +193,7 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
         fill=(123, 239, 183) if active else gold,
         anchor="mm",
     )
-    draw.text((width // 2, 229), "HOSTED BY  @afkvoid", font=_load_font(18, True), fill=(190, 198, 222), anchor="mm")
+    draw.text((width // 2, 229), _display_name(state.get("group_title", "XYRON GROUP"))[:42], font=_fit_font(draw, _display_name(state.get("group_title", "XYRON GROUP"))[:42], 800, 18, True), fill=(190, 198, 222), anchor="mm")
 
     # Text-only grand-prize panel. No NFT artwork or embedded image data.
     prize_box = (110, 245, 970, 440)
@@ -277,7 +277,7 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
 
     draw.text((width // 2, 1615), "REPLY  +1 POINT   ·   STANDALONE TEXT  +0.5 POINT", font=_fit_font(draw, "REPLY  +1 POINT   ·   STANDALONE TEXT  +0.5 POINT", 950, 19, True), fill=muted, anchor="mm")
     draw.text((width // 2, 1655), "JOIN FIRST · ONLY MESSAGES AFTER JOINING COUNT", font=_load_font(17, True), fill=(137, 150, 178), anchor="mm")
-    draw.text((width // 2, 1695), "XYRON  •  7-DAY COMMUNITY GIVEAWAY", font=_load_font(17, True), fill=(111, 125, 157), anchor="mm")
+    draw.text((width // 2, 1695), "XYRON  •  7-DAY GROUP GIVEAWAY", font=_load_font(17, True), fill=(111, 125, 157), anchor="mm")
 
     output = BytesIO()
     image.save(output, format="PNG", optimize=True)
@@ -287,13 +287,15 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
 
     return output
 
-async def _global_state(context: ContextTypes.DEFAULT_TYPE) -> dict:
-    state = (await _repo(context).get(0)).get("global_giveaway", {})
+async def _giveaway_state(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> dict:
+    state = (await _repo(context).get(chat_id)).get("giveaway", {})
     return state if isinstance(state, dict) else {}
 
 
-async def _save_global_state(context: ContextTypes.DEFAULT_TYPE, state: dict) -> None:
-    await _repo(context).set_value(0, "global_giveaway", state)
+async def _save_giveaway_state(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, state: dict
+) -> None:
+    await _repo(context).set_value(chat_id, "giveaway", state)
 
 
 async def _channel_member(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
@@ -321,48 +323,60 @@ async def _eligible_group(context: ContextTypes.DEFAULT_TYPE, chat: Chat) -> boo
     return ok
 
 
-async def _send_global_board(message, context, state: dict) -> None:
+async def _send_giveaway_board(message, context, state: dict) -> None:
     ends = _parse_time(state.get("ends_at")) or _now()
     active = bool(state.get("active")) and _now() < ends
     entries = _leaderboard(state)[:8]
     avatars = {uid: await _profile_photo_bytes(context, uid) for uid, _ in entries[:3]}
     await message.reply_photo(
         photo=_render_leaderboard(state, entries, ends, active, avatars),
-        caption="🎁 GLOBAL GIVEAWAY PRIZE LEADERBOARD",
+        caption="🎁 GIVEAWAY PRIZE LEADERBOARD",
     )
 
 
-def _giveaway_channel_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
+def _giveaway_channel_keyboard(
+    context: ContextTypes.DEFAULT_TYPE, group_id: int
+) -> InlineKeyboardMarkup:
     channel = getattr(context.application.bot_data["settings"], "music_channel", "@xyronschannel")
     channel_url = "https://t.me/" + str(channel).lstrip("@")
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📢 Join XYRON Channel", url=channel_url)],
-        [InlineKeyboardButton("✅ Joined — Confirm", callback_data="giveaway:join:0")],
+        [InlineKeyboardButton("✅ Joined — Confirm", callback_data=f"giveaway:join:{group_id}")],
     ])
 
 
-async def _prompt_giveaway_channel(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+async def _prompt_giveaway_channel(
+    context: ContextTypes.DEFAULT_TYPE, user_id: int, group_id: int
+) -> None:
     await context.bot.send_message(
         user_id,
-        "⚠️ Your giveaway points are paused because you are not a member of @xyronschannel.\n\n"
+        "⚠️ Your giveaway points in this group are paused because you are not a member of @xyronschannel.\n\n"
         "Join the channel, then tap Joined — Confirm. Your existing points will be kept.",
-        reply_markup=_giveaway_channel_keyboard(context),
+        reply_markup=_giveaway_channel_keyboard(context, group_id),
     )
 
 
 async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query, user = update.callback_query, update.effective_user
-    if not query or not user or (query.data or "") != "giveaway:join:0":
+    if not query or not user:
         return
-    state = await _global_state(context)
+    data = (query.data or "").split(":")
+    if len(data) != 3 or data[:2] != ["giveaway", "join"]:
+        return
+    try:
+        group_id = int(data[2])
+    except ValueError:
+        await query.answer("This giveaway link is invalid.", show_alert=True)
+        return
+    state = await _giveaway_state(context, group_id)
     ends = _parse_time(state.get("ends_at"))
     if not state.get("active") or not ends or _now() >= ends:
-        await query.answer("This giveaway has ended.", show_alert=True)
+        await query.answer("This group's giveaway has ended.", show_alert=True)
         return
     if not await _channel_member(context, user.id):
         await query.answer("Join XYRON's channel first, then confirm.", show_alert=True)
         try:
-            await _prompt_giveaway_channel(context, user.id)
+            await _prompt_giveaway_channel(context, user.id, group_id)
         except TelegramError:
             pass
         return
@@ -372,19 +386,19 @@ async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAUL
     if not isinstance(entry, dict):
         entry = {
             "name": user.full_name, "username": user.username, "score": 0.0,
-            "joined_at": _now().isoformat(), "groups": [], "risk": 0, "flags": [],
+            "joined_at": _now().isoformat(), "risk": 0, "flags": [],
             "recent": [], "last_text": "", "last_at": 0, "messages": 0, "replies": 0,
             "distinct_replies": [], "alerted": False,
         }
         members[key] = entry
-        confirmation = "✅ You're registered for the global giveaway!"
+        confirmation = f"✅ You're registered for the giveaway in {state.get('group_title', 'this group')}!"
     else:
-        confirmation = "✅ Channel membership confirmed. Your existing points are active again."
+        confirmation = "✅ Channel membership confirmed. Your points in this group's giveaway are active again."
     entry["channel_ok"] = True
     entry["channel_checked_at"] = _now().timestamp()
     entry["channel_prompted"] = False
     entry["name"], entry["username"] = user.full_name, user.username
-    await _save_global_state(context, state)
+    await _save_giveaway_state(context, group_id, state)
     await query.answer("Membership confirmed. Point counting is active.", show_alert=True)
     try:
         await query.edit_message_text(confirmation)
@@ -396,58 +410,86 @@ async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAUL
 
 
 async def global_giveaway_dm_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manage only the giveaway belonging to the current group."""
     message, user, chat = update.effective_message, update.effective_user, update.effective_chat
-    if not message or not user or not chat or chat.type != Chat.PRIVATE:
+    if not message or not user or not chat:
         return
     settings = context.application.bot_data["settings"]
     if not settings.is_owner(user.id):
-        await message.reply_text("🔒 These giveaway controls are owner-only.")
+        await message.reply_text("🔒 Giveaway controls are bot-owner-only.")
         return
-    args = [x.casefold() for x in context.args]
-    state = await _global_state(context)
-    if message.text and message.text.split("@", 1)[0].split()[0].casefold() == "/prize":
-        if not state:
-            await message.reply_text("No global giveaway has started yet.")
-        else:
-            try:
-                await _send_global_board(message, context, state)
-            except TelegramError:
-                logger.exception("Could not send global giveaway leaderboard in owner DM")
-                await message.reply_text("Could not render the global leaderboard.")
+    if chat.type == Chat.PRIVATE:
+        await message.reply_text("Run /gw start inside the group where you want its giveaway to begin. Each group has a separate giveaway and leaderboard.")
         return
-    action = args[0] if args else "status"
+    if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        return
+
+    action = context.args[0].casefold() if context.args else "status"
+    state = await _giveaway_state(context, chat.id)
     if action == "start":
         started = _now()
-        state = {"active": True, "started_at": started.isoformat(), "ends_at": (started + DURATION).isoformat(), "members": {}, "scope": "all_eligible_groups"}
-        await _save_global_state(context, state)
-        await message.reply_text("🎉 GLOBAL GIVEAWAY STARTED\nDuration: 7 days\nGroups: all XYRON groups with 30+ members\nEntry: XYRON channel subscription + one-time registration\nScoring: reply +1 · standalone text +0.5\nAll groups share one leaderboard.")
+        state = {
+            "active": True, "started_at": started.isoformat(),
+            "ends_at": (started + DURATION).isoformat(),
+            "group_id": chat.id, "group_title": chat.title or "This group",
+            "members": {},
+        }
+        await _save_giveaway_state(context, chat.id, state)
+        await message.reply_text(
+            "🎉 GIVEAWAY STARTED IN THIS GROUP\n"
+            "Duration: 7 days\nParticipants and points: this group only\n"
+            "Entry: XYRON channel subscription + one-time registration\n"
+            "Scoring: reply +1 · standalone text +0.5\n"
+            "Use /gw to join and /prize to view this group's leaderboard."
+        )
     elif action == "end":
         if not state.get("active"):
-            await message.reply_text("There is no active global giveaway.")
+            await message.reply_text("There is no active giveaway in this group.")
             return
         state["active"] = False
         state["ended_at"] = _now().isoformat()
-        await _save_global_state(context, state)
-        await message.reply_text("🏁 Global giveaway ended. Use /prize for final results.")
+        await _save_giveaway_state(context, chat.id, state)
+        await message.reply_text("🏁 This group's giveaway has ended. Use /prize for its final results.")
     elif action in {"reset", "clear"}:
+        if not state:
+            await message.reply_text("No giveaway has started in this group.")
+            return
         for entry in state.get("members", {}).values():
             if isinstance(entry, dict):
                 entry["score"] = 0.0
-        await _save_global_state(context, state)
-        await message.reply_text("✅ Global giveaway points reset.")
+        await _save_giveaway_state(context, chat.id, state)
+        await message.reply_text("✅ This group's giveaway points have been reset.")
     elif action in {"suspicious", "fraud"}:
-        flagged = [(uid, data) for uid, data in state.get("members", {}).items() if isinstance(data, dict) and int(data.get("risk", 0)) >= 20]
+        flagged = [
+            (uid, data) for uid, data in state.get("members", {}).items()
+            if isinstance(data, dict) and int(data.get("risk", 0)) >= 20
+        ]
         flagged.sort(key=lambda item: -int(item[1].get("risk", 0)))
         if not flagged:
-            await message.reply_text("No accounts currently meet the suspicious-activity review threshold.")
+            await message.reply_text("No accounts currently meet this group's suspicious-activity review threshold.")
             return
-        lines = ["🔎 GLOBAL GIVEAWAY REVIEW"]
+        lines = ["🔎 THIS GROUP'S GIVEAWAY REVIEW"]
         for uid, data in flagged[:15]:
-            lines.append(f"\n{data.get('name', uid)} · ID {uid}\nRisk {data.get('risk', 0)}/100 · Messages {data.get('messages', 0)}\nSignals: {', '.join(data.get('flags', [])[-4:])}")
+            lines.append(
+                f"\n{data.get('name', uid)} · ID {uid}\n"
+                f"Risk {data.get('risk', 0)}/100 · Messages {data.get('messages', 0)}\n"
+                f"Signals: {', '.join(data.get('flags', [])[-4:])}"
+            )
         await message.reply_text("\n".join(lines))
+    elif action == "status":
+        ends = _parse_time(state.get("ends_at"))
+        if not state:
+            await message.reply_text("🎁 No giveaway has started in this group. The bot owner can run /gw start here.")
+        else:
+            live = bool(state.get("active")) and bool(ends) and _now() < ends
+            status = "LIVE" if live else "ENDED"
+            end_text = f"{ends:%d %b %Y, %H:%M UTC}" if ends else "unknown"
+            await message.reply_text(
+                f"THIS GROUP'S GIVEAWAY: {status}\n"
+                f"Participants: {len(state.get('members', {}))}\nEnds: {end_text}"
+            )
     else:
-        ends = _parse_time(state.get("ends_at")) or _now()
-        await message.reply_text(f"GLOBAL GIVEAWAY: {'LIVE' if state.get('active') and _now() < ends else 'ENDED'}\nParticipants: {len(state.get('members', {}))}\nEnds: {ends:%d %b %Y, %H:%M UTC}\nCommands: /gw start, /gw end, /gw suspicious, /gw reset, /prize")
+        await message.reply_text("Usage: /gw start · /gw end · /gw reset · /gw suspicious")
 
 
 async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -459,25 +501,25 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
     command = re.sub(r"\s+", " ", text.casefold()).strip()
     command = re.sub(r"^/(gw|prize)(?:@\w+)?", lambda m: "/" + m.group(1), command)
-    state = await _global_state(context)
+    state = await _giveaway_state(context, chat.id)
     if command == "/gw":
         if not state.get("active"):
-            await message.reply_text("🎁 No global giveaway is live right now.")
+            await message.reply_text("🎁 No giveaway is live in this group. The bot owner can start one with /gw start.")
         elif str(user.id) in state.get("members", {}):
-            await message.reply_text("✅ You're already registered. Your messages across all eligible XYRON groups count together.")
+            await message.reply_text("✅ You're already registered. Only messages in this group count toward this group's leaderboard.")
         else:
-            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Join Global Giveaway", callback_data="giveaway:join:0")]])
-            await message.reply_text("🎁 <b>XYRON GLOBAL GIVEAWAY</b>\nRegister once. Messages in EVERY XYRON group with 30+ members count toward one global score.\nXYRON channel membership is required.", parse_mode="HTML", reply_markup=keyboard)
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Join This Group's Giveaway", callback_data=f"giveaway:join:{chat.id}")]])
+            await message.reply_text("🎁 <b>THIS GROUP'S GIVEAWAY</b>\nRegister here. Only eligible messages in this group count toward this group's score.\nXYRON channel membership is required.", parse_mode="HTML", reply_markup=keyboard)
         return
     if command == "/prize":
         if not state:
-            await message.reply_text("No global giveaway has started yet.")
+            await message.reply_text("No giveaway has started in this group yet.")
         else:
             try:
-                await _send_global_board(message, context, state)
+                await _send_giveaway_board(message, context, state)
             except TelegramError:
-                logger.exception("Could not send global giveaway leaderboard")
-                await message.reply_text("Couldn't send the leaderboard. Please try again.")
+                logger.exception("Could not send group giveaway leaderboard for chat_id=%s", chat.id)
+                await message.reply_text("Couldn't send this group's leaderboard. Please try again.")
         return
     if text.startswith("/") or command.startswith("#giveaway") or not state.get("active"):
         return
@@ -485,7 +527,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
     if not ends or _now() >= ends:
         state["active"] = False
         state["ended_at"] = ends.isoformat() if ends else _now().isoformat()
-        await _save_global_state(context, state)
+        await _save_giveaway_state(context, chat.id, state)
         return
     if not await _eligible_group(context, chat):
         return
@@ -501,13 +543,13 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
     if not channel_ok:
         if not entry.get("channel_prompted"):
             entry["channel_prompted"] = True
-            await _save_global_state(context, state)
+            await _save_giveaway_state(context, chat.id, state)
             try:
-                await _prompt_giveaway_channel(context, user.id)
+                await _prompt_giveaway_channel(context, user.id, chat.id)
             except TelegramError:
                 logger.info("Could not send channel rejoin prompt to giveaway participant %s", user.id)
         else:
-            await _save_global_state(context, state)
+            await _save_giveaway_state(context, chat.id, state)
         return
     entry["channel_prompted"] = False
     raw = text
@@ -544,7 +586,6 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         increment = 1.0 if genuine_reply else 0.5
     entry["score"] = round(_score(entry) + increment, 1)
     entry["messages"] = int(entry.get("messages", 0)) + 1
-    entry["groups"] = list(dict.fromkeys([*entry.get("groups", []), chat.id]))
     entry["recent"] = (recent + [{"at": now, "text": normalized[:160], "group": chat.id}])[-30:]
     entry["last_text"] = normalized[:500]
     entry["last_at"] = now
@@ -569,11 +610,11 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             "and no genuine conversation with other members."
         )
         entry["score"] = 0.0
-        await _save_global_state(context, state)
+        await _save_giveaway_state(context, chat.id, state)
         notice = (
             f"🚫 GIVEAWAY DISQUALIFICATION\n"
             f"{user.full_name} (ID {user.id}) has been disqualified from the global giveaway "
-            "after multiple strong anti-abuse signals."
+            "after multiple strong anti-abuse signals in this group's giveaway."
         )
         try:
             await context.bot.send_message(chat.id, notice)
@@ -583,7 +624,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             try:
                 await context.bot.send_message(
                     owner_id,
-                    f"🚫 GLOBAL GIVEAWAY — DISQUALIFIED\n"
+                    f"🚫 GROUP GIVEAWAY — DISQUALIFIED\n"
                     f"User: {user.full_name} (@{user.username or 'no_username'}) · ID {user.id}\n"
                     f"Group: {chat.title} ({chat.id})\n"
                     f"Risk: {risk}/100\n"
@@ -594,15 +635,15 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 logger.exception("Could not DM owner about disqualified giveaway participant %s", user.id)
         return
 
-    await _save_global_state(context, state)
+    await _save_giveaway_state(context, chat.id, state)
     if risk >= 30 and not entry.get("alerted"):
         entry["alerted"] = True
-        await _save_global_state(context, state)
+        await _save_giveaway_state(context, chat.id, state)
         for owner_id in context.application.bot_data["settings"].owner_ids:
             try:
                 await context.bot.send_message(
                     owner_id,
-                    f"⚠️ GLOBAL GIVEAWAY — SUSPICIOUS ACTIVITY\n"
+                    f"⚠️ GROUP GIVEAWAY — SUSPICIOUS ACTIVITY\n"
                     f"User: {user.full_name} (@{user.username or 'no_username'}) · ID {user.id}\n"
                     f"Group: {chat.title} ({chat.id})\n"
                     f"Risk: {risk}/100\n"
