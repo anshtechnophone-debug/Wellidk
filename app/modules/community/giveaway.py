@@ -76,7 +76,7 @@ def _rules_text(group_title: str, started: datetime | None = None, ends: datetim
         "• Media, stickers, captions and commands: <b>0 points</b>\n\n"
         "✅ Join first. Only messages sent after joining count.\n"
         "🏆 <b>Prize targets:</b> 1st — 11,000 points (Telegram Premium) · 2nd — 10,000 points (₹100 INR) · 3rd — 9,000 points (30 Telegram Stars).\n"
-        "Your messages across all eligible XYRON groups count toward one global score. Use <b>/prize</b> to check the leaderboard.\n"
+        "Only messages in this group count toward this group's leaderboard. Use <b>/prize</b> to check it.\n"
         "👑 <b>Hosted by:</b> @afkvoid\n"
         "⏳ The giveaway ends after 7 days."
     )
@@ -149,7 +149,7 @@ def _fit_font(draw: ImageDraw.ImageDraw, text: str, max_width: int, size: int, b
 
 
 def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: datetime, active: bool, avatars: dict[int, bytes | None]) -> BytesIO:
-    """Render the navy-indigo global leaderboard with text-only prizes and aligned avatars."""
+    """Render the navy-indigo group leaderboard with text-only prizes and aligned avatars."""
     width, height = 1080, 1720
     image = Image.new("RGB", (width, height), (12, 15, 32))
     pixels = image.load()
@@ -613,7 +613,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await _save_giveaway_state(context, chat.id, state)
         notice = (
             f"🚫 GIVEAWAY DISQUALIFICATION\n"
-            f"{user.full_name} (ID {user.id}) has been disqualified from the global giveaway "
+            f"{user.full_name} (ID {user.id}) has been disqualified from this group's giveaway "
             "after multiple strong anti-abuse signals in this group's giveaway."
         )
         try:
