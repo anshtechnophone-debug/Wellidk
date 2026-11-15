@@ -8,6 +8,7 @@ import logging
 import json
 import secrets
 import time
+import traceback
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -86,6 +87,33 @@ class MusicPlugin:
         self.calls.on_update(
             call_filters.chat_update(ChatUpdate.Status.LEFT_CALL)
         )(self._on_call_left)
+
+    async def _report_owner_error(
+        self, title: str, error: BaseException, *, chat_id: int | None = None
+    ) -> None:
+        """Send internal diagnostics only to configured owner private chats."""
+        owners = tuple(getattr(self.settings, "owner_ids", ()) or ())
+        if not owners:
+            owners = (self.owner_id,)
+        details = "".join(
+            traceback.format_exception(type(error), error, error.__traceback__)
+        )
+        report = (
+            f"⚠️ XYRON MUSIC ERROR\n"
+            f"Event: {title}\n"
+            f"Group ID: {chat_id if chat_id is not None else 'N/A'}\n\n"
+            f"{details}"
+        )
+        for owner_id in dict.fromkeys(int(value) for value in owners if value):
+            try:
+                await self.bot.send_message(
+                    chat_id=owner_id, text=report[-3900:]
+                )
+            except Exception:
+                log.exception(
+                    "Could not deliver music error report to owner_id=%s",
+                    owner_id,
+                )
 
     async def start(self):
         if self._started:
@@ -514,12 +542,13 @@ class MusicPlugin:
                 try:
                     await self._start_track(chat_id, track, message_id)
                     return
-                except Exception:
-                    log.exception("Could not start queued music track")
+                except Exception as exc:
+                    await self._report_owner_error(
+                        "Could not start queued music track", exc, chat_id=chat_id
+                    )
                     await self.bot.send_message(
                         chat_id,
-                        f"⚠️ Could not start <b>{html.escape(str(track.get('name', 'track')))}</b>. "
-                        "Please check the voice chat and try again.",
+                        f"⚠️ Couldn't start <b>{html.escape(str(track.get('name', 'track')))}</b>. Please try again.",
                         parse_mode="HTML",
                     )
                     status_message_id = None
@@ -770,9 +799,11 @@ class MusicPlugin:
                     log.debug("Could not reuse the current player card for /myplaylist", exc_info=True)
             await self._send_playlist_view(chat.id, record)
         except Exception as exc:
-            log.exception("Could not open user playlist")
+            await self._report_owner_error(
+                "Could not open user playlist", exc, chat_id=update.effective_chat.id
+            )
             await update.effective_message.reply_text(
-                f"Could not load your playlist from the music cache channel: {type(exc).__name__}"
+                "Couldn't load your playlist right now. Please try again later."
             )
 
     async def _start_user_playlist(self, chat_id: int, user, record: dict, items=None):
@@ -995,8 +1026,11 @@ class MusicPlugin:
         except PermissionError as exc:
             await self._callback_notice(query, str(exc))
         except Exception as exc:
-            log.exception("Playlist action failed")
-            await self._callback_notice(query, f"Playlist action failed: {type(exc).__name__}")
+            await self._report_owner_error(
+                "Playlist action failed", exc,
+                chat_id=query.message.chat_id if query.message else None,
+            )
+            await self._callback_notice(query, "That playlist action couldn't be completed. Please try again.")
 
     async def play_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if await self._silence_if_disabled(update):
@@ -1066,8 +1100,10 @@ class MusicPlugin:
                 return
             await status.edit_text("▶️ Starting playback…")
             await self._play_next(chat_id, status.message_id)
-        except Exception:
-            log.exception("Music request could not be completed")
+        except Exception as exc:
+            await self._report_owner_error(
+                "Music request could not be completed", exc, chat_id=chat_id
+            )
             try:
                 await status.edit_text(
                     "⚠️ Couldn't load that track. Please try another search."
@@ -1243,8 +1279,11 @@ class MusicPlugin:
             log.exception("Music player control failed")
             await self._callback_notice(query, f"Action failed: {type(exc).__name__}")
         except Exception as exc:
-            log.exception("Music player control failed")
-            await self._callback_notice(query, f"Action failed: {type(exc).__name__}")
+            await self._report_owner_error(
+                "Music player control failed", exc,
+                chat_id=query.message.chat_id if query.message else None,
+            )
+            await self._callback_notice(query, "That action couldn't be completed. Please try again.")
 
     async def _control_command(self, update, action):
         if await self._silence_if_disabled(update):
@@ -1315,8 +1354,12 @@ class MusicPlugin:
                 )
                 await self._send_player_card(chat_id, cover, self._render_player(chat_id))
         except Exception as exc:
-            log.exception("Music command %s failed", action)
-            await message.reply_text(f"❌ {action.title()} failed: {type(exc).__name__}")
+            await self._report_owner_error(
+                f"Music command {action} failed", exc, chat_id=chat_id
+            )
+            await message.reply_text(
+                f"❌ Couldn't complete {action}. Please try again."
+            )
 
     async def pause_command(self, update, context):
         await self._control_command(update, "pause")
@@ -1395,8 +1438,12 @@ class MusicPlugin:
             track["volume"] = volume
             await message.reply_text(f"🔊 Volume set to {volume}%.")
         except Exception as exc:
-            log.exception("Music volume change failed")
-            await message.reply_text(f"❌ Could not change volume: {type(exc).__name__}")
+            await self._report_owner_error(
+                "Music volume change failed", exc, chat_id=chat_id
+            )
+            await message.reply_text(
+                "❌ Couldn't change the volume. Please try again."
+            )
 
     async def music_help_command(self, update, context):
         if await self._silence_if_disabled(update):
