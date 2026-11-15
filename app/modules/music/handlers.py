@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import json
 import secrets
 import time
 from collections import defaultdict, deque
@@ -39,6 +40,17 @@ class MusicPlugin:
         self.channel = getattr(settings, "music_channel", "@xyronschannel")
         self.cache_channel_id = getattr(settings, "music_cache_channel_id", 4363096287)
         self.data_dir = Path(getattr(settings, "music_data_dir", "./data/music"))
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.disabled_groups_file = self.data_dir / "disabled_groups.json"
+        self.disabled_groups = set()
+        try:
+            stored = json.loads(self.disabled_groups_file.read_text(encoding="utf-8"))
+            if isinstance(stored, list):
+                self.disabled_groups = {int(chat_id) for chat_id in stored}
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError, TypeError):
+            log.exception("Could not load disabled music groups")
         self.media_dir = self.data_dir / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
         self.calls = MultiCallPool()
@@ -117,6 +129,59 @@ class MusicPlugin:
         if self.http and not self.http.closed:
             await self.http.close()
         self._started = False
+
+    def _save_disabled_groups(self):
+        temporary = self.disabled_groups_file.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(sorted(self.disabled_groups), separators=(",", ":")),
+            encoding="utf-8",
+        )
+        temporary.replace(self.disabled_groups_file)
+
+    def _music_is_disabled(self, chat_id: int) -> bool:
+        return int(chat_id) in self.disabled_groups
+
+    async def _silence_if_disabled(self, update: Update) -> bool:
+        chat = update.effective_chat
+        if chat and self._music_is_disabled(chat.id):
+            return True
+        return False
+
+    async def offmusic_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        message = update.effective_message
+        if not user or user.id != self.owner_id:
+            return
+        if not context.args or len(context.args) != 1:
+            return
+        try:
+            target_chat_id = int(context.args[0])
+        except (TypeError, ValueError):
+            return
+        if target_chat_id >= 0:
+            return
+        if target_chat_id in self.disabled_groups:
+            return
+        self.disabled_groups.add(target_chat_id)
+        try:
+            self._save_disabled_groups()
+        except OSError:
+            self.disabled_groups.discard(target_chat_id)
+            log.exception("Could not persist disabled music group %s", target_chat_id)
+            return
+        self.queues[target_chat_id].clear()
+        self.playlist_sessions.pop(target_chat_id, None)
+        await self._stop_progress(target_chat_id)
+        track = self.players.pop(target_chat_id, None)
+        await self._cancel_track_stream(track)
+        try:
+            await self._leave_call(target_chat_id)
+        except Exception:
+            log.debug("Could not leave voice chat while disabling music in %s", target_chat_id, exc_info=True)
+        try:
+            await self.bot.send_message(target_chat_id, "Music has been turned off")
+        except Exception:
+            log.exception("Could not announce music shutdown in group %s", target_chat_id)
 
     def is_active(self, chat_id: int) -> bool:
         return bool(self.players.get(chat_id) or self.queues.get(chat_id))
@@ -434,7 +499,11 @@ class MusicPlugin:
         )
 
     async def _play_next(self, chat_id, status_message_id=None):
+        if self._music_is_disabled(chat_id):
+            return
         async with self.locks[chat_id]:
+            if self._music_is_disabled(chat_id):
+                return
             while self.queues[chat_id]:
                 track = self.queues[chat_id].popleft()
                 message_id = status_message_id or track.get("status_message_id")
@@ -670,6 +739,8 @@ class MusicPlugin:
         return result
 
     async def my_playlist_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if await self._silence_if_disabled(update):
+            return
         if not await self._require_membership(update):
             return
         chat = update.effective_chat
@@ -805,6 +876,9 @@ class MusicPlugin:
             log.debug("Could not send callback feedback", exc_info=True)
 
     async def playlist_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if await self._silence_if_disabled(update):
+            await update.callback_query.answer()
+            return
         query = update.callback_query
         user = query.from_user
         # Acknowledge before membership, cache-channel, or playlist I/O.
@@ -925,6 +999,8 @@ class MusicPlugin:
             await self._callback_notice(query, f"Playlist action failed: {type(exc).__name__}")
 
     async def play_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if await self._silence_if_disabled(update):
+            return
         message = update.effective_message
         if not await self._require_membership(update):
             return
@@ -1005,6 +1081,9 @@ class MusicPlugin:
 
 
     async def choose_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if await self._silence_if_disabled(update):
+            await update.callback_query.answer()
+            return
         query = update.callback_query
         user = query.from_user
         # Membership verification and preference persistence can take longer than
@@ -1042,6 +1121,9 @@ class MusicPlugin:
             )
 
     async def player_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if await self._silence_if_disabled(update):
+            await update.callback_query.answer()
+            return
         query = update.callback_query
         await query.answer("Processing…")
         if not await self._is_channel_member(query.from_user.id):
@@ -1165,6 +1247,8 @@ class MusicPlugin:
             await self._callback_notice(query, f"Action failed: {type(exc).__name__}")
 
     async def _control_command(self, update, action):
+        if await self._silence_if_disabled(update):
+            return
         if await self._reject_control(update):
             return
         chat_id = update.effective_chat.id
@@ -1247,6 +1331,8 @@ class MusicPlugin:
         await self._control_command(update, "stop")
 
     async def queue_command(self, update, context):
+        if await self._silence_if_disabled(update):
+            return
         if not await self._require_membership(update):
             return
         chat_id = update.effective_chat.id
@@ -1262,6 +1348,8 @@ class MusicPlugin:
         )
 
     async def np_command(self, update, context):
+        if await self._silence_if_disabled(update):
+            return
         if not await self._require_membership(update):
             return
         track = self.players.get(update.effective_chat.id)
@@ -1278,6 +1366,8 @@ class MusicPlugin:
         )
 
     async def volume_command(self, update, context):
+        if await self._silence_if_disabled(update):
+            return
         if await self._reject_control(update):
             return
         message = update.effective_message
@@ -1309,6 +1399,8 @@ class MusicPlugin:
             await message.reply_text(f"❌ Could not change volume: {type(exc).__name__}")
 
     async def music_help_command(self, update, context):
+        if await self._silence_if_disabled(update):
+            return
         await update.effective_message.reply_text(
             "🎧 <b>XYRON MUSIC</b>\n\n"
             "• /play &lt;song name&gt; — play a song\n"
@@ -1387,6 +1479,7 @@ def register_music(application: Application):
         "cancelaccount": plugin.cancel_account_command,
         "accounts": plugin.accounts_command,
         "myid": plugin.myid_command,
+        "offmusic": plugin.offmusic_command,
     }
     for name, callback in commands.items():
         application.add_handler(CommandHandler(name, callback))
