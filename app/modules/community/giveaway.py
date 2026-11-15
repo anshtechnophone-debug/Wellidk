@@ -539,7 +539,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
     text = (message.text or "").strip()
     if not text:
         return
-    command = re.sub(r"\\s+", " ", text.casefold()).strip()
+    command = re.sub(r"\s+", " ", text.casefold()).strip()
     state = await _giveaway_state(context, chat.id)
     if text.startswith("/") or command.startswith("#giveaway") or not state.get("active"):
         return
