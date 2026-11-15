@@ -139,14 +139,45 @@ class SongsxSource:
     def _client_lock(self, client):
         return self._client_locks.setdefault(id(client), asyncio.Lock())
 
+    async def _search_keyboard(self, query: str, client, peer):
+        """Handle Songsx's join-confirm gate, then repeat the original search."""
+        sent = await client.send_message(peer, query)
+        keyboard = await self._wait_for_keyboard(client, peer, sent.id, timeout=20)
+        for attempt in range(2):
+            confirm = next(
+                (
+                    button
+                    for row in (keyboard.buttons or [])
+                    for button in row
+                    if getattr(button, "data", None)
+                    and any(
+                        marker in (getattr(button, "text", "") or "").casefold()
+                        for marker in ("confirm", "i have joined", "joined")
+                    )
+                ),
+                None,
+            )
+            if confirm is None:
+                return keyboard
+            await client(GetBotCallbackAnswerRequest(
+                peer=peer, msg_id=keyboard.id, data=confirm.data
+            ))
+            # Songsx may update the gate message asynchronously. Start a fresh
+            # query after confirming so the next response contains track choices.
+            await asyncio.sleep(0.5)
+            sent = await client.send_message(peer, query)
+            keyboard = await self._wait_for_keyboard(
+                client, peer, sent.id, timeout=20
+            )
+        return keyboard
+
     async def _search_one(self, query: str, client):
         """Search from one free account and keep its bot conversation exclusive until selection."""
         lock = self._client_lock(client)
         await lock.acquire()
         try:
             peer = await client.get_entity("@" + self.bot_username)
-            sent = await client.send_message(peer, query)
-            keyboard = await self._wait_for_keyboard(client, peer, sent.id, timeout=15)
+            keyboard = await self._search_keyboard(query, client, peer)
             selected = next(
                 (
                     (button, (getattr(button, "text", "") or "").strip())
@@ -568,8 +599,7 @@ class SongsxSource:
 
             client = clients[0]
             peer = await client.get_entity("@" + self.bot_username)
-            sent = await client.send_message(peer, query)
-            keyboard = await self._wait_for_keyboard(client, peer, sent.id)
+            keyboard = await self._search_keyboard(query, client, peer)
             choices = []
             for row in keyboard.buttons or []:
                 for button in row:
