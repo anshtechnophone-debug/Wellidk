@@ -9,8 +9,13 @@ import re
 import secrets
 import unicodedata
 from pathlib import Path
+from urllib.parse import urlparse
 
-from telethon.tl.functions.messages import GetBotCallbackAnswerRequest
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.functions.messages import (
+    GetBotCallbackAnswerRequest,
+    ImportChatInviteRequest,
+)
 from telethon.tl.types import PeerChannel
 
 log = logging.getLogger("xyron.music.songsx")
@@ -139,16 +144,94 @@ class SongsxSource:
     def _client_lock(self, client):
         return self._client_locks.setdefault(id(client), asyncio.Lock())
 
+    @staticmethod
+    def _telegram_join_targets(message) -> list[tuple[str, str]]:
+        """Extract Telegram public-channel and invite links from a Songsx gate."""
+        candidates = []
+        for row in (getattr(message, "buttons", None) or []):
+            for button in row:
+                url = getattr(button, "url", None)
+                if url:
+                    candidates.append(str(url))
+        body = getattr(message, "message", "") or ""
+        candidates.extend(
+            re.findall(
+                r"(?:https?://)?(?:t\.me|telegram\.me)/[^\s<>]+",
+                body,
+                flags=re.IGNORECASE,
+            )
+        )
+
+        targets = []
+        seen = set()
+        for raw_url in candidates:
+            raw_url = raw_url.strip().rstrip(".,);]}>")
+            parsed = urlparse(
+                raw_url if "://" in raw_url else "https://" + raw_url
+            )
+            if (parsed.hostname or "").casefold() not in {"t.me", "telegram.me", "www.t.me"}:
+                continue
+            parts = [part for part in parsed.path.split("/") if part]
+            if not parts:
+                continue
+            first = parts[0]
+            if first.startswith("+"):
+                kind, value = "invite", first[1:]
+            elif first.casefold() == "joinchat" and len(parts) > 1:
+                kind, value = "invite", parts[1]
+            elif first.casefold() in {
+                "s", "c", "share", "addstickers", "addemoji", "proxy",
+                "iv", "login", "faq",
+            }:
+                continue
+            else:
+                # t.me/<username> and t.me/<username>/<post-id>
+                kind, value = "public", first.lstrip("@")
+            key = (kind, value.casefold())
+            if value and key not in seen:
+                seen.add(key)
+                targets.append((kind, value))
+        return targets
+
+    async def _join_required_channels(self, client, gate_message) -> None:
+        """Join every supported Telegram channel linked in the Songsx gate."""
+        targets = self._telegram_join_targets(gate_message)
+        failures = []
+        for kind, value in targets:
+            try:
+                if kind == "invite":
+                    await client(ImportChatInviteRequest(value))
+                else:
+                    entity = await client.get_entity("@" + value)
+                    await client(JoinChannelRequest(entity))
+            except Exception as exc:
+                # Telegram reports an already-joined account as an exception;
+                # that state is a successful prerequisite for Songsx.
+                if "already" in type(exc).__name__.casefold() and (
+                    "participant" in type(exc).__name__.casefold()
+                    or "joined" in type(exc).__name__.casefold()
+                ):
+                    continue
+                failures.append(f"{value}: {type(exc).__name__}")
+        if failures:
+            raise RuntimeError(
+                "Could not join all Songsx-required channels: "
+                + "; ".join(failures)
+            )
+
     async def _search_keyboard(self, query: str, client, peer):
-        """Handle Songsx's join-confirm gate, then repeat the original search."""
+        """Join Songsx-required channels, confirm membership, and retry the search."""
         sent = await client.send_message(peer, query)
         keyboard = await self._wait_for_keyboard(client, peer, sent.id, timeout=20)
-        for attempt in range(2):
+        for _attempt in range(3):
+            buttons = [
+                button
+                for row in (keyboard.buttons or [])
+                for button in row
+            ]
             confirm = next(
                 (
-                    button
-                    for row in (keyboard.buttons or [])
-                    for button in row
+                    button for button in buttons
                     if getattr(button, "data", None)
                     and any(
                         marker in (getattr(button, "text", "") or "").casefold()
@@ -159,12 +242,15 @@ class SongsxSource:
             )
             if confirm is None:
                 return keyboard
+
+            # Join channel URLs supplied by Songsx before asserting membership.
+            await self._join_required_channels(client, keyboard)
             await client(GetBotCallbackAnswerRequest(
                 peer=peer, msg_id=keyboard.id, data=confirm.data
             ))
-            # Songsx may update the gate message asynchronously. Start a fresh
-            # query after confirming so the next response contains track choices.
-            await asyncio.sleep(0.5)
+
+            # Re-run the exact same search after Songsx processes confirmation.
+            await asyncio.sleep(0.7)
             sent = await client.send_message(peer, query)
             keyboard = await self._wait_for_keyboard(
                 client, peer, sent.id, timeout=20
