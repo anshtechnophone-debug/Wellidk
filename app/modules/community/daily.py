@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import unicodedata
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime
 from io import BytesIO
 from zoneinfo import ZoneInfo
 
@@ -17,7 +17,6 @@ from telegram.ext import ContextTypes
 
 from app.services.image_fonts import font_for_text
 from app.database.models import DailyMessageCount
-from app.services.group_policy import GroupPolicyRepository
 
 logger = logging.getLogger(__name__)
 LOCAL_TZ = ZoneInfo("Asia/Kolkata")
@@ -42,7 +41,6 @@ def _draw_avatar(
     image: Image.Image,
     box: tuple[int, int, int, int],
     name: str,
-    photo_bytes: bytes | None,
     accent: tuple[int, int, int],
     size_font: int = 26,
 ) -> None:
@@ -122,7 +120,7 @@ def _render_daily(
         draw.rounded_rectangle((206, 340, 874, 648), radius=34, fill=(31, 39, 69), outline=GOLD, width=4)
         draw.rounded_rectangle((394, 358, 686, 406), radius=22, fill=GOLD)
         draw.text((540, 382), "♛  #1  CHAMPION", font=label_font, fill=(24, 29, 48), anchor="mm")
-        _draw_avatar(image, (470, 423, 610, 563), name, None, GOLD, 34)
+        _draw_avatar(image, (470, 423, 610, 563), name, GOLD, 34)
         draw = ImageDraw.Draw(image)
         name_font = font_for_text(name, 30, True)
         draw.text((540, 576), _fit_text(draw, name, name_font, 590), font=name_font, fill=WHITE, anchor="mt")
@@ -143,7 +141,7 @@ def _render_daily(
         if len(rows) >= rank:
             uid, display_name, username, count = rows[index]
             name = (display_name or (f"@{username}" if username else f"User {uid}")).strip()
-            _draw_avatar(image, ((x1 + x2) // 2 - 44, podium_y1 + 70, (x1 + x2) // 2 + 44, podium_y1 + 158), name, None, accent, 24)
+            _draw_avatar(image, ((x1 + x2) // 2 - 44, podium_y1 + 70, (x1 + x2) // 2 + 44, podium_y1 + 158), name, accent, 24)
             draw = ImageDraw.Draw(image)
             center = (x1 + x2) // 2
             side_name_font = font_for_text(name, 21, True)
@@ -167,7 +165,7 @@ def _render_daily(
         if index < len(rows):
             uid, display_name, username, count = rows[index]
             name = (display_name or (f"@{username}" if username else f"User {uid}")).strip()
-            _draw_avatar(image, (132, y + 13, 194, y + 75), name, None, (105, 170, 222), 19)
+            _draw_avatar(image, (132, y + 13, 194, y + 75), name, (105, 170, 222), 19)
             draw = ImageDraw.Draw(image)
             row_name_font = font_for_text(name, 23, True)
             draw.text((211, y + 20), _fit_text(draw, name, row_name_font, 520), font=row_name_font, fill=WHITE)
