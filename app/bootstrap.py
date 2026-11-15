@@ -232,29 +232,30 @@ async def collect_group_message(update: Update, context: ContextTypes.DEFAULT_TY
     if not message or not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         return
     user = message.from_user
-    if not user or user.is_bot:
+    if not user:
         return
 
     raw = (message.text or message.caption or "").strip()
-    # Slash commands (including /daily itself) are not chatter.
-    if raw.startswith("/"):
-        return
-
-    daily_queue = context.application.bot_data.get("daily_counter_queue")
-    if daily_queue is not None:
-        try:
-            daily_queue.put_nowait({
-                "chat_id": chat.id,
-                "user_id": user.id,
-                "username": user.username,
-                "display_name": user.full_name,
-                "sent_at": message.date,
-            })
-        except asyncio.QueueFull:
-            logger.warning(
-                "Daily counter queue full; skipped event chat_id=%s message_id=%s",
-                chat.id, message.message_id,
-            )
+    # Daily counts exclude bots and slash commands, but legacy history keeps
+    # its original behaviour (including commands and bot-authored messages).
+    if not user.is_bot and not raw.startswith("/"):
+        attachment = getattr(message, "effective_attachment", None)
+        if raw or attachment is not None:
+            daily_queue = context.application.bot_data.get("daily_counter_queue")
+            if daily_queue is not None:
+                try:
+                    daily_queue.put_nowait({
+                        "chat_id": chat.id,
+                        "user_id": user.id,
+                        "username": user.username,
+                        "display_name": user.full_name,
+                        "sent_at": message.date,
+                    })
+                except asyncio.QueueFull:
+                    logger.warning(
+                        "Daily counter queue full; skipped event chat_id=%s message_id=%s",
+                        chat.id, message.message_id,
+                    )
 
     # Keep the existing message-history feature restricted to its original group.
     if chat.id != -1003801913218:
