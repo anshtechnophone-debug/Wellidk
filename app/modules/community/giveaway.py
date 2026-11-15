@@ -75,7 +75,7 @@ def _rules_text(group_title: str, started: datetime | None = None, ends: datetim
         "• Standalone text: <b>+0.5 point</b>\n"
         "• Media, stickers, captions and commands: <b>0 points</b>\n\n"
         "✅ Join first. Only messages sent after joining count.\n"
-        "🏆 <b>Prize targets:</b> 1st — Telegram Premium · 2nd — ₹100 INR · 3rd — 30 Telegram Stars.\n"
+        "🏆 <b>Prize targets:</b> 1st — 11,000 points (Telegram Premium) · 2nd — 10,000 points (₹100 INR) · 3rd — 9,000 points (30 Telegram Stars).\n"
         "Your messages across all eligible XYRON groups count toward one global score. Use <b>/prize</b> to check the leaderboard.\n"
         "👑 <b>Hosted by:</b> @afkvoid\n"
         "⏳ The giveaway ends after 7 days."
@@ -193,15 +193,15 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
         fill=(123, 239, 183) if active else gold,
         anchor="mm",
     )
-    draw.text((width // 2, 229), "HOSTED BY  @s1dh7", font=_load_font(18, True), fill=(190, 198, 222), anchor="mm")
+    draw.text((width // 2, 229), "HOSTED BY  @afkvoid", font=_load_font(18, True), fill=(190, 198, 222), anchor="mm")
 
     # Text-only grand-prize panel. No NFT artwork or embedded image data.
     prize_box = (110, 245, 970, 440)
     draw.rounded_rectangle(prize_box, radius=34, fill=(36, 31, 45), outline=(181, 155, 111), width=3)
     draw.rounded_rectangle((132, 265, 948, 420), radius=25, fill=(29, 29, 48), outline=(112, 94, 119), width=2)
     draw.text((width // 2, 300), "1ST PRIZE", font=_load_font(23, True), fill=gold, anchor="mm")
-    draw.text((width // 2, 348), "TELEGRAM PREMIUM", font=_fit_font(draw, "VICE CREAM NFT", 740, 48, True), fill=(255, 244, 220), anchor="mm")
-    draw.text((width // 2, 395), "WINNER  ·  TELEGRAM PREMIUM", font=_load_font(20, True), fill=(222, 211, 185), anchor="mm")
+    draw.text((width // 2, 348), "TELEGRAM PREMIUM", font=_fit_font(draw, "TELEGRAM PREMIUM", 740, 48, True), fill=(255, 244, 220), anchor="mm")
+    draw.text((width // 2, 395), "MINIMUM TARGET  ·  11,000 POINTS", font=_load_font(20, True), fill=(222, 211, 185), anchor="mm")
 
     # Two smaller prize labels sit below the NFT panel.
     prize_y = 475
