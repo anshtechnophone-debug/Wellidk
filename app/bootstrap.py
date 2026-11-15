@@ -170,6 +170,7 @@ from app.modules.reminders.handlers import (
     reminders_command,
 )
 from app.services.group_history import GroupHistoryRepository, GroupMessage, group_history_retention_worker
+from app.services.daily_counters import daily_counter_worker
 from app.services.message_milestones import MessageMilestoneRepository
 from app.services.activity_log import ActivityEvent, ActivityLogRepository, activity_retention_worker
 from app.services.reminder_worker import reminder_worker
@@ -225,17 +226,40 @@ async def _log_command_update_diagnostic(
 
 
 async def collect_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Queue messages from the designated group for background history storage."""
+    """Queue lightweight daily counts for every group; retain full history for its legacy group only."""
     message = update.effective_message
     chat = update.effective_chat
-    if not message or not chat or chat.id != -1003801913218:
-        return
-    if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+    if not message or not chat or chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         return
     user = message.from_user
-    if not user:
+    if not user or user.is_bot:
         return
-    text = (message.text or message.caption or '').strip()
+
+    raw = (message.text or message.caption or "").strip()
+    # Slash commands (including /daily itself) are not chatter.
+    if raw.startswith("/"):
+        return
+
+    daily_queue = context.application.bot_data.get("daily_counter_queue")
+    if daily_queue is not None:
+        try:
+            daily_queue.put_nowait({
+                "chat_id": chat.id,
+                "user_id": user.id,
+                "username": user.username,
+                "display_name": user.full_name,
+                "sent_at": message.date,
+            })
+        except asyncio.QueueFull:
+            logger.warning(
+                "Daily counter queue full; skipped event chat_id=%s message_id=%s",
+                chat.id, message.message_id,
+            )
+
+    # Keep the existing message-history feature restricted to its original group.
+    if chat.id != -1003801913218:
+        return
+    text = raw
     if not text:
         attachment = getattr(message, 'effective_attachment', None)
         if attachment is None:
@@ -1072,6 +1096,8 @@ async def _post_init(application: Application) -> None:
 
     # Keep history persistence off the update-handler path; never block commands.
     application.bot_data["group_history_queue"] = asyncio.Queue(maxsize=5000)
+    # Daily counts store only chat/user/day totals, never message text or media.
+    application.bot_data["daily_counter_queue"] = asyncio.Queue(maxsize=20000)
     # Audit/registry persistence is deliberately lower priority than commands.
     application.bot_data["background_work_queue"] = asyncio.Queue(maxsize=10000)
 
@@ -1091,6 +1117,10 @@ async def _post_init(application: Application) -> None:
         "group_history": application.create_task(
             group_history_worker(application, stop_event),
             name="xyron-group-history-worker",
+        ),
+        "daily_counters": application.create_task(
+            daily_counter_worker(application, stop_event),
+            name="xyron-daily-counter-worker",
         ),
         "moderation_expiry": application.create_task(
             expiration_worker(application, stop_event),
