@@ -270,6 +270,21 @@ class GroupPolicy(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
 
 
+class DailyMessageCount(Base):
+    """Compact per-group, per-user daily message totals; no message content is stored."""
+    __tablename__ = "daily_message_counts"
+    __table_args__ = (
+        Index("ix_daily_message_counts_group_day_count", "chat_id", "day", "message_count"),
+    )
+
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    message_count: Mapped[int] = mapped_column(Integer, default=0)
+    username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    display_name: Mapped[str] = mapped_column(String(255), default="")
+
+
 class AppealRecord(Base):
     __tablename__ = "appeals"
     __table_args__ = (
