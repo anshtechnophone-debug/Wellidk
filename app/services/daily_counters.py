@@ -16,7 +16,7 @@ from app.database.models import DailyMessageCount, GroupPolicy
 
 logger = logging.getLogger(__name__)
 LOCAL_TZ = ZoneInfo("Asia/Kolkata")
-BATCH_SIZE = 250
+BATCH_SIZE = 100
 FLUSH_SECONDS = 0.75
 
 
