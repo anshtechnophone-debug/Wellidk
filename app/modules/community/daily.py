@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import unicodedata
 from datetime import datetime, time, timedelta, timezone
 from io import BytesIO
 from zoneinfo import ZoneInfo
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
-from sqlalchemy import func, select
+from PIL import Image, ImageDraw, ImageFont
+from sqlalchemy import select
 from telegram import Update
 from telegram.constants import ChatType
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from app.services.image_fonts import font_for_text
-from app.services.group_history import GroupMessage
+from app.database.models import DailyMessageCount
 from app.services.group_policy import GroupPolicyRepository
 
 logger = logging.getLogger(__name__)
@@ -39,20 +38,6 @@ def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.I
     return font_for_text("XYRON", size, bold)
 
 
-async def _avatar_bytes(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bytes | None:
-    """Fetch a small Telegram avatar; missing or inaccessible photos use initials."""
-    try:
-        photos = await context.bot.get_user_profile_photos(user_id=user_id, limit=1)
-        if not photos.photos:
-            return None
-        photo = photos.photos[0][-1]
-        file = await context.bot.get_file(photo.file_id)
-        return bytes(await file.download_as_bytearray())
-    except (TelegramError, OSError, ValueError):
-        logger.debug("Could not fetch /daily avatar for user_id=%s", user_id, exc_info=True)
-        return None
-
-
 def _draw_avatar(
     image: Image.Image,
     box: tuple[int, int, int, int],
@@ -63,28 +48,17 @@ def _draw_avatar(
 ) -> None:
     x1, y1, x2, y2 = box
     size = x2 - x1
-    avatar: Image.Image | None = None
-    if photo_bytes:
-        try:
-            avatar = ImageOps.fit(
-                Image.open(BytesIO(photo_bytes)).convert("RGB"),
-                (size, size),
-                method=Image.Resampling.LANCZOS,
-            )
-        except (OSError, ValueError):
-            avatar = None
-    if avatar is None:
-        avatar = Image.new("RGB", (size, size), accent)
-        adraw = ImageDraw.Draw(avatar)
-        initials = "".join(part[0] for part in name.split()[:2] if part).upper()[:2] or "?"
-        font = font_for_text(name, size_font, True)
-        bounds = adraw.textbbox((0, 0), initials, font=font)
-        adraw.text(
-            ((size - (bounds[2] - bounds[0])) / 2, (size - (bounds[3] - bounds[1])) / 2 - bounds[1]),
-            initials,
-            font=font,
-            fill=(19, 25, 47),
-        )
+    avatar = Image.new("RGB", (size, size), accent)
+    adraw = ImageDraw.Draw(avatar)
+    initials = "".join(part[0] for part in name.split()[:2] if part).upper()[:2] or "?"
+    font = font_for_text(name, size_font, True)
+    bounds = adraw.textbbox((0, 0), initials, font=font)
+    adraw.text(
+        ((size - (bounds[2] - bounds[0])) / 2, (size - (bounds[3] - bounds[1])) / 2 - bounds[1]),
+        initials,
+        font=font,
+        fill=(19, 25, 47),
+    )
     mask = Image.new("L", (size, size), 0)
     ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
     image.paste(avatar, (x1, y1), mask)
@@ -102,7 +76,6 @@ def _fit_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, m
 
 def _render_daily(
     rows: list[tuple[int, str | None, str | None, int]],
-    avatars: dict[int, bytes | None],
     date_label: str,
     group_title: str,
 ) -> BytesIO:
@@ -149,7 +122,7 @@ def _render_daily(
         draw.rounded_rectangle((206, 340, 874, 648), radius=34, fill=(31, 39, 69), outline=GOLD, width=4)
         draw.rounded_rectangle((394, 358, 686, 406), radius=22, fill=GOLD)
         draw.text((540, 382), "♛  #1  CHAMPION", font=label_font, fill=(24, 29, 48), anchor="mm")
-        _draw_avatar(image, (470, 423, 610, 563), name, avatars.get(uid), GOLD, 34)
+        _draw_avatar(image, (470, 423, 610, 563), name, None, GOLD, 34)
         draw = ImageDraw.Draw(image)
         name_font = font_for_text(name, 30, True)
         draw.text((540, 576), _fit_text(draw, name, name_font, 590), font=name_font, fill=WHITE, anchor="mt")
@@ -170,7 +143,7 @@ def _render_daily(
         if len(rows) >= rank:
             uid, display_name, username, count = rows[index]
             name = (display_name or (f"@{username}" if username else f"User {uid}")).strip()
-            _draw_avatar(image, ((x1 + x2) // 2 - 44, podium_y1 + 70, (x1 + x2) // 2 + 44, podium_y1 + 158), name, avatars.get(uid), accent, 24)
+            _draw_avatar(image, ((x1 + x2) // 2 - 44, podium_y1 + 70, (x1 + x2) // 2 + 44, podium_y1 + 158), name, None, accent, 24)
             draw = ImageDraw.Draw(image)
             center = (x1 + x2) // 2
             side_name_font = font_for_text(name, 21, True)
@@ -194,7 +167,7 @@ def _render_daily(
         if index < len(rows):
             uid, display_name, username, count = rows[index]
             name = (display_name or (f"@{username}" if username else f"User {uid}")).strip()
-            _draw_avatar(image, (132, y + 13, 194, y + 75), name, avatars.get(uid), (105, 170, 222), 19)
+            _draw_avatar(image, (132, y + 13, 194, y + 75), name, None, (105, 170, 222), 19)
             draw = ImageDraw.Draw(image)
             row_name_font = font_for_text(name, 23, True)
             draw.text((211, y + 20), _fit_text(draw, name, row_name_font, 520), font=row_name_font, fill=WHITE)
@@ -231,41 +204,27 @@ async def daily_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     now_local = datetime.now(LOCAL_TZ)
-    start_local = datetime.combine(now_local.date(), time.min, tzinfo=LOCAL_TZ)
-    end_local = start_local + timedelta(days=1)
-    start_utc = start_local.astimezone(timezone.utc)
-    end_utc = end_local.astimezone(timezone.utc)
-    # A group admin's /reset daily timestamp takes effect immediately and
-    # remains bounded to the current India-local calendar day.
-    try:
-        reset_value = (await GroupPolicyRepository(sessions).get(chat.id)).get("daily_reset_at")
-        if reset_value:
-            reset_at = datetime.fromisoformat(str(reset_value))
-            if reset_at.tzinfo is None:
-                reset_at = reset_at.replace(tzinfo=timezone.utc)
-            start_utc = max(start_utc, reset_at.astimezone(timezone.utc))
-    except (TypeError, ValueError):
-        logger.warning("Ignoring invalid daily_reset_at for chat_id=%s", chat.id)
-
-    statement = (
-        select(
-            GroupMessage.user_id,
-            func.max(GroupMessage.display_name).label("display_name"),
-            func.max(GroupMessage.username).label("username"),
-            func.count(GroupMessage.id).label("message_count"),
-        )
-        .where(
-            GroupMessage.chat_id == chat.id,
-            GroupMessage.sent_at >= start_utc,
-            GroupMessage.sent_at < end_utc,
-        )
-        .group_by(GroupMessage.user_id)
-        .order_by(func.count(GroupMessage.id).desc(), GroupMessage.user_id.asc())
-        .limit(13)
-    )
-
+    # Counts are pre-aggregated by group, user, and India-local day.
+    # /daily performs one small indexed read and no history scan.
     try:
         async with sessions() as session:
+            statement = (
+                select(
+                    DailyMessageCount.user_id,
+                    DailyMessageCount.display_name,
+                    DailyMessageCount.username,
+                    DailyMessageCount.message_count,
+                )
+                .where(
+                    DailyMessageCount.chat_id == chat.id,
+                    DailyMessageCount.day == now_local.date(),
+                )
+                .order_by(
+                    DailyMessageCount.message_count.desc(),
+                    DailyMessageCount.user_id.asc(),
+                )
+                .limit(13)
+            )
             rows = (await session.execute(statement)).all()
     except Exception:
         logger.exception("Could not build daily chatter leaderboard for chat_id=%s", chat.id)
@@ -281,19 +240,9 @@ async def daily_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         for user_id, display_name, username, count in rows
     ]
 
-    # Fetch avatars concurrently but cap parallel Bot API calls to avoid bursts.
-    semaphore = asyncio.Semaphore(4)
-
-    async def fetch_one(user_id: int) -> tuple[int, bytes | None]:
-        async with semaphore:
-            return user_id, await _avatar_bytes(context, user_id)
-
     try:
-        avatar_results = await asyncio.gather(*(fetch_one(entry[0]) for entry in entries))
-        avatars = dict(avatar_results)
         photo = _render_daily(
             entries,
-            avatars,
             now_local.strftime("%d %b %Y"),
             chat.title or "This group",
         )
