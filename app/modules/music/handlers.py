@@ -150,7 +150,7 @@ class MusicPlugin:
     async def offmusic_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         message = update.effective_message
-        if not user or user.id != self.owner_id:
+        if not user or user.id != int(self.settings.owner_id):
             return
         if not context.args or len(context.args) != 1:
             return
