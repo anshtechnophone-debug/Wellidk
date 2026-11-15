@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from telegram import Chat, Update
 from telegram.ext import ContextTypes
 
 from app.core.permissions import AuthorizationError, require_admin_access
 from app.services.group_policy import GroupPolicyRepository
+from app.services.daily_counters import DailyCounterRepository
 
 
 async def reset_leaderboard_command(
@@ -77,6 +79,9 @@ async def reset_leaderboard_command(
     repo = GroupPolicyRepository(context.application.bot_data["sessions"])
     if kind == "daily":
         await repo.set_value(chat.id, "daily_reset_at", datetime.now(UTC).isoformat())
+        await DailyCounterRepository(context.application.bot_data["sessions"]).reset_day(
+            chat.id, datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        )
         await message.reply_text(
             "✅ Today's daily leaderboard has been reset. New messages will count from now."
         )
