@@ -410,22 +410,62 @@ async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAUL
 
 
 async def global_giveaway_dm_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Manage only the giveaway belonging to the current group."""
+    """Handle public group participation and owner-only controls for that group."""
     message, user, chat = update.effective_message, update.effective_user, update.effective_chat
     if not message or not user or not chat:
         return
     settings = context.application.bot_data["settings"]
-    if not settings.is_owner(user.id):
-        await message.reply_text("🔒 Giveaway controls are bot-owner-only.")
-        return
     if chat.type == Chat.PRIVATE:
-        await message.reply_text("Run /gw start inside the group where you want its giveaway to begin. Each group has a separate giveaway and leaderboard.")
+        if not settings.is_owner(user.id):
+            await message.reply_text("🔒 Giveaway controls are bot-owner-only.")
+        else:
+            await message.reply_text(
+                "Run /gw start inside the group where you want its giveaway to begin. "
+                "Each group has a separate giveaway and leaderboard."
+            )
         return
     if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         return
 
-    action = context.args[0].casefold() if context.args else "status"
+    command_name = (message.text or "").split(maxsplit=1)[0].split("@", 1)[0].casefold()
     state = await _giveaway_state(context, chat.id)
+    if command_name == "/prize":
+        if not state:
+            await message.reply_text("No giveaway has started in this group yet.")
+        else:
+            try:
+                await _send_giveaway_board(message, context, state)
+            except TelegramError:
+                logger.exception("Could not send group giveaway leaderboard for chat_id=%s", chat.id)
+                await message.reply_text("Couldn't send this group's leaderboard. Please try again.")
+        return
+
+    action = context.args[0].casefold() if context.args else "status"
+    is_owner = settings.is_owner(user.id)
+    if action == "status" and not is_owner:
+        if not state.get("active"):
+            await message.reply_text("🎁 No giveaway is live in this group right now.")
+        elif str(user.id) in state.get("members", {}):
+            await message.reply_text("✅ You're already registered. Only messages in this group count toward this group's leaderboard.")
+        else:
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "🎁 Join This Group's Giveaway",
+                    callback_data=f"giveaway:join:{chat.id}",
+                )
+            ]])
+            await message.reply_text(
+                "🎁 <b>THIS GROUP'S GIVEAWAY</b>\n"
+                "Register here. Only eligible messages in this group count toward this group's score.\n"
+                "XYRON channel membership is required.",
+                parse_mode="HTML",
+                reply_markup=keyboard,
+            )
+        return
+    if not is_owner:
+        await message.reply_text("🔒 Giveaway controls are bot-owner-only.")
+        return
+
     if action == "start":
         started = _now()
         state = {
