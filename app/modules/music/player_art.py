@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import random
+import threading
 import unicodedata
 from io import BytesIO
 
@@ -26,38 +27,63 @@ def _clean(value, fallback):
     return unicodedata.normalize("NFKC", " ".join(str(value or fallback).split()))
 
 
+_BACKGROUND_CANVAS = None
+_BACKGROUND_LOCK = threading.Lock()
+
+
+def _background_canvas():
+    """Build the costly static gradient/glow once, then return a private copy."""
+    global _BACKGROUND_CANVAS
+    if _BACKGROUND_CANVAS is None:
+        with _BACKGROUND_LOCK:
+            if _BACKGROUND_CANVAS is None:
+                width, height = 1280, 720
+                base = Image.new("RGB", (width, height))
+                pixels = base.load()
+                for y in range(height):
+                    for x in range(width):
+                        blue = max(
+                            0.0,
+                            1 - math.sqrt(
+                                ((x - 1040) / 700) ** 2
+                                + ((y - 150) / 570) ** 2
+                            ),
+                        )
+                        violet = max(
+                            0.0,
+                            1 - math.sqrt(
+                                ((x - 170) / 680) ** 2
+                                + ((y - 660) / 520) ** 2
+                            ),
+                        )
+                        pixels[x, y] = (
+                            min(255, int(5 + 35 * violet + 13 * blue)),
+                            min(255, int(8 + 17 * violet + 28 * blue)),
+                            min(255, int(22 + 52 * violet + 78 * blue)),
+                        )
+
+                glow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+                glow_draw = ImageDraw.Draw(glow)
+                glow_draw.ellipse((760, -100, 1390, 530), fill=(42, 123, 255, 110))
+                glow_draw.ellipse((-180, 360, 480, 1020), fill=(146, 57, 255, 78))
+                glow = glow.filter(ImageFilter.GaussianBlur(105))
+                _BACKGROUND_CANVAS = Image.alpha_composite(base.convert("RGBA"), glow)
+
+    return _BACKGROUND_CANVAS.copy()
+
+
 def make_player_cover(title: str, artist: str, requested_by: str, bot_username: str = "") -> BytesIO:
     """Create a premium XYRON Music visual. Song artwork is deliberately not reused."""
     W, H = 1280, 720
-    random.seed(27)
-
-    # Deep midnight gradient with violet and electric-blue ambient lighting.
-    base = Image.new("RGB", (W, H))
-    pix = base.load()
-    for y in range(H):
-        for x in range(W):
-            blue = max(0.0, 1 - math.sqrt(((x - 1040) / 700) ** 2 + ((y - 150) / 570) ** 2))
-            violet = max(0.0, 1 - math.sqrt(((x - 170) / 680) ** 2 + ((y - 660) / 520) ** 2))
-            pix[x, y] = (
-                min(255, int(5 + 35 * violet + 13 * blue)),
-                min(255, int(8 + 17 * violet + 28 * blue)),
-                min(255, int(22 + 52 * violet + 78 * blue)),
-            )
-
-    # Large soft neon blooms.
-    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(glow)
-    gd.ellipse((760, -100, 1390, 530), fill=(42, 123, 255, 110))
-    gd.ellipse((-180, 360, 480, 1020), fill=(146, 57, 255, 78))
-    glow = glow.filter(ImageFilter.GaussianBlur(105))
-    canvas = Image.alpha_composite(base.convert("RGBA"), glow)
+    rng = random.Random(27)
+    canvas = _background_canvas()
     d = ImageDraw.Draw(canvas)
 
     # Fine stars / dust for depth.
     for _ in range(115):
-        x, y = random.randint(35, W - 35), random.randint(30, H - 30)
-        r = random.choice((1, 1, 2, 3))
-        alpha = random.randint(25, 100)
+        x, y = rng.randint(35, W - 35), rng.randint(30, H - 30)
+        r = rng.choice((1, 1, 2, 3))
+        alpha = rng.randint(25, 100)
         d.ellipse((x-r, y-r, x+r, y+r), fill=(190, 218, 255, alpha))
 
     # Elegant outer frame and translucent left content panel.
