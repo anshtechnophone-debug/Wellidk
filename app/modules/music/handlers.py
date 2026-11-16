@@ -475,13 +475,29 @@ class MusicPlugin:
             await asyncio.gather(task, return_exceptions=True)
 
     async def _start_track(self, chat_id, track, status_message_id):
+        stage_started = time.perf_counter()
         await self._ensure_player_in_group(
             chat_id, preferred_client=track.get("_music_client")
         )
+        log.info(
+            "MUSIC_STAGE chat_id=%s stage=ensure_player elapsed_ms=%.1f",
+            chat_id, (time.perf_counter() - stage_started) * 1000,
+        )
+
+        stage_started = time.perf_counter()
         stream = await self.source.prepare_selected_stream(track)
+        log.info(
+            "MUSIC_STAGE chat_id=%s stage=prepare_stream elapsed_ms=%.1f",
+            chat_id, (time.perf_counter() - stage_started) * 1000,
+        )
         stream_task = stream.get("task")
         try:
+            stage_started = time.perf_counter()
             await self.calls.play(chat_id, stream["path"])
+            log.info(
+                "MUSIC_STAGE chat_id=%s stage=voice_start elapsed_ms=%.1f",
+                chat_id, (time.perf_counter() - stage_started) * 1000,
+            )
         except Exception:
             if stream_task:
                 await self._cancel_track_stream({"_stream_task": stream_task})
@@ -509,13 +525,25 @@ class MusicPlugin:
                     chat_id, track["id"], task
                 )
             )
-        cover = make_player_cover(
+        stage_started = time.perf_counter()
+        cover = await asyncio.to_thread(
+            make_player_cover,
             title=self.players[chat_id]["title"],
             artist=self.players[chat_id]["artist"],
             requested_by=self.players[chat_id]["requested_by"],
             bot_username=self.public_username,
         )
+        log.info(
+            "MUSIC_STAGE chat_id=%s stage=cover_render elapsed_ms=%.1f",
+            chat_id, (time.perf_counter() - stage_started) * 1000,
+        )
+
+        stage_started = time.perf_counter()
         sent = await self._send_player_card(chat_id, cover, self._render_player(chat_id))
+        log.info(
+            "MUSIC_STAGE chat_id=%s stage=send_player_card elapsed_ms=%.1f",
+            chat_id, (time.perf_counter() - stage_started) * 1000,
+        )
         self.players[chat_id]["message_id"] = sent["message_id"]
         try:
             await self.bot.delete_message(chat_id, status_message_id)
@@ -1048,6 +1076,7 @@ class MusicPlugin:
         status = await message.reply_text(
             f"🔎 Finding <b>{html.escape(query_text)}</b>…", parse_mode="HTML"
         )
+        request_started = time.perf_counter()
         search_clients = await self.calls.claim_search_clients()
         selected = None
         if not search_clients:
@@ -1055,12 +1084,22 @@ class MusicPlugin:
                 "⏳ All music players are busy right now. Please try again shortly."
             )
         try:
+            stage_started = time.perf_counter()
             selected = await self.source.search_first(query_text, search_clients)
+            log.info(
+                "MUSIC_STAGE chat_id=%s stage=songsx_search elapsed_ms=%.1f",
+                chat_id, (time.perf_counter() - stage_started) * 1000,
+            )
             if not selected:
                 return await status.edit_text(
                     "🎵 I couldn't find that track. Try another song title or artist."
                 )
+            stage_started = time.perf_counter()
             await self.source.resolve_selected(selected)
+            log.info(
+                "MUSIC_STAGE chat_id=%s stage=resolve_selection elapsed_ms=%.1f",
+                chat_id, (time.perf_counter() - stage_started) * 1000,
+            )
             selected["requested_by"] = user.full_name if user else "Telegram user"
             selected["requested_by_username"] = (
                 f"@{user.username}" if user and user.username else ""
@@ -1099,7 +1138,12 @@ class MusicPlugin:
                 )
                 return
             await status.edit_text("▶️ Starting playback…")
+            stage_started = time.perf_counter()
             await self._play_next(chat_id, status.message_id)
+            log.info(
+                "MUSIC_STAGE chat_id=%s stage=play_next elapsed_ms=%.1f",
+                chat_id, (time.perf_counter() - stage_started) * 1000,
+            )
         except Exception as exc:
             await self._report_owner_error(
                 "Music request could not be completed", exc, chat_id=chat_id
@@ -1111,6 +1155,10 @@ class MusicPlugin:
             except Exception:
                 pass
         finally:
+            log.info(
+                "MUSIC_STAGE chat_id=%s stage=play_command_total elapsed_ms=%.1f",
+                chat_id, (time.perf_counter() - request_started) * 1000,
+            )
             self.source.discard_selection(selected)
             await self.calls.release_search_clients(search_clients)
 
