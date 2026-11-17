@@ -430,14 +430,22 @@ async def global_giveaway_dm_command(update: Update, context: ContextTypes.DEFAU
     command_name = (message.text or "").split(maxsplit=1)[0].split("@", 1)[0].casefold()
     state = await _giveaway_state(context, chat.id)
     if command_name == "/prize":
-        if not state:
-            await message.reply_text("No giveaway has started in this group yet.")
+        # The public leaderboard is global: read the persisted global giveaway
+        # record from GroupPolicy(chat_id=0), not the current group's policy.
+        global_policy = await _repo(context).get(0)
+        global_state = global_policy.get("global_giveaway")
+        if not isinstance(global_state, dict) or not global_state.get("members"):
+            # Backward-compatible fallback for deployments that still have a
+            # group-local record, without ever overwriting the global database.
+            global_state = state if isinstance(state, dict) else {}
+        if not global_state or not global_state.get("members"):
+            await message.reply_text("🎁 The giveaway leaderboard is being updated. Please try again shortly.")
         else:
             try:
-                await _send_giveaway_board(message, context, state)
+                await _send_giveaway_board(message, context, global_state)
             except TelegramError:
-                logger.exception("Could not send group giveaway leaderboard for chat_id=%s", chat.id)
-                await message.reply_text("Couldn't send this group's leaderboard. Please try again.")
+                logger.exception("Could not send global giveaway leaderboard for chat_id=%s", chat.id)
+                await message.reply_text("Couldn't load the saved giveaway leaderboard. Please try again.")
         return
 
     action = context.args[0].casefold() if context.args else "status"
