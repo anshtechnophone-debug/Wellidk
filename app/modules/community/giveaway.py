@@ -288,14 +288,17 @@ def _render_leaderboard(state: dict, entries: list[tuple[int, dict]], ends_at: d
     return output
 
 async def _giveaway_state(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> dict:
-    state = (await _repo(context).get(chat_id)).get("giveaway", {})
+    # Giveaway is global across every eligible group. The canonical record
+    # lives in GroupPolicy(chat_id=0).global_giveaway.
+    state = (await _repo(context).get(0)).get("global_giveaway", {})
     return state if isinstance(state, dict) else {}
 
 
 async def _save_giveaway_state(
     context: ContextTypes.DEFAULT_TYPE, chat_id: int, state: dict
 ) -> None:
-    await _repo(context).set_value(chat_id, "giveaway", state)
+    # Ignore chat_id intentionally: all groups share the same persisted state.
+    await _repo(context).set_value(0, "global_giveaway", state)
 
 
 async def _channel_member(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
@@ -371,7 +374,7 @@ async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAUL
     state = await _giveaway_state(context, group_id)
     ends = _parse_time(state.get("ends_at"))
     if not state.get("active") or not ends or _now() >= ends:
-        await query.answer("This group's giveaway has ended.", show_alert=True)
+        await query.answer("The global giveaway has ended.", show_alert=True)
         return
     if not await _channel_member(context, user.id):
         await query.answer("Join XYRON's channel first, then confirm.", show_alert=True)
@@ -393,7 +396,7 @@ async def giveaway_callback_handler(update: Update, context: ContextTypes.DEFAUL
         members[key] = entry
         confirmation = f"✅ You're registered for the giveaway in {state.get('group_title', 'this group')}!"
     else:
-        confirmation = "✅ Channel membership confirmed. Your points in this group's giveaway are active again."
+        confirmation = "✅ Channel membership confirmed. Your global giveaway points are active again."
     entry["channel_ok"] = True
     entry["channel_checked_at"] = _now().timestamp()
     entry["channel_prompted"] = False
@@ -421,7 +424,7 @@ async def global_giveaway_dm_command(update: Update, context: ContextTypes.DEFAU
         else:
             await message.reply_text(
                 "Run /gw start inside the group where you want its giveaway to begin. "
-                "Each group has a separate giveaway and leaderboard."
+                "All eligible groups share one global giveaway and leaderboard."
             )
         return
     if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
@@ -452,13 +455,13 @@ async def global_giveaway_dm_command(update: Update, context: ContextTypes.DEFAU
     is_owner = settings.is_owner(user.id)
     if action == "status" and not is_owner:
         if not state.get("active"):
-            await message.reply_text("🎁 No giveaway is live in this group right now.")
+            await message.reply_text("🎁 No global giveaway is live right now. The bot owner can start it with /gw start.")
         elif str(user.id) in state.get("members", {}):
-            await message.reply_text("✅ You're already registered. Only messages in this group count toward this group's leaderboard.")
+            await message.reply_text("✅ You're already registered for the global giveaway. Eligible messages across groups count.")
         else:
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton(
-                    "🎁 Join This Group's Giveaway",
+                    "🎁 Join Global Giveaway",
                     callback_data=f"giveaway:join:{chat.id}",
                 )
             ]])
@@ -475,20 +478,31 @@ async def global_giveaway_dm_command(update: Update, context: ContextTypes.DEFAU
         return
 
     if action == "start":
+        if state.get("active") and (_parse_time(state.get("ends_at")) or _now()) > _now():
+            await message.reply_text(
+                "🎉 The GLOBAL giveaway is already live!\n"
+                "All eligible groups share the same participants and leaderboard.\n"
+                "Use /gw to join and /prize to view the global leaderboard."
+            )
+            return
         started = _now()
-        state = {
-            "active": True, "started_at": started.isoformat(),
+        # Preserve all saved participants and scores when starting/restarting.
+        state.update({
+            "active": True,
+            "started_at": started.isoformat(),
             "ends_at": (started + DURATION).isoformat(),
-            "group_id": chat.id, "group_title": chat.title or "This group",
-            "members": {},
-        }
-        await _save_giveaway_state(context, chat.id, state)
+            "group_id": 0,
+            "group_title": "XYRON Global Giveaway",
+        })
+        state.setdefault("members", {})
+        await _save_giveaway_state(context, 0, state)
         await message.reply_text(
-            "🎉 GIVEAWAY STARTED IN THIS GROUP\n"
-            "Duration: 7 days\nParticipants and points: this group only\n"
+            "🎉 GLOBAL GIVEAWAY STARTED\n"
+            "Duration: 7 days\n"
+            "Participants and points: shared across all eligible groups\n"
             "Entry: XYRON channel subscription + one-time registration\n"
             "Scoring: reply +1 · standalone text +0.5\n"
-            "Use /gw to join and /prize to view this group's leaderboard."
+            "Use /gw to join and /prize to view the global leaderboard."
         )
     elif action == "end":
         if not state.get("active"):
