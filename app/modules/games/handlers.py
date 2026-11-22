@@ -128,15 +128,12 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
         return
 
     ending_text = ""
-    if result.state == "won":
-        ending_text = (
-            f"<b>Excellent! {escape(user.full_name)} found the word.</b> "
-            f"Added {result.points} points to the leaderboard. Start again with /new{len(value)}."
-        )
-    elif result.state == "lost":
+    if result.state == "lost":
         answer = escape(result.answer.upper() if result.answer else "")
         ending_text = f"Game over. The word was <b>{answer}</b>. Try again with /new{len(value)}."
 
+    # Keep the final board clean; the win announcement is a separate reply
+    # to the exact winning guess, matching the familiar WordSeek bot flow.
     board = _format_wordseek_board(
         len(value), result.guesses, result.feedbacks, ending_text=ending_text
     )
@@ -150,8 +147,10 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
             data={
                 "chat_id": chat.id,
                 "rich_message": json.dumps({"html": board}, ensure_ascii=False),
-                "reply_parameters": json.dumps(
-                    {"message_id": message.message_id}
+                **(
+                    {}
+                    if result.state == "won"
+                    else {"reply_parameters": json.dumps({"message_id": message.message_id})}
                 ),
             },
         )
@@ -170,6 +169,16 @@ async def _submit_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
             )
         )
         await message.reply_text(plain_fallback)
+
+    if result.state == "won":
+        answer = escape(result.answer.upper() if result.answer else value.upper())
+        await message.reply_text(
+            "<b>Congrats! You guessed it correctly.</b>\n"
+            f"Correct Word: <b>{answer}</b>\n"
+            f"Added {result.points} to the leaderboard.\n\n"
+            f"Start with /new{len(value)}",
+            parse_mode="HTML",
+        )
 
 
 async def guess_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
