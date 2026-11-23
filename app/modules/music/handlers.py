@@ -397,7 +397,7 @@ class MusicPlugin:
         stream_task = stream.get("task")
         try:
             await self.calls.play(chat_id, stream["path"])
-        except Exception:
+        except BaseException:
             if stream_task:
                 await self._cancel_track_stream({"_stream_task": stream_task})
             await self.source.cleanup_playback_file(stream.get("path"))
