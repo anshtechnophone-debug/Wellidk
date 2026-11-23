@@ -406,14 +406,7 @@ async def global_giveaway_dm_command(update: Update, context: ContextTypes.DEFAU
     args = [x.casefold() for x in context.args]
     state = await _global_state(context)
     if message.text and message.text.split("@", 1)[0].split()[0].casefold() == "/prize":
-        if not state:
-            await message.reply_text("No global giveaway has started yet.")
-        else:
-            try:
-                await _send_global_board(message, context, state)
-            except TelegramError:
-                logger.exception("Could not send global giveaway leaderboard in owner DM")
-                await message.reply_text("Could not render the global leaderboard.")
+        await message.reply_text("Giveaway has been ended.")
         return
     action = args[0] if args else "status"
     if action == "start":
@@ -470,14 +463,7 @@ async def giveaway_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
             await message.reply_text("🎁 <b>XYRON GLOBAL GIVEAWAY</b>\nRegister once. Messages in EVERY XYRON group with 30+ members count toward one global score.\nXYRON channel membership is required.", parse_mode="HTML", reply_markup=keyboard)
         return
     if command == "/prize":
-        if not state:
-            await message.reply_text("No global giveaway has started yet.")
-        else:
-            try:
-                await _send_global_board(message, context, state)
-            except TelegramError:
-                logger.exception("Could not send global giveaway leaderboard")
-                await message.reply_text("Couldn't send the leaderboard. Please try again.")
+        await message.reply_text("Giveaway has been ended.")
         return
     if text.startswith("/") or command.startswith("#giveaway") or not state.get("active"):
         return
