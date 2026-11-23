@@ -177,8 +177,7 @@ class MusicPlugin:
             })
             await message.reply_text(
                 "🔒 Please join @xyronschannel and confirm membership in my private chat. "
-                "I've sent you the verification button."
-            )
+                "I've sent you the verification button."            )
         except Exception:
             await message.reply_text(
                 "🔒 Open @xyronrobot in private chat, then join @xyronschannel and confirm membership."
@@ -357,8 +356,7 @@ class MusicPlugin:
         except Exception:
             self.source.cleanup_playback_file(str(audio_path))
             raise
-        self.players[chat_id] = {
-            "id": str(track["id"]),
+        self.players[chat_id] = {            "id": str(track["id"]),
             "title": track.get("name", "Unknown title"),
             "artist": track.get("artist_name", "Unknown artist"),
             "requested_by": track.get("requested_by", "A group member"),
@@ -403,6 +401,9 @@ class MusicPlugin:
                     return
                 except Exception as exc:
                     log.exception("Could not start queued music track")
+                    failed_track = self.players.pop(chat_id, None)
+                    if failed_track:
+                        self.source.cleanup_playback_file(failed_track.get("path"))
                     detail = str(exc)
                     if "no active group call" in detail.lower():
                         detail = "No active voice chat. Start the group's voice chat first."
@@ -537,8 +538,7 @@ class MusicPlugin:
             await query.edit_message_text(
                 f"➕ Added to queue: <b>{html.escape(track.get('name', 'Track'))}</b> "
                 f"— {html.escape(track.get('artist_name', 'Unknown artist'))}",
-                parse_mode="HTML",
-            )
+                parse_mode="HTML",            )
 
     async def player_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -717,8 +717,7 @@ class MusicPlugin:
         if not upcoming:
             return await update.effective_message.reply_text("📭 The queue is empty.")
         lines = [
-            f"{i}. {html.escape(str(x.get('name')))} — {html.escape(str(x.get('artist_name')))}"
-            for i, x in enumerate(upcoming[:15], 1)
+            f"{i}. {html.escape(str(x.get('name')))} — {html.escape(str(x.get('artist_name')))}"            for i, x in enumerate(upcoming[:15], 1)
         ]
         await update.effective_message.reply_text(
             "📜 <b>UP NEXT</b>\\n" + "\\n".join(lines), parse_mode="HTML"
