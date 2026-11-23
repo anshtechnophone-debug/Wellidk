@@ -76,6 +76,8 @@ class MusicPlugin:
         try:
             count = await self.accounts.load_existing(self.settings.music_session_strings)
             await self.calls.start()
+            if self.accounts.clients:
+                await self.source.cleanup_legacy_cache(self.accounts.clients[0])
             me = await self.bot.get_me()
             self.public_username = me.username or "xyronrobot"
             self._started = True
@@ -94,6 +96,9 @@ class MusicPlugin:
             await self.calls.stop()
         except Exception:
             log.exception("Could not stop all PyTgCalls instances cleanly")
+        for track in list(self.players.values()):
+            self.source.cleanup_playback_file(track.get("path"))
+        self.players.clear()
         await self.accounts.shutdown()
         if self.http and not self.http.closed:
             await self.http.close()
@@ -177,8 +182,7 @@ class MusicPlugin:
         except Exception:
             await message.reply_text(
                 "🔒 Open @xyronrobot in private chat, then join @xyronschannel and confirm membership."
-            )
-        return False
+            )        return False
 
     async def _can_control(self, chat, user) -> bool:
         if not user:
@@ -347,8 +351,12 @@ class MusicPlugin:
 
     async def _start_track(self, chat_id, track, status_message_id):
         audio_path = await self.source.download_selected(track)
-        await self._ensure_player_in_group(chat_id)
-        await self.calls.play(chat_id, str(audio_path))
+        try:
+            await self._ensure_player_in_group(chat_id)
+            await self.calls.play(chat_id, str(audio_path))
+        except Exception:
+            self.source.cleanup_playback_file(str(audio_path))
+            raise
         self.players[chat_id] = {
             "id": str(track["id"]),
             "title": track.get("name", "Unknown title"),
@@ -357,8 +365,7 @@ class MusicPlugin:
             "requested_by_username": track.get("requested_by_username", ""),
             "duration": int(track.get("duration") or 0),
             "started_at": time.monotonic(),
-            "message_id": status_message_id,
-            "path": str(audio_path),
+            "message_id": status_message_id,            "path": str(audio_path),
             "volume": 100,
             "paused": False,
             "paused_elapsed": 0,
@@ -426,6 +433,8 @@ class MusicPlugin:
         """Clear stale UI/state when every authorized voice account is already busy."""
         await self._stop_progress(old_chat_id)
         old_track = self.players.pop(old_chat_id, None)
+        if old_track:
+            self.source.cleanup_playback_file(old_track.get("path"))
         self.queues[old_chat_id].clear()
         if old_track:
             try:
@@ -447,7 +456,9 @@ class MusicPlugin:
     async def _on_stream_end(self, _, update):
         chat_id = update.chat_id
         await self._stop_progress(chat_id)
-        self.players.pop(chat_id, None)
+        finished = self.players.pop(chat_id, None)
+        if finished:
+            self.source.cleanup_playback_file(finished.get("path"))
         await self._play_next(chat_id)
 
     async def play_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -537,8 +548,7 @@ class MusicPlugin:
         chat_id = chat.id
         if not await self._can_control(chat, query.from_user):
             return await query.answer("Only group admins or the bot owner can control playback.", show_alert=True)
-        action = query.data.rsplit(":", 1)[-1]
-        try:
+        action = query.data.rsplit(":", 1)[-1]        try:
             if action == "queue":
                 upcoming = list(self.queues[chat_id])
                 if not upcoming:
@@ -583,18 +593,22 @@ class MusicPlugin:
                 except Exception:
                     pass
                 await self._stop_progress(chat_id)
-                self.players.pop(chat_id, None)
+                old_track = self.players.pop(chat_id, None)
+                if old_track:
+                    self.source.cleanup_playback_file(old_track.get("path"))
                 await self._play_next(chat_id)
                 return
             elif action == "stop":
                 await query.answer("Stopping…")
                 self.queues[chat_id].clear()
                 await self._stop_progress(chat_id)
-                self.players.pop(chat_id, None)
+                old_track = self.players.pop(chat_id, None)
                 try:
                     await self.calls.leave_call(chat_id)
                 except Exception:
                     pass
+                if old_track:
+                    self.source.cleanup_playback_file(old_track.get("path"))
                 await self._edit_player_card(chat_id, query.message.message_id, "⏹ <b>Playback stopped.</b> Queue cleared.", False)
                 return
             elif action in {"vol_down", "vol_up"}:
@@ -639,7 +653,9 @@ class MusicPlugin:
                 except Exception:
                     pass
                 await self._stop_progress(chat_id)
-                self.players.pop(chat_id, None)
+                old_track = self.players.pop(chat_id, None)
+                if old_track:
+                    self.source.cleanup_playback_file(old_track.get("path"))
                 await self._play_next(chat_id)
                 await message.reply_text("⏭ Skipped.")
             elif action == "stop":
@@ -651,6 +667,7 @@ class MusicPlugin:
                 except Exception:
                     pass
                 if track:
+                    self.source.cleanup_playback_file(track.get("path"))
                     try:
                         await self._edit_player_card(chat_id, track["message_id"], "⏹ <b>Playback stopped.</b> Queue cleared.", False)
                     except Exception:
@@ -717,8 +734,7 @@ class MusicPlugin:
             title=track.get("title", "Unknown title"),
             artist=track.get("artist", "Unknown artist"),
             requested_by=track.get("requested_by", "A group member"),
-            bot_username=self.public_username,
-        )
+            bot_username=self.public_username,        )
         await self._send_player_card(
             update.effective_chat.id, cover, self._render_player(update.effective_chat.id)
         )
