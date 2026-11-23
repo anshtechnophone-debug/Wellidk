@@ -22,6 +22,15 @@ class SongsxSource:
         self.raw_cache_channel_id = int(cache_channel_id or 0)
         self.media_dir = Path(media_dir)
         self.media_dir.mkdir(parents=True, exist_ok=True)
+        self.playback_dir = self.media_dir / ".playback_tmp"
+        self.playback_dir.mkdir(parents=True, exist_ok=True)
+        for stale_file in self.playback_dir.iterdir():
+            if stale_file.is_file():
+                try:
+                    stale_file.unlink()
+                except OSError:
+                    log.warning("Could not remove stale playback file %s", stale_file, exc_info=True)
+        self._upload_tasks: dict[str, asyncio.Task] = {}
         self.index_path = self.media_dir / "songsx_cache.json"
         self.legacy_index = Path(legacy_index) if legacy_index else None
         self.index = self._load_index()
@@ -105,36 +114,92 @@ class SongsxSource:
         raise TimeoutError("Songsx did not return selectable tracks in time.")
 
     async def _restore_from_channel(self, client, record: dict) -> str | None:
-        path = Path(record.get("path", ""))
-        if path.is_file() and path.stat().st_size > 10_000:
-            return str(path)
+        """Download a temporary playback copy from the permanent Telegram cache."""
         message_id = record.get("cache_message_id")
         if not message_id:
             return None
+        temporary = None
         try:
             peer = await self._cache_peer(client)
             message = await client.get_messages(peer, ids=int(message_id))
             if not message or not self._is_audio(message):
                 return None
-            safe_name = re.sub(
-                r"[^a-zA-Z0-9_-]+", "_", record.get("title", "track")
-            )[:55] or "track"
+            safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", record.get("title", "track"))[:45] or "track"
             ext = getattr(getattr(message, "file", None), "ext", None) or ".mp3"
-            destination = self.media_dir / f"cached_{message_id}_{safe_name}{ext}"
-            if not destination.is_file() or destination.stat().st_size < 10_000:
-                temporary = destination.with_suffix(destination.suffix + ".part")
+            destination = self.playback_dir / f"playback_{message_id}_{secrets.token_hex(5)}_{safe_name}{ext}"
+            temporary = destination.with_suffix(destination.suffix + ".part")
+            downloaded = await client.download_media(message, file=str(temporary))
+            if not downloaded or not temporary.is_file() or temporary.stat().st_size < 10_000:
                 temporary.unlink(missing_ok=True)
-                downloaded = await client.download_media(message, file=str(temporary))
-                if not downloaded or not temporary.is_file() or temporary.stat().st_size < 10_000:
-                    temporary.unlink(missing_ok=True)
-                    return None
-                temporary.replace(destination)
-            record["path"] = str(destination)
-            self._save_index()
+                return None
+            temporary.replace(destination)
             return str(destination)
         except Exception:
+            if temporary:
+                temporary.unlink(missing_ok=True)
             log.exception("Could not restore cached track from the music cache channel")
             return None
+
+    async def cleanup_legacy_cache(self, client) -> tuple[int, int]:
+        """Delete old persistent audio only after verifying its Telegram copy."""
+        checked = removed = 0
+        seen = set()
+        peer = await self._cache_peer(client)
+        for record in self.index.values():
+            old_path = record.get("path")
+            message_id = record.get("cache_message_id")
+            if not old_path or not message_id or old_path in seen:
+                continue
+            seen.add(old_path)
+            checked += 1
+            try:
+                message = await client.get_messages(peer, ids=int(message_id))
+                if not message or not self._is_audio(message):
+                    continue
+                candidate = Path(old_path).resolve()
+                if candidate.parent != self.media_dir.resolve():
+                    continue
+                candidate.unlink(missing_ok=True)
+                record.pop("path", None)
+                removed += 1
+            except Exception:
+                log.warning("Could not verify/remove legacy music file %s", old_path, exc_info=True)
+        if removed:
+            self._save_index()
+        log.info("Verified %s Telegram cache entries; removed %s legacy local audio files", checked, removed)
+        return checked, removed
+
+    async def cleanup_playback_file(self, path: str | None) -> bool:
+        """Wait for any Telegram upload using this file, then delete the temporary copy."""
+        if not path:
+            return False
+        try:
+            candidate = Path(path).resolve()
+            if candidate.parent != self.playback_dir.resolve():
+                log.warning("Refusing to remove non-temporary music path: %s", candidate)
+                return False
+            task = self._upload_tasks.pop(str(candidate), None)
+            if task:
+                await asyncio.gather(task, return_exceptions=True)
+            candidate.unlink(missing_ok=True)
+            candidate.with_suffix(candidate.suffix + ".part").unlink(missing_ok=True)
+            return True
+        except OSError:
+            log.warning("Could not remove temporary playback file %s", path, exc_info=True)
+            return False
+
+    async def cleanup_all_playback_files(self):
+        """Drain channel uploads before removing all temporary playback files."""
+        tasks = list(self._background_uploads)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._upload_tasks.clear()
+        for path in self.playback_dir.iterdir():
+            if path.is_file():
+                try:
+                    path.unlink()
+                except OSError:
+                    log.warning("Could not remove temporary music file %s", path, exc_info=True)
 
     def _client_lock(self, client):
         return self._client_locks.setdefault(id(client), asyncio.Lock())
@@ -356,7 +421,6 @@ class SongsxSource:
             temporary.replace(destination)
 
             record = {
-                "path": str(destination),
                 "title": context["title"],
                 "artist": context["artist"],
                 "duration": duration,
@@ -377,6 +441,7 @@ class SongsxSource:
                     name=f"xyron-music-cache-upload-{destination.stem}",
                 )
                 self._background_uploads.add(upload_task)
+                self._upload_tasks[str(destination.resolve())] = upload_task
                 upload_task.add_done_callback(self._background_uploads.discard)
             return str(destination)
         finally:
@@ -526,10 +591,10 @@ class SongsxSource:
         )[:55] or "track"
         message_id = getattr(audio_message, "id", None) or secrets.token_hex(8)
         extension = getattr(file_info, "ext", None) or ".mp3"
-        destination = self.media_dir / f"songsx_{message_id}_{safe_name}{extension}"
-        temporary = self.media_dir / (
-            f".{destination.name}.{secrets.token_hex(6)}.part"
+        destination = self.playback_dir / (
+            f"playback_{message_id}_{secrets.token_hex(5)}_{safe_name}{extension}"
         )
+        temporary = destination.with_suffix(destination.suffix + ".part")
         final_path = await self._download_audio_to_cache(
             client, audio_message, destination, temporary, context, duration
         )

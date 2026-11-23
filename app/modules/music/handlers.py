@@ -90,6 +90,11 @@ class MusicPlugin:
                     channel_id=self.cache_channel_id,
                 )
             await self.calls.start()
+            if self.accounts.clients:
+                try:
+                    await self.source.cleanup_legacy_cache(self.accounts.clients[0])
+                except Exception:
+                    log.warning("Could not verify legacy local music cache during startup", exc_info=True)
             me = await self.bot.get_me()
             self.public_username = me.username or "xyronrobot"
             self._started = True
@@ -113,6 +118,10 @@ class MusicPlugin:
             await self.calls.stop()
         except Exception:
             log.exception("Could not stop all PyTgCalls instances cleanly")
+        for track in list(self.players.values()):
+            await self._cancel_track_stream(track)
+        self.players.clear()
+        await self.source.cleanup_all_playback_files()
         await self.accounts.shutdown()
         if self.http and not self.http.closed:
             await self.http.close()
@@ -380,6 +389,8 @@ class MusicPlugin:
         if task and not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+        if track:
+            await self.source.cleanup_playback_file(track.get("path"))
 
     async def _start_track(self, chat_id, track, status_message_id):
         await self._ensure_player_in_group(
@@ -389,9 +400,10 @@ class MusicPlugin:
         stream_task = stream.get("task")
         try:
             await self.calls.play(chat_id, stream["path"])
-        except Exception:
+        except BaseException:
             if stream_task:
                 await self._cancel_track_stream({"_stream_task": stream_task})
+            await self.source.cleanup_playback_file(stream.get("path"))
             raise
         self.players[chat_id] = {
             "id": str(track["id"]),
@@ -447,6 +459,8 @@ class MusicPlugin:
                     return
                 except Exception:
                     log.exception("Could not start queued music track")
+                    failed_track = self.players.pop(chat_id, None)
+                    await self._cancel_track_stream(failed_track)
                     await self.bot.send_message(
                         chat_id,
                         f"⚠️ Could not start <b>{html.escape(str(track.get('name', 'track')))}</b>. "
@@ -476,6 +490,7 @@ class MusicPlugin:
         """Clear stale UI/state when every authorized voice account is already busy."""
         await self._stop_progress(old_chat_id)
         old_track = self.players.pop(old_chat_id, None)
+        await self._cancel_track_stream(old_track)
         self.queues[old_chat_id].clear()
         self.playlist_sessions.pop(old_chat_id, None)
         if old_track:
@@ -498,9 +513,8 @@ class MusicPlugin:
     async def _on_stream_end(self, _, update: StreamEnded):
         chat_id = update.chat_id
         await self._stop_progress(chat_id)
-        # The stream reader has reached EOF; let the local cache writer finish
-        # and hand off the finished file to the independent channel uploader.
-        self.players.pop(chat_id, None)
+        finished_track = self.players.pop(chat_id, None)
+        await self._cancel_track_stream(finished_track)
         await self._play_next(chat_id)
 
     async def _on_call_left(self, _, update: ChatUpdate):
