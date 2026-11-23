@@ -104,3 +104,27 @@ def test_local_cache_prunes_only_inactive_channel_cached_files(tmp_path):
     assert not old_file.exists()
     assert active_file.exists()
     assert uncached_file.exists()
+
+
+
+def test_playback_cleanup_only_removes_temporary_files(tmp_path):
+    source = SongsxSource("Songsx_bot", 4363096287, tmp_path)
+    playback_file = source.playback_dir / "playback_track.mp3"
+    legacy_file = tmp_path / "songsx_track.mp3"
+    playback_file.write_bytes(b"temporary")
+    legacy_file.write_bytes(b"keep")
+
+    assert source.cleanup_playback_file(str(playback_file)) is True
+    assert not playback_file.exists()
+    assert source.cleanup_playback_file(str(legacy_file)) is False
+    assert legacy_file.exists()
+
+
+def test_source_removes_stale_playback_files_on_startup(tmp_path):
+    playback_dir = tmp_path / ".playback_tmp"
+    playback_dir.mkdir()
+    (playback_dir / "crashed-session.mp3").write_bytes(b"stale")
+
+    SongsxSource("Songsx_bot", 4363096287, tmp_path)
+
+    assert list(playback_dir.iterdir()) == []
