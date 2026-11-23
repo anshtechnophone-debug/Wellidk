@@ -26,6 +26,14 @@ class SongsxSource:
         self.raw_cache_channel_id = int(cache_channel_id or 0)
         self.media_dir = Path(media_dir)
         self.media_dir.mkdir(parents=True, exist_ok=True)
+        self.playback_dir = self.media_dir / ".playback_tmp"
+        self.playback_dir.mkdir(parents=True, exist_ok=True)
+        for stale_file in self.playback_dir.iterdir():
+            if stale_file.is_file():
+                try:
+                    stale_file.unlink()
+                except OSError:
+                    log.warning("Could not remove stale playback file %s", stale_file, exc_info=True)
         self.index_path = self.media_dir / "songsx_cache.json"
         self.legacy_index = Path(legacy_index) if legacy_index else None
         self.local_cache_max_bytes = int(local_cache_max_mb) * 1024 * 1024
@@ -107,38 +115,74 @@ class SongsxSource:
         raise TimeoutError("Songsx did not return selectable tracks in time.")
 
     async def _restore_from_channel(self, client, record: dict) -> str | None:
-        path = Path(record.get("path", ""))
-        if path.is_file() and path.stat().st_size > 10_000:
-            os.utime(path, None)
-            return str(path)
+        """Download a short-lived playback copy from the durable Telegram cache."""
         message_id = record.get("cache_message_id")
         if not message_id:
             return None
+        temporary = None
         try:
             peer = await self._cache_peer(client)
             message = await client.get_messages(peer, ids=int(message_id))
             if not message or not self._is_audio(message):
                 return None
-            safe_name = re.sub(
-                r"[^a-zA-Z0-9_-]+", "_", record.get("title", "track")
-            )[:55] or "track"
+            safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", record.get("title", "track"))[:45] or "track"
             ext = getattr(getattr(message, "file", None), "ext", None) or ".mp3"
-            destination = self.media_dir / f"cached_{message_id}_{safe_name}{ext}"
-            if not destination.is_file() or destination.stat().st_size < 10_000:
-                temporary = destination.with_suffix(destination.suffix + ".part")
+            destination = self.playback_dir / f"playback_{message_id}_{secrets.token_hex(5)}_{safe_name}{ext}"
+            temporary = destination.with_suffix(destination.suffix + ".part")
+            downloaded = await client.download_media(message, file=str(temporary))
+            if not downloaded or not temporary.is_file() or temporary.stat().st_size < 10_000:
                 temporary.unlink(missing_ok=True)
-                downloaded = await client.download_media(message, file=str(temporary))
-                if not downloaded or not temporary.is_file() or temporary.stat().st_size < 10_000:
-                    temporary.unlink(missing_ok=True)
-                    return None
-                temporary.replace(destination)
-            record["path"] = str(destination)
-            os.utime(destination, None)
-            self._save_index()
+                return None
+            temporary.replace(destination)
             return str(destination)
         except Exception:
+            if temporary:
+                temporary.unlink(missing_ok=True)
             log.exception("Could not restore cached track from the music cache channel")
             return None
+
+    def cleanup_playback_file(self, path: str | None) -> bool:
+        if not path:
+            return False
+        try:
+            candidate = Path(path).resolve()
+            if candidate.parent != self.playback_dir.resolve():
+                log.warning("Refusing to remove non-temporary music path: %s", candidate)
+                return False
+            candidate.unlink(missing_ok=True)
+            candidate.with_suffix(candidate.suffix + ".part").unlink(missing_ok=True)
+            return True
+        except OSError:
+            log.warning("Could not remove temporary playback file %s", path, exc_info=True)
+            return False
+
+    async def cleanup_legacy_cache(self, client) -> tuple[int, int]:
+        """Remove old persistent audio only after confirming its Telegram copy exists."""
+        checked = removed = 0
+        seen = set()
+        peer = await self._cache_peer(client)
+        for record in self.index.values():
+            message_id, old_path = record.get("cache_message_id"), record.get("path")
+            if not message_id or not old_path or old_path in seen:
+                continue
+            seen.add(old_path)
+            checked += 1
+            try:
+                message = await client.get_messages(peer, ids=int(message_id))
+                if not message or not self._is_audio(message):
+                    continue
+                candidate = Path(old_path).resolve()
+                if candidate.parent != self.media_dir.resolve():
+                    continue
+                candidate.unlink(missing_ok=True)
+                record.pop("path", None)
+                removed += 1
+            except Exception:
+                log.warning("Could not verify/remove legacy cached audio %s", old_path, exc_info=True)
+        if removed:
+            self._save_index()
+        log.info("Legacy music cleanup verified %s Telegram copies and removed %s local file(s)", checked, removed)
+        return checked, removed
 
     async def search(self, query: str, clients: list) -> list[dict]:
         if not clients:
@@ -272,7 +316,7 @@ class SongsxSource:
                 raise RuntimeError("The selected audio exceeds the 100 MB safety limit.")
             ext = getattr(file_info, "ext", None) or ".mp3"
             safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", context["title"])[:55] or "track"
-            destination = self.media_dir / f"songsx_{audio_message.id}_{safe_name}{ext}"
+            destination = self.playback_dir / f"playback_{audio_message.id}_{secrets.token_hex(5)}_{safe_name}{ext}"
             temporary = destination.with_suffix(destination.suffix + ".part")
             temporary.unlink(missing_ok=True)
             downloaded = await client.download_media(audio_message, file=str(temporary))
@@ -298,8 +342,8 @@ class SongsxSource:
                 log.exception("Track played, but saving it to the cache channel failed")
 
             record = {
-                "path": str(destination), "title": context["title"],
-                "artist": context["artist"], "duration": duration,
+                "title": context["title"], "artist": context["artist"],
+                "duration": duration,
                 "cache_message_id": getattr(cache_message, "id", None),
             }
             for alias in (context["query"], context["title"], f"{context['title']} {context['artist']}"):
