@@ -91,7 +91,10 @@ class MusicPlugin:
                 )
             await self.calls.start()
             if self.accounts.clients:
-                await self.source.cleanup_legacy_cache(self.accounts.clients[0])
+                try:
+                    await self.source.cleanup_legacy_cache(self.accounts.clients[0])
+                except Exception:
+                    log.warning("Could not verify legacy local music cache during startup", exc_info=True)
             me = await self.bot.get_me()
             self.public_username = me.username or "xyronrobot"
             self._started = True
